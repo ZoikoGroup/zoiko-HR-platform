@@ -27,7 +27,7 @@ from app.modules.hr.schemas import (
     SkillCreate, SkillUpdate, SkillResponse,
     AssessmentCreate, AssessmentUpdate, AssessmentResponse,
     QuestionCreate, QuestionUpdate, QuestionResponse,
-    QuizAttemptStart, QuizAttemptSubmit, QuizAttemptResponse,
+    QuizAttemptStart, QuizAttemptSubmit, QuizAttemptGrade, QuizAttemptResponse,
     TrainingProgramCreate, TrainingProgramUpdate, TrainingProgramResponse,
     ProgramAssignmentCreate, ProgramAssignmentUpdate, ProgramAssignmentResponse,
     CalendarEventCreate, CalendarEventUpdate, CalendarEventResponse,
@@ -93,7 +93,7 @@ def list_courses(
     current_user=Depends(get_current_user),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
-    search: Optional[str] = Query(None, description="Search by course name"),
+    search: Optional[str] = Query(None, description="Search by course name, category or provider"),
     category: Optional[str] = Query(None, description="Filter by category"),
     status: Optional[str] = Query(None, description="Filter by status"),
     course_type: Optional[str] = Query(None, description="Filter by course type"),
@@ -564,6 +564,22 @@ def get_quiz_attempt(
     return attempt
 
 
+@learning_router.post(
+    "/assessments/attempts/{attempt_id}/grade",
+    response_model=QuizAttemptResponse,
+    summary="Grade the essay answers of a quiz attempt",
+    description="Admin only. Marks every essay question of an attempt that is waiting for review (status pending_review) "
+                "with points from 0 to the question's maximum; the attempt is then scored and completed.",
+)
+def grade_quiz_attempt(
+    attempt_id: int,
+    data: QuizAttemptGrade,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    return learning_service.grade_quiz_attempt(db, attempt_id, data.essay_points, organization_id=current_user.organization_id)
+
+
 @learning_router.get(
     "/assessments",
     response_model=list[AssessmentResponse],
@@ -755,8 +771,10 @@ def list_training_programs(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by program name, department or instructor"),
 ):
-    return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id, hide_cancelled=_is_learner(current_user))
+    return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id,
+                                                  hide_cancelled=_is_learner(current_user), search=search)
 
 
 @learning_router.post(

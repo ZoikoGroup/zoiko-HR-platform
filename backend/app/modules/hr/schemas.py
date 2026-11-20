@@ -1927,6 +1927,7 @@ class CertificationUpdate(BaseModel):
 class CertificationResponse(BaseModel):
     id: int
     employee_id: int
+    employee_name: Optional[str] = None          # lists and the certification report name the holder (audit L10)
     certification_name: str
     issuing_organization: Optional[str]
     issue_date: date
@@ -2208,6 +2209,11 @@ class QuizAttemptStart(BaseModel):
 
 class QuizAttemptSubmit(BaseModel):
     answers: str
+
+
+class QuizAttemptGrade(BaseModel):
+    """An admin's marks for the essay answers of an attempt waiting for review: {question_id: points}."""
+    essay_points: dict[int, int]
 
 
 class QuizAttemptResponse(BaseModel):

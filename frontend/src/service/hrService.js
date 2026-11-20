@@ -430,20 +430,48 @@ export const getCourseCompletionReport = () => api.get("/hr/learning/reports/cou
 export const getCertificationReport = () => api.get("/hr/learning/reports/certifications");
 export const getSkillGapAnalysis = () => api.get("/hr/learning/reports/skill-gap");
 
-async function downloadLearningReport(endpoint, filename) {
-  const token = getAccessToken();
-  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-    headers: { Authorization: `Bearer ${token}` },
+import { refreshSession } from "./api";     // kept beside its only user so this section stays self-contained
+
+/**
+ * Downloads a Learning report file (audit L11). The shared JSON client reads non-JSON bodies as text, which would corrupt
+ * an .xlsx, so the file is fetched here as a blob but with the shared client's session rules: the current token, one
+ * silent refresh and retry on a 401, and a readable error (the server's own message when it sent one) that the page shows.
+ */
+export async function downloadLearningReport(endpoint, filename) {
+  const request = () => fetch(`${API_BASE_URL}${endpoint}`, {
+    headers: getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {},
   });
-  if (!res.ok) throw new Error("Failed to export learning report");
+  let res;
+  try {
+    res = await request();
+    if (res.status === 401 && (await refreshSession())) res = await request();
+  } catch {
+    throw new Error("The report could not be downloaded. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    let message = "";
+    try {
+      const body = await res.json();
+      const detail = body?.detail ?? body?.message;
+      message = typeof detail === "string" ? detail : detail?.message || "";
+    } catch { /* not JSON */ }
+    if (res.status === 401) message = "Your session has expired. Please sign in again.";
+    if (res.status === 403) message = message || "You do not have permission to export this report.";
+    throw Object.assign(new Error(message || `The report could not be downloaded (error ${res.status}).`), { status: res.status });
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  return true;
 }
+
+
 
 export const exportCourseCompletionReportCsv = () =>
   downloadLearningReport("/hr/learning/reports/course-completion/csv", `course_completion_${new Date().toISOString().split("T")[0]}.csv`);

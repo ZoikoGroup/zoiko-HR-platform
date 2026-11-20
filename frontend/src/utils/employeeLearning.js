@@ -30,12 +30,22 @@ export function courseProgress(assessments, attemptsByAssessment) {
   };
 }
 
-/** How many more tries the person has on a quiz (null = unlimited). */
+/** A submitted attempt: scored (completed) or waiting for a reviewer to mark its essays (pending_review). */
+export const isSubmitted = (t) => t?.status === "completed" || t?.status === "pending_review";
+
+/** How many more tries the person has on a quiz (null = unlimited). Only a submitted try counts: an opened but unsent
+ * attempt is resumed the next time the quiz is opened, so it does not use up a try. */
 export function attemptsLeft(assessment, attempts) {
   const max = assessment?.max_attempts;
   if (!max || max <= 0) return null;
-  const used = (attempts || []).filter((t) => t.status === "completed" || t.status === "in_progress").length;
+  const used = (attempts || []).filter(isSubmitted).length;
   return Math.max(max - used, 0);
+}
+
+/** True when the person's latest submission is waiting for a reviewer and nothing has passed yet. */
+export function awaitingReview(attempts) {
+  const list = attempts || [];
+  return !list.some((t) => t.passed) && list.some((t) => t.status === "pending_review");
 }
 
 /** Answers for the server: [{question_id, answer}]. */
@@ -62,7 +72,7 @@ export function quizResult(assessment, attempts) {
 export function openQuizzes(assessments, attemptsByAssessment) {
   return (assessments || []).filter((a) => {
     const attempts = attemptsByAssessment?.[a.id] || [];
-    return !attempts.some((t) => t.passed) && attemptsLeft(a, attempts) !== 0;
+    return !attempts.some((t) => t.passed) && !awaitingReview(attempts) && attemptsLeft(a, attempts) !== 0;
   });
 }
 

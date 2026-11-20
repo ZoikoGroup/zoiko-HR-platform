@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import HRPage from "../../../components/HRPage";
 import {
   getTrainingPrograms,
@@ -22,6 +22,13 @@ const STATUS_COLORS = {
 };
 
 const ITEMS_PER_PAGE = 10;
+const INSTRUCTOR_PAGE = 200;
+
+/** Up to seven page numbers around the current one. */
+function pageWindow(page, totalPages, size = 7) {
+  const start = Math.max(1, Math.min(page - Math.floor(size / 2), totalPages - size + 1));
+  return Array.from({ length: Math.min(size, totalPages) }, (_, i) => start + i);
+}
 const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
 function personName(e) {
@@ -31,7 +38,15 @@ function personName(e) {
 }
 
 // One form for adding and editing, so both ask for (and check) exactly the same things.
-function ProgramForm({ title, form, setForm, errors, setErrors, instructors, editing, submitting, submitLabel, busyLabel, onSubmit, onCancel }) {
+function ProgramForm({ title, form, setForm, errors, setErrors, instructors, instructorsTotal, onSearchInstructors, editing, submitting, submitLabel, busyLabel, onSubmit, onCancel }) {
+  const [instructorSearch, setInstructorSearch] = useState("");
+  const firstSearch = useRef(true);
+  useEffect(() => {
+    if (firstSearch.current) { firstSearch.current = false; return undefined; }
+    const t = setTimeout(() => onSearchInstructors?.(instructorSearch.trim()), 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instructorSearch]);
   const set = (key) => (e) => {
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
     setErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
@@ -42,7 +57,7 @@ function ProgramForm({ title, form, setForm, errors, setErrors, instructors, edi
   // someone already named as instructor stays selectable even when they are not in the loaded list
   const options = instructors.some((i) => String(i.id) === String(form.instructor_id)) || !form.instructor_id
     ? instructors
-    : [{ id: form.instructor_id, name: `Employee #${form.instructor_id}` }, ...instructors];
+    : [{ id: form.instructor_id, name: (editing && String(editing.instructor_id) === String(form.instructor_id) && editing.instructor_name) || `Employee #${form.instructor_id}` }, ...instructors];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -70,10 +85,15 @@ function ProgramForm({ title, form, setForm, errors, setErrors, instructors, edi
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="p-instructor" className="block text-sm font-medium text-gray-700 mb-1">Instructor{star}</label>
+              <input id="p-instructor-search" type="search" value={instructorSearch} onChange={(e) => setInstructorSearch(e.target.value)}
+                placeholder="Search people..." aria-label="Search instructors" className={`${inputBase} border-gray-200 mb-1 text-xs py-1.5`} />
               <select id="p-instructor" value={form.instructor_id} aria-invalid={!!errors.instructor_id} onChange={set("instructor_id")} className={box("instructor_id")}>
                 <option value="">Select instructor</option>
                 {options.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
               </select>
+              {instructorsTotal > instructors.length && (
+                <p className="text-[11px] text-gray-400 mt-1">Showing {instructors.length} of {instructorsTotal} people. Search to find someone else.</p>
+              )}
               {err("instructor_id")}
             </div>
             <div>
@@ -137,7 +157,10 @@ function ProgramForm({ title, form, setForm, errors, setErrors, instructors, edi
 
 export default function TrainingPrograms({ isTab }) {
   const [programs, setPrograms] = useState([]);
+  const [meta, setMeta] = useState({ total: 0, summary: null });
+  const [query, setQuery] = useState("");
   const [instructors, setInstructors] = useState([]);
+  const [instructorsTotal, setInstructorsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -150,62 +173,70 @@ export default function TrainingPrograms({ isTab }) {
   const [formData, setFormData] = useState({ ...EMPTY_PROGRAM });
   const [formErrors, setFormErrors] = useState({});
 
+  const latest = useRef(0);
   const fetchPrograms = async () => {
+    const ticket = ++latest.current;                 // a slower, older answer never overwrites a newer one
     setLoading(true);
     setError(null);
     try {
-      const data = await getTrainingPrograms({ per_page: 100 });
-      const items = data?.items || (Array.isArray(data) ? data : []);
-      setPrograms(Array.isArray(items) ? items : []);
+      const data = await getTrainingPrograms({ page: currentPage, per_page: ITEMS_PER_PAGE, search: query || undefined, status: statusFilter || undefined });
+      if (ticket !== latest.current) return;
+      const raw = data?.items || (Array.isArray(data) ? data : []);
+      const items = Array.isArray(raw) ? raw : [];
+      setPrograms(items);
+      setMeta({ total: Number.isFinite(data?.total) ? data.total : items.length, summary: data?.summary || null });
     } catch (err) {
+      if (ticket !== latest.current) return;
       setError(err.message || "Failed to load training programs");
       setPrograms([]);
     } finally {
-      setLoading(false);
+      if (ticket === latest.current) setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchPrograms();
-    getHrEmployees({ per_page: 200, include_all_roles: true })
+  const loadInstructors = (term = "") => {
+    getHrEmployees({ per_page: INSTRUCTOR_PAGE, include_all_roles: true, search: term || undefined })
       .then((res) => {
         const list = Array.isArray(res) ? res : res?.items || res?.data || [];
         setInstructors(list.map((e) => ({ id: e.id, name: personName(e) })));
+        setInstructorsTotal(Number.isFinite(res?.total) ? res.total : list.length);
       })
-      .catch(() => setInstructors([]));
-  }, []);
+      .catch(() => { setInstructors([]); setInstructorsTotal(0); });
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    fetchPrograms();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, query, statusFilter]);
+
+  useEffect(() => { loadInstructors(); }, []);
 
   const nameOf = (p) => p.instructor_name || instructors.find((i) => i.id === p.instructor_id)?.name || (p.instructor_id ? `Employee #${p.instructor_id}` : "");
 
-  const stats = useMemo(() => ({
+  // figures over every program, not just the page on screen (the server's summary; counted locally if it has none)
+  const summary = meta.summary;
+  const stats = summary ? summary : {
     total: programs.length,
     planned: programs.filter((p) => p.status === "planned").length,
     active: programs.filter((p) => p.status === "active").length,
     completed: programs.filter((p) => p.status === "completed").length,
     incomplete: programs.filter((p) => missingProgramDetails(p).length > 0).length,
-  }), [programs]);
+  };
+  const filtering = Boolean(query || search.trim() || statusFilter);
+  const anyPrograms = (summary ? summary.total : programs.length) > 0;
 
-  const filtered = useMemo(() => {
-    let result = programs;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter((p) => p.name?.toLowerCase().includes(q) || nameOf(p).toLowerCase().includes(q) || p.department?.toLowerCase().includes(q));
-    }
-    if (statusFilter) result = result.filter((p) => p.status === statusFilter);
-    return result;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [programs, search, statusFilter, instructors]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(meta.total / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = useMemo(() => {
-    const start = (safePage - 1) * ITEMS_PER_PAGE;
-    return filtered.slice(start, start + ITEMS_PER_PAGE);
-  }, [filtered, safePage]);
+  const paginated = programs;
 
   useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [totalPages, currentPage]);
+    if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage, loading]);
 
   const openCreate = () => { setFormData({ ...EMPTY_PROGRAM }); setFormErrors({}); setShowCreateModal(true); };
   const closeForm = () => { setShowCreateModal(false); setEditItem(null); setFormErrors({}); };
@@ -256,7 +287,7 @@ export default function TrainingPrograms({ isTab }) {
     }
   };
 
-  if (loading && programs.length === 0) {
+  if (loading && programs.length === 0 && !filtering && !anyPrograms) {
     const loadingContent = (
       <div className="flex justify-center items-center py-20">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -298,7 +329,7 @@ export default function TrainingPrograms({ isTab }) {
           </button>
         </div>
 
-        {programs.length > 0 && (
+        {(anyPrograms || filtering) && (
           <div className="flex flex-wrap gap-3">
             <input
               type="text"
@@ -318,11 +349,11 @@ export default function TrainingPrograms({ isTab }) {
           </div>
         )}
 
-        {filtered.length === 0 && !loading ? (
+        {programs.length === 0 && !loading ? (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
             <div className="text-4xl mb-3">🎓</div>
             <p className="text-gray-500 font-medium">
-              {programs.length === 0 ? "No training programs yet. Add your first program to get started." : "No programs match your search criteria."}
+              {!filtering && !anyPrograms ? "No training programs yet. Add your first program to get started." : "No programs match your search criteria."}
             </p>
           </div>
         ) : (
@@ -379,11 +410,11 @@ export default function TrainingPrograms({ isTab }) {
             {totalPages > 1 && (
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-400">
-                  Showing {(safePage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(safePage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length}
+                  Showing {(safePage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(safePage * ITEMS_PER_PAGE, meta.total)} of {meta.total}
                 </span>
                 <div className="flex gap-1">
                   <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Prev</button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  {pageWindow(safePage, totalPages).map((p) => (
                     <button key={p} onClick={() => setCurrentPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === safePage ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 hover:bg-gray-50"}`}>{p}</button>
                   ))}
                   <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Next</button>
@@ -395,12 +426,12 @@ export default function TrainingPrograms({ isTab }) {
       </div>
 
       {showCreateModal && (
-        <ProgramForm title="Add Training Program" form={formData} setForm={setFormData} errors={formErrors} setErrors={setFormErrors} instructors={instructors}
+        <ProgramForm title="Add Training Program" form={formData} setForm={setFormData} errors={formErrors} setErrors={setFormErrors} instructors={instructors} instructorsTotal={instructorsTotal} onSearchInstructors={loadInstructors}
           editing={null} submitting={submitting} submitLabel="Create Program" busyLabel="Creating..." onSubmit={(e) => save(e, null)} onCancel={closeForm} />
       )}
 
       {editItem && (
-        <ProgramForm title="Update Training Program" form={formData} setForm={setFormData} errors={formErrors} setErrors={setFormErrors} instructors={instructors}
+        <ProgramForm title="Update Training Program" form={formData} setForm={setFormData} errors={formErrors} setErrors={setFormErrors} instructors={instructors} instructorsTotal={instructorsTotal} onSearchInstructors={loadInstructors}
           editing={editItem} submitting={submitting} submitLabel="Update Program" busyLabel="Updating..." onSubmit={(e) => save(e, editItem)} onCancel={closeForm} />
       )}
 

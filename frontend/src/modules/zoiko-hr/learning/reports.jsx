@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import HRPage from "../../../components/HRPage";
 import {
-  getCourses,
   getCourseCompletionReport,
   getCertificationReport,
   getSkillGapAnalysis,
@@ -11,14 +10,52 @@ import {
   exportCertificationReportExcel,
   exportSkillGapReportCsv,
   exportSkillGapReportExcel,
-  getHrEmployees,
 } from "../../../service/hrService";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const ITEMS_PER_PAGE = 10;
 
+// CSV / Excel export buttons: each shows that it is working, and a failed download (expired session, no permission,
+// server error) is reported on the page instead of failing silently (audit L11).
+export function ExportButtons({ onCsv, onExcel }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const run = async (kind, fn) => {
+    if (busy) return;
+    setBusy(kind);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError(err?.message || "The report could not be downloaded. Try again.");
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <div className="flex flex-col items-end gap-1 ml-auto">
+      <div className="flex gap-2">
+        <button
+          onClick={() => run("csv", onCsv)}
+          disabled={!!busy}
+          className="border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <span>📥</span> {busy === "csv" ? "Exporting..." : "Export CSV"}
+        </button>
+        <button
+          onClick={() => run("excel", onExcel)}
+          disabled={!!busy}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <span>📊</span> {busy === "excel" ? "Exporting..." : "Export Excel"}
+        </button>
+      </div>
+      {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 function DashboardTab() {
-  const [courses, setCourses] = useState([]);
   const [report, setReport] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,8 +65,7 @@ function DashboardTab() {
     setLoading(true);
     setError(null);
     try {
-      const [coursesRes, reportRes] = await Promise.all([getCourses(), getCourseCompletionReport()]);
-      setCourses(Array.isArray(coursesRes) ? coursesRes : coursesRes?.items || coursesRes?.data || []);
+      const reportRes = await getCourseCompletionReport();
       setReport(Array.isArray(reportRes) ? reportRes : []);
     } catch (err) {
       setError(err.message || "Failed to load report data");
@@ -41,15 +77,13 @@ function DashboardTab() {
   useEffect(() => { fetchData(); }, []);
 
   const chartData = useMemo(() => {
-    if (report.length === 0 && courses.length === 0) return [];
-    const source = report.length > 0 ? report : courses;
-    return source.slice(0, 10).map((r) => ({
+    return report.slice(0, 10).map((r) => ({
       name: r.course_name || r.course || r.title || r.name || "Course",
       rate: parseFloat(r.completion_rate || r.completionRate || 0).toFixed(1),
       enrolled: r.total_enrollments || r.enrolled || r.enrollments || 0,
       completed: r.completed || r.completions || 0,
     }));
-  }, [report, courses]);
+  }, [report]);
 
   const handleDownloadCsv = useCallback(() => {
     if (chartData.length === 0) return;
@@ -130,7 +164,7 @@ function DashboardTab() {
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
               <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Courses</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{courses.length || report.length}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{report.length}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
               <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Enrollments</p>
@@ -248,20 +282,7 @@ function CompletionTab() {
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         )}
-        <div className="flex gap-2 ml-auto">
-          <button
-            onClick={exportCourseCompletionReportCsv}
-            className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📥</span> Export CSV
-          </button>
-          <button
-            onClick={exportCourseCompletionReportExcel}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📊</span> Export Excel
-          </button>
-        </div>
+        <ExportButtons onCsv={exportCourseCompletionReportCsv} onExcel={exportCourseCompletionReportExcel} />
       </div>
       {filtered.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
@@ -326,7 +347,6 @@ function CompletionTab() {
 
 function CertificationTab() {
   const [data, setData] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -334,9 +354,9 @@ function CertificationTab() {
     setLoading(true);
     setError(null);
     try {
-      const [res, emps] = await Promise.all([getCertificationReport(), getHrEmployees()]);
+      // each row names its holder (any role, including people who have left), so no separate people list is loaded
+      const res = await getCertificationReport();
       setData(Array.isArray(res) ? res : []);
-      setEmployees(emps?.items || (Array.isArray(emps) ? emps : []));
     } catch (err) {
       setError(err.message || "Failed to load certification report");
       setData([]);
@@ -346,14 +366,6 @@ function CertificationTab() {
   };
 
   useEffect(() => { fetchData(); }, []);
-
-  const employeeMap = useMemo(() => {
-    const m = {};
-    employees.forEach((e) => {
-      m[e.id] = e;
-    });
-    return m;
-  }, [employees]);
 
   const getCertRowStyle = (expiry) => {
     if (!expiry) return "";
@@ -387,19 +399,8 @@ function CertificationTab() {
   return (
     <div className="space-y-4">
       {data.length > 0 && (
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={exportCertificationReportCsv}
-            className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📥</span> Export CSV
-          </button>
-          <button
-            onClick={exportCertificationReportExcel}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📊</span> Export Excel
-          </button>
+        <div className="flex justify-end">
+          <ExportButtons onCsv={exportCertificationReportCsv} onExcel={exportCertificationReportExcel} />
         </div>
       )}
       {data.length === 0 ? (
@@ -422,8 +423,7 @@ function CertificationTab() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {data.map((c, i) => {
-                  const emp = employeeMap[c.employee_id];
-                  const empName = emp ? `${emp.first_name || ""} ${emp.last_name || ""}`.trim() : `#${c.employee_id}`;
+                  const empName = c.employee_name || `Employee #${c.employee_id}`;
                   return (
                     <tr key={c.id || i} className={`hover:bg-gray-50 transition-colors ${getCertRowStyle(c.expiry_date)}`}>
                       <td className="px-4 py-3 font-medium text-gray-800">{c.certification_name || c.name}</td>
@@ -490,19 +490,8 @@ function SkillGapTab() {
   return (
     <div className="space-y-4">
       {data.length > 0 && (
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={exportSkillGapReportCsv}
-            className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📥</span> Export CSV
-          </button>
-          <button
-            onClick={exportSkillGapReportExcel}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📊</span> Export Excel
-          </button>
+        <div className="flex justify-end">
+          <ExportButtons onCsv={exportSkillGapReportCsv} onExcel={exportSkillGapReportExcel} />
         </div>
       )}
       {data.map((dept, i) => (

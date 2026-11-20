@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCourses, getTrainingPrograms, getAssessments, getQuizAttempts, getMyProfile } from "../../../../service/employee";
 import { departmentName, forMyDepartment, groupAssessmentsByCourse } from "../../../../utils/employeeLearning";
+import { fetchAllPages } from "../../../../utils/learningPaging";
 
 const asList = (r) => (Array.isArray(r) ? r : r?.items || r?.data?.items || r?.data || []);
 
@@ -39,8 +40,8 @@ export default function useLearnerLearning() {
       setDepartment(dept);
 
       const [coursesRes, programsRes, assessmentsRes] = await Promise.allSettled([
-        getCourses({ per_page: 100 }),
-        getTrainingPrograms({ per_page: 100 }),
+        fetchAllPages(getCourses),                 // every page: the catalogue used to stop at the first 100 (audit L9)
+        fetchAllPages(getTrainingPrograms),
         getAssessments(),
       ]);
       if (coursesRes.status === "rejected") throw coursesRes.reason;

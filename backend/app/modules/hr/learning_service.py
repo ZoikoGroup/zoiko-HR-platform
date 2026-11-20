@@ -1,8 +1,8 @@
 from datetime import datetime, date
 from typing import Optional
 import json
-from sqlalchemy import func
-from app.core.pagination import list_or_page
+from sqlalchemy import func, or_
+from app.core.pagination import list_or_page, MAX_PER_PAGE as MAX_LIST_PAGE
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.hr.models import (
@@ -62,33 +62,48 @@ def get_courses(
     course_type: Optional[str] = None,
     organization_id: Optional[int] = None,
 ) -> dict:
-    per_page = min(per_page, 100)
+    # The router allows up to 200 per page; the old silent cap of 100 cut a 200-row request in half (audit L9).
+    per_page = min(per_page, MAX_LIST_PAGE)
     query = db.query(LearningCourse)
+    if organization_id is not None:
+        query = query.filter(LearningCourse.organization_id == organization_id)
+    if status:
+        query = query.filter(LearningCourse.status == status)       # a learner's list is forced to "active" here
+    scope = query                                                    # the whole catalog, for the page summary
 
-    if search:
-        term = f"%{search}%"
-        query = query.filter(LearningCourse.course_name.ilike(term))
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(or_(LearningCourse.course_name.ilike(term), LearningCourse.category.ilike(term),
+                                 LearningCourse.provider.ilike(term)))
 
     if category:
         query = query.filter(LearningCourse.category == category)
 
-    if status:
-        query = query.filter(LearningCourse.status == status)
-
     if course_type:
         query = query.filter(LearningCourse.course_type == course_type)
 
-    if organization_id is not None:
-        query = query.filter(LearningCourse.organization_id == organization_id)
-
     total = query.count()
-    courses = query.order_by(LearningCourse.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    courses = query.order_by(LearningCourse.created_at.desc(), LearningCourse.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+    def _blank(col):
+        return or_(col.is_(None), func.trim(col) == "")
+
+    categories = [c for (c,) in scope.with_entities(LearningCourse.category).filter(LearningCourse.category.isnot(None))
+                  .distinct().order_by(LearningCourse.category).all() if c and c.strip()]
+    incomplete = scope.filter(or_(
+        _blank(LearningCourse.description), _blank(LearningCourse.category), _blank(LearningCourse.provider),
+        _blank(LearningCourse.course_type), LearningCourse.duration_hours.is_(None), LearningCourse.duration_hours <= 0,
+    )).count()
 
     return {
         "total": total,
         "page": page,
         "per_page": per_page,
         "items": courses,
+        # catalog-wide figures, so a paged list can still show every category and the incomplete count
+        "catalog_total": scope.count(),
+        "categories": categories,
+        "incomplete": incomplete,
     }
 
 
@@ -116,13 +131,28 @@ def update_course(db: Session, course_id: int, data: CourseUpdate, organization_
 
 def delete_course(db: Session, course_id: int, organization_id: Optional[int] = None) -> None:
     course = get_course_by_id(db, course_id, organization_id)
-    enrolled = db.query(LearningEnrollment.id).filter(LearningEnrollment.course_id == course.id).count()
-    if enrolled:
+    # Every row that points at the course is checked first: deleting under them failed with a foreign-key error (a 500,
+    # audit L5). Nothing is cascade-deleted, the admin is told what holds the course and how to retire it instead.
+    blockers = _in_use(
+        (db.query(LearningEnrollment.id).filter(LearningEnrollment.course_id == course.id).count(), "enrollment"),
+        (db.query(LearningAssessment.id).filter(LearningAssessment.course_id == course.id).count(), "assessment"),
+        (db.query(LearningCalendarEvent.id).filter(LearningCalendarEvent.course_id == course.id).count(), "calendar event"),
+        (db.query(LearningPathItem.id).filter(LearningPathItem.course_id == course.id).count(), "learning path step"),
+    )
+    if blockers:
         raise BadRequestException(
-            f"This course has {enrolled} enrollment{'s' if enrolled != 1 else ''} and cannot be deleted. Set it to Inactive instead to hide it from learners."
+            f"This course has {blockers} and cannot be deleted. Set it to Inactive instead to hide it from learners."
         )
     db.delete(course)
     db.commit()
+
+
+def _in_use(*counts) -> str:
+    """'2 enrollments, 1 assessment and 3 calendar events' from (count, noun) pairs; '' when nothing is in use."""
+    parts = [f"{n} {noun}{'s' if n != 1 else ''}" for n, noun in counts if n]
+    if len(parts) > 1:
+        return ", ".join(parts[:-1]) + " and " + parts[-1]
+    return parts[0] if parts else ""
 
 
 def create_enrollment(db: Session, data: EnrollmentCreate, organization_id: Optional[int] = None) -> LearningEnrollment:
@@ -346,7 +376,30 @@ def get_certifications(db: Session, employee_id: Optional[int] = None, organizat
         query = query.filter(LearningCertification.employee_id == employee_id)
     if organization_id is not None:
         query = query.filter(LearningCertification.organization_id == organization_id)
-    return list_or_page(query.order_by(LearningCertification.issue_date.desc()), page, per_page, label="/certifications")
+    result = list_or_page(query.order_by(LearningCertification.issue_date.desc(), LearningCertification.id.desc()), page, per_page,
+                          label="/certifications")
+    if isinstance(result, dict):
+        result["items"] = _certification_rows(db, result["items"])
+        return result
+    return _certification_rows(db, result)
+
+
+def _employee_names(db: Session, ids) -> dict:
+    """{employee_id: display name} in one query, for any role and for people who have left (audit L10: the report used to
+    look names up in a 20-row, employees-only list on the page, so most holders showed as '#id')."""
+    ids = {i for i in ids if i}
+    if not ids:
+        return {}
+    names = {}
+    for e in db.query(Employee).filter(Employee.id.in_(ids)).all():
+        names[e.id] = (f"{e.first_name or ''} {e.last_name or ''}".strip()) or e.email
+    return names
+
+
+def _certification_rows(db: Session, certs) -> list[dict]:
+    names = _employee_names(db, (c.employee_id for c in certs))
+    columns = [col.name for col in LearningCertification.__table__.columns]
+    return [{**{name: getattr(c, name) for name in columns}, "employee_name": names.get(c.employee_id)} for c in certs]
 
 
 def get_certification_by_id(db: Session, cert_id: int, organization_id: Optional[int] = None) -> LearningCertification:
@@ -622,12 +675,27 @@ def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[in
         if enrollment is None or (organization_id is not None and enrollment.organization_id != organization_id):
             raise NotFoundException("LearningEnrollment", data.enrollment_id)
 
+    # Opening a quiz again (a reload, a closed tab, React StrictMode's double effect) resumes the learner's unsubmitted
+    # attempt instead of starting another one, so only a submitted try uses up an attempt (audit L8).
+    open_attempt = db.query(LearningQuizAttempt).filter(
+        LearningQuizAttempt.assessment_id == data.assessment_id,
+        LearningQuizAttempt.employee_id == data.employee_id,
+        LearningQuizAttempt.status == "in_progress",
+    ).order_by(LearningQuizAttempt.attempt_number.desc(), LearningQuizAttempt.id.desc()).first()
+    if open_attempt is not None:
+        if open_attempt.enrollment_id is None and data.enrollment_id is not None:
+            open_attempt.enrollment_id = data.enrollment_id
+            db.commit()
+            db.refresh(open_attempt)
+        return open_attempt
+
     if assessment.max_attempts and assessment.max_attempts > 0:
-        existing_count = db.query(LearningQuizAttempt).filter(
+        used = db.query(LearningQuizAttempt).filter(
             LearningQuizAttempt.assessment_id == data.assessment_id,
             LearningQuizAttempt.employee_id == data.employee_id,
+            LearningQuizAttempt.status != "in_progress",                  # an abandoned, never-submitted try is not a used one
         ).count()
-        if existing_count >= assessment.max_attempts:
+        if used >= assessment.max_attempts:
             raise BadRequestException("Maximum number of attempts reached.")
 
     attempt_number = 1
@@ -653,12 +721,66 @@ def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[in
     return attempt
 
 
+# Attempt statuses: in_progress (opened, not submitted), pending_review (submitted with essay answers a person must mark),
+# completed (scored). Essays are never auto-marked: they have no answer key (audit L7).
+PENDING_REVIEW = "pending_review"
+
+
+def _is_essay(question) -> bool:
+    return str(question.question_type or "").strip().lower() == "essay"
+
+
+def _parse_answers(raw) -> list:
+    try:
+        entries = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        raise BadRequestException("Invalid answers format. Expected a JSON array.")
+    if not isinstance(entries, list):
+        raise BadRequestException("Invalid answers format. Expected a JSON array.")
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def _score(assessment, questions, entries: list) -> tuple:
+    """(score, passed, needs_review). Auto-marked questions are compared with their key; an essay counts only through the
+    points a reviewer awarded it ("awarded_points" on its answer entry). While any essay is unmarked the attempt needs
+    review and has no score yet."""
+    by_question = {}
+    for e in entries:
+        try:
+            by_question[int(e.get("question_id"))] = e
+        except (TypeError, ValueError):
+            continue
+    total_points = 0
+    earned_points = 0
+    needs_review = False
+    for question in questions:
+        points = question.points or 0
+        total_points += points
+        entry = by_question.get(question.id) or {}
+        if _is_essay(question):
+            awarded = entry.get("awarded_points")
+            if awarded is None:
+                needs_review = True
+            else:
+                earned_points += min(max(int(awarded), 0), points)
+            continue
+        user_answer = entry.get("answer", "")
+        if user_answer is not None and question.correct_answer is not None:
+            if str(user_answer).strip().lower() == str(question.correct_answer).strip().lower():
+                earned_points += points
+    if needs_review:
+        return None, None, True
+    score = round((earned_points / total_points) * 100) if total_points > 0 else 0
+    passed = assessment.passing_score is not None and score >= assessment.passing_score
+    return score, passed, False
+
+
 def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit, organization_id: Optional[int] = None) -> LearningQuizAttempt:
     attempt = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.id == attempt_id).first()
     if not attempt:
         raise NotFoundException("LearningQuizAttempt", attempt_id)
 
-    if attempt.status == "completed":
+    if attempt.status != "in_progress":
         raise BadRequestException("Quiz attempt has already been submitted.")
 
     assessment = _assessment_row(db, attempt.assessment_id, organization_id)
@@ -666,45 +788,68 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit, organizat
     if not questions:
         raise BadRequestException(NO_QUESTIONS_MESSAGE)
 
-    try:
-        user_answers = json.loads(data.answers)
-    except (json.JSONDecodeError, TypeError):
-        raise BadRequestException("Invalid answers format. Expected a JSON array.")
+    entries = _parse_answers(data.answers)
+    for e in entries:
+        e.pop("awarded_points", None)                                  # a learner cannot mark their own essay
+    score, passed, needs_review = _score(assessment, questions, entries)
 
-    if not isinstance(user_answers, list):
-        raise BadRequestException("Invalid answers format. Expected a JSON array.")
-
-    answer_map = {}
-    for entry in user_answers:
-        if not isinstance(entry, dict):
-            continue
-        qid = entry.get("question_id")
-        ans = entry.get("answer")
-        if qid is not None:
-            answer_map[qid] = ans
-
-    total_points = 0
-    earned_points = 0
-
-    for question in questions:
-        total_points += question.points or 0
-        user_answer = answer_map.get(question.id, "")
-        if user_answer is not None and question.correct_answer is not None:
-            if str(user_answer).strip().lower() == str(question.correct_answer).strip().lower():
-                earned_points += question.points or 0
-
-    score = 0
-    if total_points > 0:
-        score = round((earned_points / total_points) * 100)
-
-    passed = assessment.passing_score is not None and score >= assessment.passing_score
-
-    attempt.answers = data.answers
+    attempt.answers = json.dumps(entries)
     attempt.score = score
     attempt.passed = passed
     attempt.completed_at = datetime.utcnow()
-    attempt.status = "completed"
+    attempt.status = PENDING_REVIEW if needs_review else "completed"
 
+    db.commit()
+    db.refresh(attempt)
+    return attempt
+
+
+def grade_quiz_attempt(db: Session, attempt_id: int, essay_points: dict, organization_id: Optional[int] = None) -> LearningQuizAttempt:
+    """An admin marks the essay answers of a submitted attempt ({question_id: points}). Every essay question needs whole
+    points from 0 to its maximum; the attempt is then scored like any other and becomes completed. The marks are kept on
+    the stored answers (awarded_points), so no new column is needed."""
+    attempt = get_quiz_attempt_by_id(db, attempt_id, organization_id)
+    if attempt.status != PENDING_REVIEW:
+        raise BadRequestException("Only a submitted attempt that is waiting for review can be graded.")
+    assessment = _assessment_row(db, attempt.assessment_id, organization_id)
+    questions = get_questions(db, attempt.assessment_id)
+    essays = {q.id: q for q in questions if _is_essay(q)}
+    given = {}
+    for qid, pts in (essay_points or {}).items():
+        try:
+            qid = int(qid)
+        except (TypeError, ValueError):
+            raise BadRequestException("Grades must be given per essay question id.")
+        if qid not in essays:
+            raise BadRequestException(f"Question {qid} is not an essay question of this assessment.")
+        maximum = essays[qid].points or 0
+        if not isinstance(pts, int) or isinstance(pts, bool) or pts < 0 or pts > maximum:
+            raise BadRequestException(f"Points for question {qid} must be a whole number from 0 to {maximum}.")
+        given[qid] = pts
+    missing = [qid for qid in essays if qid not in given]
+    if missing:
+        raise BadRequestException("Give points to every essay question (missing: " + ", ".join(str(q) for q in missing) + ").")
+
+    raw = attempt.answers if isinstance(attempt.answers, (str, list)) or attempt.answers is None else json.dumps(attempt.answers)
+    entries = _parse_answers(raw or "[]")
+    seen = set()
+    for e in entries:
+        try:
+            qid = int(e.get("question_id"))
+        except (TypeError, ValueError):
+            continue
+        if qid in given:
+            e["awarded_points"] = given[qid]
+            seen.add(qid)
+    for qid, pts in given.items():
+        if qid not in seen:                                            # an essay left blank still gets its mark
+            entries.append({"question_id": qid, "answer": "", "awarded_points": pts})
+
+    score, passed, _ = _score(assessment, questions, entries)
+    attempt.answers = json.dumps(entries)
+    attempt.score = score
+    attempt.passed = passed
+    attempt.status = "completed"
     db.commit()
     db.refresh(attempt)
     return attempt
@@ -852,20 +997,45 @@ def get_training_programs(
     status: Optional[str] = None,
     organization_id: Optional[int] = None,
     hide_cancelled: bool = False,
+    search: Optional[str] = None,
 ) -> dict:
-    per_page = min(per_page, 100)
+    per_page = min(per_page, MAX_LIST_PAGE)                         # was a silent 100 under a router limit of 200 (audit L9)
     query = db.query(LearningTrainingProgram)
 
-    if status:
-        query = query.filter(LearningTrainingProgram.status == status)
     if hide_cancelled:
         query = query.filter(LearningTrainingProgram.status != "cancelled")
     if organization_id is not None:
         query = query.filter(LearningTrainingProgram.organization_id == organization_id)
+    scope = query                                                    # every program this caller may list, for the summary
+
+    if status:
+        query = query.filter(LearningTrainingProgram.status == status)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        instructor_ids = db.query(Employee.id).filter(or_(
+            (func.coalesce(Employee.first_name, "") + " " + func.coalesce(Employee.last_name, "")).ilike(term),
+            Employee.email.ilike(term),
+        ))
+        query = query.filter(or_(LearningTrainingProgram.name.ilike(term), LearningTrainingProgram.department.ilike(term),
+                                 LearningTrainingProgram.instructor_id.in_(instructor_ids)))
 
     total = query.count()
-    programs = query.order_by(LearningTrainingProgram.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
-    return {"total": total, "page": page, "per_page": per_page, "items": [_program_dict(p) for p in programs]}
+    programs = query.order_by(LearningTrainingProgram.created_at.desc(), LearningTrainingProgram.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+    by_status = dict(scope.with_entities(LearningTrainingProgram.status, func.count(LearningTrainingProgram.id))
+                     .group_by(LearningTrainingProgram.status).all())
+    incomplete = scope.filter(or_(
+        LearningTrainingProgram.description.is_(None), func.trim(LearningTrainingProgram.description) == "",
+        LearningTrainingProgram.instructor_id.is_(None), LearningTrainingProgram.start_date.is_(None),
+        LearningTrainingProgram.end_date.is_(None), LearningTrainingProgram.max_participants.is_(None),
+        LearningTrainingProgram.max_participants <= 0,
+    )).count()
+    return {
+        "total": total, "page": page, "per_page": per_page, "items": [_program_dict(p) for p in programs],
+        # figures over every program (not just this page), so a paged list keeps honest totals
+        "summary": {"total": sum(by_status.values()), "incomplete": incomplete,
+                    **{s: by_status.get(s, 0) for s in ("planned", "active", "completed", "cancelled")}},
+    }
 
 
 def get_training_program_by_id(db: Session, program_id: int, organization_id: Optional[int] = None) -> dict:
@@ -901,10 +1071,13 @@ def update_training_program(db: Session, program_id: int, data: TrainingProgramU
 
 def delete_training_program(db: Session, program_id: int, organization_id: Optional[int] = None) -> None:
     program = _program_row(db, program_id, organization_id)
-    if program.assignments:
-        n = len(program.assignments)
+    blockers = _in_use(
+        (len(program.assignments) if program.assignments else 0, "participant"),
+        (db.query(LearningCalendarEvent.id).filter(LearningCalendarEvent.program_id == program.id).count(), "calendar event"),
+    )
+    if blockers:
         raise BadRequestException(
-            f"This program has {n} participant{'s' if n != 1 else ''} and cannot be deleted. Set it to Cancelled instead."
+            f"This program has {blockers} and cannot be deleted. Set it to Cancelled instead."
         )
     db.delete(program)
     db.commit()
@@ -1107,7 +1280,7 @@ def get_learning_dashboard(db: Session, organization_id: Optional[int] = None) -
 
     attempt_org_filter = [LearningQuizAttempt.organization_id == organization_id] if organization_id else []
     in_progress_attempts = db.query(LearningQuizAttempt).filter(
-        LearningQuizAttempt.status == "in_progress", *attempt_org_filter
+        LearningQuizAttempt.status.in_(("in_progress", PENDING_REVIEW)), *attempt_org_filter
     ).count()
 
     today = date.today()
@@ -1222,17 +1395,18 @@ def export_certifications_csv(db: Session, organization_id: Optional[int] = None
     certs = get_certifications(db, organization_id=organization_id)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["ID", "Employee ID", "Certification Name", "Issuing Organization", "Issue Date", "Expiry Date", "Credential URL", "Status"])
+    writer.writerow(["ID", "Employee ID", "Certification Name", "Issuing Organization", "Issue Date", "Expiry Date", "Credential URL", "Status", "Employee Name"])
     for c in certs:
         writer.writerow(safe_row([
-            c.id,
-            c.employee_id,
-            c.certification_name,
-            c.issuing_organization or "",
-            c.issue_date,
-            c.expiry_date or "",
-            c.credential_url or "",
-            c.status
+            c["id"],
+            c["employee_id"],
+            c["certification_name"],
+            c["issuing_organization"] or "",
+            c["issue_date"],
+            c["expiry_date"] or "",
+            c["credential_url"] or "",
+            c["status"],
+            c["employee_name"] or "",          # appended, so existing column positions are unchanged
         ]))
     return output.getvalue()
 
@@ -1244,17 +1418,18 @@ def export_certifications_excel(db: Session, organization_id: Optional[int] = No
     wb = Workbook()
     ws = wb.active
     ws.title = "Certifications"
-    ws.append(["ID", "Employee ID", "Certification Name", "Issuing Organization", "Issue Date", "Expiry Date", "Credential URL", "Status"])
+    ws.append(["ID", "Employee ID", "Certification Name", "Issuing Organization", "Issue Date", "Expiry Date", "Credential URL", "Status", "Employee Name"])
     for c in certs:
         ws.append(safe_row([
-            c.id,
-            c.employee_id,
-            c.certification_name,
-            c.issuing_organization or "",
-            str(c.issue_date),
-            str(c.expiry_date) if c.expiry_date else "",
-            c.credential_url or "",
-            c.status
+            c["id"],
+            c["employee_id"],
+            c["certification_name"],
+            c["issuing_organization"] or "",
+            str(c["issue_date"]),
+            str(c["expiry_date"]) if c["expiry_date"] else "",
+            c["credential_url"] or "",
+            c["status"],
+            c["employee_name"] or "",          # appended, so existing column positions are unchanged
         ]))
     out = io.BytesIO()
     wb.save(out)

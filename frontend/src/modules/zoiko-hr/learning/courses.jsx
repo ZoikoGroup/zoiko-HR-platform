@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import HRPage from "../../../components/HRPage";
 import {
   getCourses,
@@ -13,6 +13,12 @@ import {
 } from "../../../utils/courseForm";
 
 const ITEMS_PER_PAGE = 8;
+
+/** Up to seven page numbers around the current one, so a long catalog does not render hundreds of buttons. */
+export function pageWindow(page, totalPages, size = 7) {
+  const start = Math.max(1, Math.min(page - Math.floor(size / 2), totalPages - size + 1));
+  return Array.from({ length: Math.min(size, totalPages) }, (_, i) => start + i);
+}
 
 const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
@@ -116,9 +122,12 @@ function CourseForm({ title, form, setForm, errors, setErrors, submitting, submi
 
 export default function LearningCourses({ isTab }) {
   const [courses, setCourses] = useState([]);
+  // the list is paged, searched and filtered on the server (audit L9: a client-side list stopped at 100 courses)
+  const [meta, setMeta] = useState({ total: 0, catalogTotal: 0, categories: [], incomplete: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -128,56 +137,54 @@ export default function LearningCourses({ isTab }) {
   const [formData, setFormData] = useState({ ...EMPTY_COURSE });
   const [formErrors, setFormErrors] = useState({});
 
+  const latest = useRef(0);
   const fetchCourses = async () => {
+    const ticket = ++latest.current;                 // a slower, older answer never overwrites a newer one
     setLoading(true);
     setError(null);
     try {
-      const data = await getCourses({ per_page: 200 });
-      const items = data?.items || (Array.isArray(data) ? data : []);
-      setCourses(Array.isArray(items) ? items : []);
+      const data = await getCourses({ page: currentPage, per_page: ITEMS_PER_PAGE, search: query || undefined, category: categoryFilter || undefined });
+      if (ticket !== latest.current) return;
+      const raw = data?.items || (Array.isArray(data) ? data : []);
+      const items = Array.isArray(raw) ? raw : [];
+      setCourses(items);
+      setMeta({
+        total: Number.isFinite(data?.total) ? data.total : items.length,
+        catalogTotal: Number.isFinite(data?.catalog_total) ? data.catalog_total : Number.isFinite(data?.total) ? data.total : items.length,
+        categories: Array.isArray(data?.categories) ? data.categories : [...new Set(items.map((c) => c.category).filter(Boolean))],
+        incomplete: Number.isFinite(data?.incomplete) ? data.incomplete : items.filter((c) => missingDetails(c).length > 0).length,
+      });
     } catch (err) {
+      if (ticket !== latest.current) return;
       setError(err.message || "Failed to load courses");
       setCourses([]);
     } finally {
-      setLoading(false);
+      if (ticket === latest.current) setLoading(false);
     }
   };
 
+  // typing waits a moment before asking the server, so each keystroke is not a request
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   useEffect(() => {
     fetchCourses();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, query, categoryFilter]);
 
-  const stats = useMemo(() => {
-    const total = courses.length;
-    const categories = new Set(courses.map((c) => c.category).filter(Boolean)).size;
-    const incomplete = courses.filter((c) => missingDetails(c).length > 0).length;
-    return { total, categories, incomplete };
-  }, [courses]);
+  const stats = { total: meta.catalogTotal, categories: meta.categories.length, incomplete: meta.incomplete };
+  const categories = meta.categories;
+  const filtering = Boolean(query || search.trim() || categoryFilter);
 
-  const categories = useMemo(() => [...new Set(courses.map((c) => c.category).filter(Boolean))], [courses]);
-
-  const filtered = useMemo(() => {
-    let result = courses;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (c) => c.course_name?.toLowerCase().includes(q) || c.category?.toLowerCase().includes(q) || c.provider?.toLowerCase().includes(q)
-      );
-    }
-    if (categoryFilter) result = result.filter((c) => c.category === categoryFilter);
-    return result;
-  }, [courses, search, categoryFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(meta.total / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = useMemo(() => {
-    const start = (safePage - 1) * ITEMS_PER_PAGE;
-    return filtered.slice(start, start + ITEMS_PER_PAGE);
-  }, [filtered, safePage]);
+  const paginated = courses;
 
   useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [totalPages, currentPage]);
+    if (!loading && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage, loading]);
 
   const openCreate = () => { setFormData({ ...EMPTY_COURSE }); setFormErrors({}); setShowCreateModal(true); };
   const closeForm = () => { setShowCreateModal(false); setEditItem(null); setFormErrors({}); };
@@ -228,7 +235,7 @@ export default function LearningCourses({ isTab }) {
     }
   };
 
-  if (loading && courses.length === 0) {
+  if (loading && courses.length === 0 && !filtering && meta.catalogTotal === 0) {
     const loadingEl = (
       <div className="flex justify-center items-center py-20">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -274,7 +281,7 @@ export default function LearningCourses({ isTab }) {
           </button>
         </div>
 
-        {courses.length > 0 && (
+        {(meta.catalogTotal > 0 || filtering) && (
           <div className="flex flex-wrap gap-3">
             <input
               type="text"
@@ -294,11 +301,11 @@ export default function LearningCourses({ isTab }) {
           </div>
         )}
 
-        {filtered.length === 0 && !loading ? (
+        {courses.length === 0 && !loading ? (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
             <div className="text-4xl mb-3">📚</div>
             <p className="text-gray-500 font-medium">
-              {courses.length === 0 ? "No courses yet. Add your first course to get started." : "No courses match your search criteria."}
+              {!filtering && meta.catalogTotal === 0 ? "No courses yet. Add your first course to get started." : "No courses match your search criteria."}
             </p>
           </div>
         ) : (
@@ -355,10 +362,10 @@ export default function LearningCourses({ isTab }) {
 
             {totalPages > 1 && (
               <div className="flex justify-between items-center px-6 py-3 border-t border-gray-100">
-                <span className="text-xs text-gray-400">Page {safePage} of {totalPages}</span>
+                <span className="text-xs text-gray-400">Page {safePage} of {totalPages} · {meta.total} course{meta.total === 1 ? "" : "s"}</span>
                 <div className="flex gap-1">
                   <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">Prev</button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  {pageWindow(safePage, totalPages).map((p) => (
                     <button key={p} onClick={() => setCurrentPage(p)} className={`px-3 py-1 text-xs border rounded ${p === safePage ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 hover:bg-gray-50"}`}>{p}</button>
                   ))}
                   <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">Next</button>

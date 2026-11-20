@@ -14,6 +14,7 @@ import {
   getQuizAttempts,
 } from "../../../service/hrService";
 import { formatDateTime } from "../../../utils/dateTime";
+import { fetchAllPages } from "../../../utils/learningPaging";
 import {
   QUESTION_TYPES, EMPTY_ASSESSMENT, EMPTY_QUESTION, assessmentToForm, validateAssessmentForm, assessmentPayload,
   parseOptions, questionToForm, validateQuestionForm, questionPayload, serverFormErrors, ASSESSMENT_LABELS, QUESTION_LABELS,
@@ -231,7 +232,7 @@ export default function ZoikoHRAssessments({ isTab }) {
     setLoading(true);
     setError(null);
     try {
-      const [data, crs] = await Promise.all([getAssessments(), getCourses({ per_page: 200 })]);
+      const [data, crs] = await Promise.all([getAssessments(), fetchAllPages(getCourses)]);      // the course picker lists every course, not the first page
       setAssessments(Array.isArray(data) ? data : []);
       setCourses(Array.isArray(crs?.items) ? crs.items : Array.isArray(crs) ? crs : []);
     } catch (err) {

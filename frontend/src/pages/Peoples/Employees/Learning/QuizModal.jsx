@@ -5,6 +5,21 @@ import { answerList } from "../../../../utils/employeeLearning";
 
 const asList = (r) => (Array.isArray(r) ? r : r?.items || r?.data?.items || r?.data || []);
 
+// One start request per learner and quiz at a time: React StrictMode runs the opening effect twice, and a fast double
+// click opens the modal twice; both share this request instead of each starting an attempt (audit L8). The server also
+// resumes an unsubmitted attempt, so reopening a quiz later continues it rather than using up another try.
+const pendingStarts = new Map();
+export function startQuizOnce(assessmentId, employeeId) {
+  const key = `${assessmentId}:${employeeId ?? ""}`;
+  if (!pendingStarts.has(key)) {
+    const request = Promise.resolve()
+      .then(() => startQuiz(assessmentId, employeeId))
+      .finally(() => { if (pendingStarts.get(key) === request) pendingStarts.delete(key); });
+    pendingStarts.set(key, request);
+  }
+  return pendingStarts.get(key);
+}
+
 export default function QuizModal({ course, assessment, employeeId, onClose, onFinished }) {
   const [questions, setQuestions] = useState(null);
   const [attempt, setAttempt] = useState(null);
@@ -20,7 +35,7 @@ export default function QuizModal({ course, assessment, employeeId, onClose, onF
         const list = asList(await getQuestions(assessment.id));
         if (!alive) return;
         if (list.length === 0) { setQuestions([]); return; }
-        const att = await startQuiz(assessment.id, employeeId);
+        const att = await startQuizOnce(assessment.id, employeeId);
         if (!alive) return;
         setAttempt(att);
         setQuestions(list);
@@ -64,6 +79,13 @@ export default function QuizModal({ course, assessment, employeeId, onClose, onF
           {error && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400 font-medium">{error}</p>}
           {questions === null ? (
             <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+          ) : result?.status === "pending_review" ? (
+            <div className="text-center py-8">
+              <p className="text-lg font-bold text-gray-900 dark:text-[#f1f5f9] mb-1">Answers submitted</p>
+              <p className="text-sm text-gray-500 dark:text-[#94a3b8]">
+                This quiz has written answers that a reviewer marks by hand. Your score will appear once they have been graded.
+              </p>
+            </div>
           ) : result ? (
             <div className="text-center py-8">
               <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 ${result.passed ? "bg-emerald-50" : "bg-amber-50"}`}>
