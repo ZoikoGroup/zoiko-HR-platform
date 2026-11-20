@@ -233,3 +233,9 @@ def register(scheduler) -> None:
         register_documents_jobs(scheduler)
     except Exception:
         logger.exception("documents jobs could not be registered")
+    # Attendance engine (attendance plan M8): close finished days every 30 minutes.
+    try:
+        from app.modules.hr.attendance.jobs import register as register_attendance_jobs
+        register_attendance_jobs(scheduler)
+    except Exception:
+        logger.exception("attendance jobs could not be registered")

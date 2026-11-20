@@ -124,7 +124,7 @@ TABLES: dict[str, Level] = {
     "notification_templates": L.PLATFORM_META, "retention_policies": L.PLATFORM_META,
     # attendance engine (attendance plan M1): breaks and the edit trail are about a person's working day
     "attendance_breaks": L.PERSONAL_CONFIDENTIAL, "attendance_audit_log": L.PERSONAL_CONFIDENTIAL,
-    "employee_shifts": L.PERSONAL_BASIC,
+    "employee_shifts": L.PERSONAL_BASIC, "attendance_day_closures": L.PLATFORM_META,
     # Prompt 4: probation reviews and improvement plans hold performance concerns (C3 documents)
     "probation_reviews": L.PERSONAL_CONFIDENTIAL, "performance_improvement_plans": L.SPECIAL_CATEGORY,
     # child tables of tenant tables (no organization_id of their own)

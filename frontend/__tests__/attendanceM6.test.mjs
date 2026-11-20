@@ -14,6 +14,7 @@ const h = React.createElement;
 const settle = async (n = 8) => { for (let i = 0; i < n; i++) await act(async () => { await new Promise((r) => setTimeout(r, 20)); }); };
 
 const TODAY = {
+  last_closed: { date: "2026-11-17", missed_punches: 2, closed_at: "2026-11-17T19:00:00Z" },
   date: "2026-11-18", timezone: "Asia/Kolkata", as_of: "2026-11-18T04:30:00Z", holiday: false,
   total: 5, present: 1, late: 1, half_day: 0, remote: 1, on_leave: 1, absent: 0, missed_punch: 1, off: 0, not_checked_in: 1,
   on_break: 1, working_now: 1, checked_out: 0, expected: 4, attendance_rate: 75,
@@ -83,4 +84,14 @@ test("everyone in, and the error state", async (t) => {
   mockToday(t, () => { throw new Error("Server unavailable"); });
   await renderPanel();
   assert.match(screen.getByRole("alert").textContent, /Server unavailable/);
+});
+
+test("the last closed day (attendance M8) is shown, or that none is yet", async (t) => {
+  mockToday(t, () => structuredClone(TODAY));
+  await renderPanel();
+  assert.match(screen.getByLabelText("Last closed day").textContent, /Last closed day: 2026-11-17 · 2 missed punch-outs\./);
+  cleanup();
+  mockToday(t, () => ({ ...structuredClone(TODAY), last_closed: null }));
+  await renderPanel();
+  assert.match(screen.getByLabelText("Last closed day").textContent, /No day has been closed yet/);
 });

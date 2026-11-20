@@ -58,6 +58,9 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_CONFIDENTIAL**: `employee_id`, `date`, `original_check_in`, `original_check_out`, `requested_check_in`, `requested_check_out`, `kind`, `requested_status`, `requested_breaks`, `reason_detail`, `evidence_file`, `declared_at`, `requested_by`, `status`, `decided_by`, `decided_at`, `applied_at`
 - **SPECIAL_CATEGORY**: `reason`, `decision_reason`
 
+## `attendance_day_closures` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `organization_id`, `work_date`, `closed_at`, `records_written`, `records_updated`, `missed_punches`
+
 ## `attendance_records` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `is_deleted`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `overtime_request_id`, `shift_id`, `created_by`, `updated_by`

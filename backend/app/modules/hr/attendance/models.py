@@ -1,5 +1,5 @@
 """New attendance tables (attendance plan §4). The record itself stays in hr/models.AttendanceRecord."""
-from sqlalchemy import JSON, BigInteger, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -59,3 +59,17 @@ class AttendanceAuditLog(Base):
     ip_address      = Column(String(45), nullable=True)
     user_agent      = Column(String(255), nullable=True)
     created_at      = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class AttendanceDayClosure(Base):
+    """A work day the end-of-day job has finished for an organization (attendance plan M8). A second run skips it."""
+    __tablename__ = "attendance_day_closures"
+    __table_args__ = (UniqueConstraint("organization_id", "work_date", name="uq_att_day_closure"),)
+
+    id              = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    work_date       = Column(Date, nullable=False)
+    closed_at       = Column(DateTime, nullable=False, server_default=func.now())
+    records_written = Column(Integer, nullable=False, default=0, server_default="0")
+    records_updated = Column(Integer, nullable=False, default=0, server_default="0")
+    missed_punches  = Column(Integer, nullable=False, default=0, server_default="0")

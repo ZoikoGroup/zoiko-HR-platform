@@ -178,11 +178,11 @@ def _load(name):
 
 def test_migrations_downgrade_and_upgrade_cleanly_and_enforce_one_record_per_day(db, people):
     names = ("a7c1d2e3f4a0_attendance_engine_schema", "a7c1d2e3f4a1_attendance_engine_backfill",
-             "a7c1d2e3f4a2_attendance_engine_constraints")
+             "a7c1d2e3f4a2_attendance_engine_constraints", "a7c1d2e3f4a3_attendance_day_closures")
     for n in reversed(names):
         _run(db, n, "downgrade")
     insp = inspect(db.get_bind())
-    assert "attendance_audit_log" not in insp.get_table_names()
+    assert "attendance_audit_log" not in insp.get_table_names() and "attendance_day_closures" not in insp.get_table_names()
     assert "check_in_at" not in {c["name"] for c in insp.get_columns("attendance_records")}
     db.execute(text("INSERT INTO attendance_records (employee_id, organization_id, date, status, is_deleted) "
                     "VALUES (:e, 1, :d, 'PRESENT', 0), (:e, 1, :d, 'LATE', 0)"), {"e": people["emp"].id, "d": DAY})

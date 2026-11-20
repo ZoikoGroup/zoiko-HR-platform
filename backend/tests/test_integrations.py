@@ -511,7 +511,10 @@ def test_events_catalog_endpoint(world):
                     "subscription.converted", "refund.created",
                     "document.generated", "document.issued", "document.executed", "document.acknowledged",
                     "document.declined", "document.expired", "template.variant.released", "template.variant.suspended",
-                    "onboarding.payroll_details_verified", "attendance.overtime.approved", "compensation.change.approved"}
+                    "onboarding.payroll_details_verified", "attendance.overtime.approved", "compensation.change.approved",
+                    # documents module (ZHR-DOCS-ARCH-001): employee lifecycle and uploaded-document events
+                    "employee.created", "employee.role_changed", "employee.exited", "document.uploaded", "document.approved",
+                    "document.rejected", "document.expiring", "policy.version_published", "signature.completed", "task.overdue"}
 
 
 # ───────────────────────── Zoiko Workflow ─────────────────────────

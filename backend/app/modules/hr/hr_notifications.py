@@ -27,6 +27,7 @@ logger = logging.getLogger("zoiko.notifications.hr")
 EVENTS = {
     "overtime.approved": ("attendance", "Overtime approved", "Your overtime request for {date} has been approved."),
     "overtime.rejected": ("attendance", "Overtime not approved", "Your overtime request for {date} was not approved."),
+    "attendance.missed_punch": ("attendance", "You did not punch out", "You punched in on {date} but never punched out, so the day counts 0 hours. Request a correction in My Attendance."),
     "correction.approved": ("attendance", "Attendance correction approved", "Your attendance correction for {date} has been approved."),
     "correction.rejected": ("attendance", "Attendance correction not approved", "Your attendance correction for {date} was not approved."),
     "expense.approved": ("expense", "Expense claim approved", "Your expense claim has been approved."),

@@ -61,6 +61,11 @@ export default function TodayPanel() {
             {t.attendance_rate != null ? `${t.attendance_rate}% of the ${t.expected} people expected today are in.` : "Nobody is expected today."}
             {t.missed_punch > 0 && ` ${t.missed_punch} missed punch-out.`}
           </p>
+          <p className="text-xs text-slate-500" aria-label="Last closed day">
+            {t.last_closed
+              ? `Last closed day: ${t.last_closed.date}${t.last_closed.missed_punches ? ` · ${t.last_closed.missed_punches} missed punch-out${t.last_closed.missed_punches === 1 ? "" : "s"}` : ""}. Absences, leave and days off are written automatically after each day ends.`
+              : "No day has been closed yet. After each day ends, absences, leave and days off are written automatically."}
+          </p>
           <div className="grid gap-5 lg:grid-cols-2">
             <div>
               <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">By department</h3>

@@ -151,9 +151,15 @@ def today(db: Session, actor, department_id: Optional[int] = None, now: Optional
     waiting.sort(key=lambda w: (not w["overdue"], w["shift_start"] or "99:99", w["name"] or ""))
     return {
         "date": day.isoformat(), "timezone": tz.key, "as_of": clock.iso_utc(now), "holiday": holiday,
+        "last_closed": _last_closed(db, org),
         **counts, "expected": expected,
         "attendance_rate": round(100 * attended / expected) if expected else None,
         "by_department": sorted(({"department_id": k[0], "department": k[1], **v} for k, v in by_dept.items()),
                                 key=lambda x: (-x["total"], x["department"])),
         "not_checked_in_list": waiting[:200],
     }
+
+
+def _last_closed(db: Session, org: int):
+    from app.modules.hr.attendance.day_close import last_closure
+    return last_closure(db, org)
