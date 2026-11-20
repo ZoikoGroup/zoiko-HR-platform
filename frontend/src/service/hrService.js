@@ -333,7 +333,10 @@ export const getAssetRequests = (params = {}) => api.get("/hr/assets/requests", 
 export const createAssetRequest = (payload) => api.post("/hr/assets/requests", payload);
 export const approveAssetRequest = (reqId, payload) => api.put(`/hr/assets/requests/${reqId}/approve`, payload);
 export const rejectAssetRequest = (reqId) => api.put(`/hr/assets/requests/${reqId}/reject`);
-export const fulfillAssetRequest = (reqId) => api.put(`/hr/assets/requests/${reqId}/fulfill`);
+// payload: { asset_id } — the available asset handed to the requester (the server assigns it in the same step)
+export const fulfillAssetRequest = (reqId, payload) => api.put(`/hr/assets/requests/${reqId}/fulfill`, payload);
+// Admin picker: active staff ordered by name, searched on the server ({ search, limit, include_inactive })
+export const getAssetEmployeeOptions = (params = {}) => api.get("/hr/assets/employee-options", { params });
 export const cancelAssetRequest = (reqId) => api.put(`/hr/assets/requests/${reqId}/cancel`);
 
 export const getAssetCategories = () => api.get("/hr/assets/categories");

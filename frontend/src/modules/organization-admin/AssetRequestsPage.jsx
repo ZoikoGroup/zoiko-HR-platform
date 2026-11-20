@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useAuth } from "../../context/AuthContext";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PageHeader from "../../components/PageHeader";
 import {
   getAssetRequests,
@@ -11,6 +10,8 @@ import {
   Package, Search, CheckCircle, XCircle,
   Clock, AlertCircle, Loader2,
 } from "lucide-react";
+import { PAGE_SIZE, Pager, useDebounced } from "./assetPickers";
+import FulfillAssetDialog from "./FulfillAssetDialog";
 import { formatDate } from "../../utils/dateTime";
 
 const STATUS_COLORS = {
@@ -28,61 +29,68 @@ const PRIORITY_COLORS = {
 };
 
 export default function OrgAdminAssetRequestsPage() {
-  const { user } = useAuth();
   const [requests, setRequests] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
+  const [fulfilling, setFulfilling] = useState(null);
+  const settledSearch = useDebounced(search);
+  const latest = useRef(0);
 
+  // Paged, filtered and searched on the server; the pending banner counts every pending request, not one page.
   const fetchData = useCallback(async () => {
+    const mine = ++latest.current;             // a slower, older answer never overwrites a newer one
     setLoading(true);
     setError(null);
     try {
-      const data = await getAssetRequests();
+      const [data, pending] = await Promise.all([
+        getAssetRequests({
+          page,
+          per_page: PAGE_SIZE,
+          status: statusFilter || undefined,
+          search: settledSearch.trim() || undefined,
+        }),
+        getAssetRequests({ status: "pending", per_page: 1 }).catch(() => null),
+      ]);
+      if (mine !== latest.current) return;
       setRequests(data?.items || []);
+      setTotal(data?.total ?? 0);
+      setPendingCount(pending?.total ?? 0);
     } catch (err) {
+      if (mine !== latest.current) return;
       setError(err.message || "Failed to load asset requests");
       setRequests([]);
+      setTotal(0);
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
-  }, []);
+  }, [page, statusFilter, settledSearch]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { setPage(1); }, [statusFilter, settledSearch]);
 
-  const handleAction = useCallback(async (id, action) => {
+  const handleAction = useCallback(async (id, action, payload) => {
     setActionLoading(`${action}-${id}`);
     try {
       if (action === "approve") await approveAssetRequest(id);
       if (action === "reject") await rejectAssetRequest(id);
-      if (action === "fulfill") await fulfillAssetRequest(id);
+      if (action === "fulfill") await fulfillAssetRequest(id, payload);
       await fetchData();
+      return true;
     } catch (err) {
       setError(err.message || `Failed to ${action} request`);
+      return false;
     } finally {
       setActionLoading(null);
     }
   }, [fetchData]);
 
-  const filtered = useMemo(() => {
-    let result = requests;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((r) =>
-        (r.employee_name || "").toLowerCase().includes(q) ||
-        (r.asset_type || "").toLowerCase().includes(q) ||
-        (r.reason || "").toLowerCase().includes(q)
-      );
-    }
-    if (statusFilter) {
-      result = result.filter((r) => (r.status || "") === statusFilter);
-    }
-    return result;
-  }, [requests, search, statusFilter]);
-
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
+  const filtering = Boolean(statusFilter || settledSearch.trim());
 
   return (
     <div className="space-y-6">
@@ -135,11 +143,11 @@ export default function OrgAdminAssetRequestsPage() {
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 font-medium">Loading requests...</span>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : requests.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <Package className="mx-auto h-10 w-10 text-slate-300" />
           <p className="mt-3 text-sm font-medium text-slate-500">
-            {requests.length === 0 ? "No asset requests yet." : "No requests match your filters."}
+            {filtering ? "No requests match your filters." : "No asset requests yet."}
           </p>
         </div>
       ) : (
@@ -160,7 +168,7 @@ export default function OrgAdminAssetRequestsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map((r) => {
+                {requests.map((r) => {
                   const status = r.status || "pending";
                   const priority = r.priority || "medium";
                   return (
@@ -209,11 +217,11 @@ export default function OrgAdminAssetRequestsPage() {
                         )}
                         {status === "approved" && (
                           <button
-                            onClick={() => handleAction(r.id, "fulfill")}
+                            onClick={() => setFulfilling(r)}
                             disabled={actionLoading === `fulfill-${r.id}`}
                             className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-40"
                           >
-                            {actionLoading === `fulfill-${r.id}` ? "..." : "Mark Fulfilled"}
+                            {actionLoading === `fulfill-${r.id}` ? "..." : "Fulfill"}
                           </button>
                         )}
                         {status !== "pending" && status !== "approved" && (
@@ -226,8 +234,21 @@ export default function OrgAdminAssetRequestsPage() {
               </tbody>
             </table>
           </div>
+          <Pager page={page} total={total} onPage={setPage} label="requests" />
         </div>
+      )}
+
+      {fulfilling && (
+        <FulfillAssetDialog
+          request={fulfilling}
+          saving={actionLoading === `fulfill-${fulfilling.id}`}
+          onClose={() => setFulfilling(null)}
+          onFulfill={async (assetId) => {
+            if (await handleAction(fulfilling.id, "fulfill", { asset_id: assetId })) setFulfilling(null);
+          }}
+        />
       )}
     </div>
   );
 }
+

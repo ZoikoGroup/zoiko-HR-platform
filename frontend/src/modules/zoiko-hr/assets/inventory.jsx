@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { getAssets, createAsset, updateAsset, deleteAsset, getAssetCategories, getHrEmployees, transferAsset, assignAsset, returnAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
+import { getAssets, createAsset, updateAsset, deleteAsset, getAssetCategories, getAssetEmployeeOptions, transferAsset, assignAsset, returnAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -58,7 +58,7 @@ export default function Inventory() {
     try {
       const [catData, empData] = await Promise.all([
         getAssetCategories(),
-        getHrEmployees({ per_page: 200 }),
+        getAssetEmployeeOptions({ limit: 50 }),             // active staff only, ordered by name
       ]);
       const cats = Array.isArray(catData) ? catData : catData?.items || catData?.data || [];
       setCategoryOptions(cats.map((c) => c.name));
@@ -70,6 +70,19 @@ export default function Inventory() {
   };
 
   useEffect(() => { fetchData(); fetchLookups(); }, []);
+
+  // The assign / transfer picker searches active staff on the server as the admin types.
+  const [empSearch, setEmpSearch] = useState("");
+  useEffect(() => {
+    if (!showAssign) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      getAssetEmployeeOptions({ limit: 50, search: empSearch.trim() || undefined })
+        .then((list) => { if (live) setEmployees(Array.isArray(list) ? list : list?.items || []); })
+        .catch(() => {});
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [showAssign, empSearch]);
 
   const departments = useMemo(() => {
     const depts = new Set(assets.map((a) => a.department || a.department_name).filter(Boolean));
@@ -130,7 +143,7 @@ export default function Inventory() {
       const payload = {
         name: form.name.trim(), asset_tag: form.assetTag.trim(),
         category: form.category || null, serial_number: form.serialNumber || null,
-        employee_id: null, department: form.department || null,
+        department: form.department || null,             // who holds it changes through Assign / Transfer / Return
         assigned_date: form.assignedDate || null, status: form.status, condition: form.condition,
         purchase_date: form.purchaseDate || null, purchase_cost: form.purchasePrice ? Number(form.purchasePrice) : null,
         notes: form.notes || null,
@@ -266,11 +279,11 @@ export default function Inventory() {
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={() => openEdit(a)} className="p-1.5 text-gray-400 hover:text-amber-600 transition-colors rounded hover:bg-amber-50" title="Edit">&#9998;</button>
                           {a.status === "available" && (
-                            <button onClick={() => { setShowAssign(a); setAssignEmployeeId(""); }} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded hover:bg-blue-50" title="Assign">&#8594;</button>
+                            <button onClick={() => { setShowAssign(a); setAssignEmployeeId(""); setEmpSearch(""); }} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded hover:bg-blue-50" title="Assign">&#8594;</button>
                           )}
                           {a.status === "assigned" && a.employee_id && (
                             <>
-                              <button onClick={() => { setShowAssign(a); setAssignEmployeeId(""); }} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded hover:bg-blue-50" title="Transfer">&#8644;</button>
+                              <button onClick={() => { setShowAssign(a); setAssignEmployeeId(""); setEmpSearch(""); }} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded hover:bg-blue-50" title="Transfer">&#8644;</button>
                               <button onClick={async () => {
                                 if (!window.confirm("Return this asset?")) return;
                                 try {
@@ -368,7 +381,8 @@ export default function Inventory() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
+                    {/* "assigned" is set by Assign (which records who holds it), so it is offered only for an asset that already is */}
+                    {STATUS_OPTIONS.filter((v) => v !== "assigned" || editAsset?.status === "assigned").map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
                   </select>
                 </div>
                 <div>
@@ -426,6 +440,9 @@ export default function Inventory() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Select Employee *</label>
+                <input type="text" placeholder="Search active employees..." value={empSearch}
+                  onChange={(e) => { setEmpSearch(e.target.value); setAssignEmployeeId(""); }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <select value={assignEmployeeId} onChange={(e) => setAssignEmployeeId(e.target.value)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">-- Select employee --</option>

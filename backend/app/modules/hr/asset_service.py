@@ -17,11 +17,95 @@ from app.modules.hr.schemas import (
     AssetCategoryCreate,
     AssetReportGenerate,
 )
-from app.core.exceptions import NotFoundException, AlreadyExistsException, BadRequestException
+from app.core.exceptions import NotFoundException, AlreadyExistsException, BadRequestException, ZoikoException
 from app.core.sanitize import sanitize_input, sanitize_dict
 from app.core.spreadsheet import safe_cell, safe_row
-from app.modules.employee.ownership import filter_ids, get_org_employee_or_404
+from app.modules.employee.ownership import WORKING_STATUSES, filter_ids, get_org_employee_or_404
 from app.modules.hr.asset_uniqueness import category_name_conflict, commit_or_conflict, tag_conflict
+
+
+# -- Assignment rules (audit batch 2: A6, A7, A8, A9) -----------------------------------------------------------------
+# An asset is handed to someone only when it is available (an assigned one moves with /transfer; one in maintenance,
+# retired, lost or broken cannot be handed out), and only to someone in the asset's organization who still works there.
+
+class AssetConflict(ZoikoException):
+    """409: the asset or the person is not in a state that allows this."""
+    def __init__(self, message: str):
+        super().__init__(status_code=409, error_code="CONFLICT", message=message)
+
+
+def _status_value(status) -> str:
+    return getattr(status, "value", status) or ""
+
+
+def _working_employee(db: Session, organization_id: Optional[int], employee_id: int) -> Employee:
+    """The employee if they belong to the organization (404 otherwise, so another organization's people never show) and
+    still work there (409 with a clear message otherwise)."""
+    employee = get_org_employee_or_404(db, organization_id, employee_id, active_only=False)
+    status = _status_value(getattr(employee, "status", None))
+    if status not in {s.value for s in WORKING_STATUSES}:
+        raise AssetConflict(
+            f"{employee.full_name} is no longer an active employee (status: {status or 'unknown'}); "
+            "assets can only be given to active staff.")
+    return employee
+
+
+def _not_available_message(asset: Asset) -> str:
+    status = _status_value(asset.status)
+    if status == AssetStatus.ASSIGNED.value:
+        holder = asset.employee.full_name if asset.employee else "someone"
+        return (f"Asset {asset.asset_tag} is already assigned to {holder}. "
+                "Return it first, or use Transfer to move it to another employee.")
+    return f"Asset {asset.asset_tag} is {status or 'not available'} and cannot be assigned; only available assets can be."
+
+
+def _claim_available(db: Session, asset: Asset, employee_id: int, by: Optional[int]) -> None:
+    """Hand an available asset to `employee_id` without committing. The UPDATE only matches while the row is still
+    available, so two admins assigning the same asset at once cannot both win."""
+    values = {Asset.employee_id: employee_id, Asset.status: AssetStatus.ASSIGNED,
+              Asset.assigned_date: datetime.utcnow().date()}
+    claimed = (db.query(Asset)
+               .filter(Asset.id == asset.id, Asset.status == AssetStatus.AVAILABLE, Asset.deleted_at.is_(None))
+               .update(values, synchronize_session=False))
+    if claimed != 1:
+        db.rollback()
+        db.refresh(asset)
+        raise AssetConflict(_not_available_message(asset))
+
+
+def _after_assigned(db: Session, asset: Asset, actor_id: Optional[int]) -> None:
+    """HR-ONB-015 equipment issuance form; never undoes the assignment if the document step fails."""
+    try:
+        from app.modules.employee.models import Employee as _Employee
+        from app.modules.hr import onboarding_documents
+        actor = db.get(_Employee, actor_id) if actor_id else None
+        onboarding_documents.on_asset_assigned(db, asset, actor)          # HR-ONB-015 equipment issuance form
+        db.refresh(asset)
+    except Exception:
+        db.rollback()
+
+
+ASSIGNABLE_EMPLOYEES_MAX = 50
+
+
+def get_assignable_employees(db: Session, organization_id: Optional[int], search: Optional[str] = None,
+                             limit: int = 20, include_inactive: bool = False) -> list[dict]:
+    """People an admin can pick for an asset: the organization's staff who still work there (or everyone, for filtering
+    the list by holder), searched on the server as the admin types and ordered by name."""
+    if organization_id is None:
+        return []
+    q = db.query(Employee).filter(Employee.organization_id == organization_id)
+    if not include_inactive:
+        q = q.filter(Employee.status.in_(list(WORKING_STATUSES)))
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        q = q.filter(Employee.first_name.ilike(term) | Employee.last_name.ilike(term) | Employee.email.ilike(term)
+                     | Employee.employee_code.ilike(term) | Employee.employee_id.ilike(term))
+    limit = min(max(limit, 1), ASSIGNABLE_EMPLOYEES_MAX)
+    rows = q.order_by(func.lower(Employee.first_name), func.lower(Employee.last_name), Employee.id).limit(limit).all()
+    return [{"id": e.id, "first_name": e.first_name, "last_name": e.last_name, "full_name": e.full_name,
+             "email": e.email, "employee_code": e.employee_code, "status": _status_value(e.status) or None}
+            for e in rows]
 
 
 def get_asset_dashboard(db: Session, organization_id: Optional[int] = None) -> dict:
@@ -80,7 +164,7 @@ def get_asset_dashboard(db: Session, organization_id: Optional[int] = None) -> d
     }
 
 
-def create_asset(db: Session, data: AssetCreate, organization_id: int = None) -> Asset:
+def create_asset(db: Session, data: AssetCreate, organization_id: int = None, created_by: Optional[int] = None) -> Asset:
     raw = data.model_dump()
     safe = sanitize_dict(raw)
     name = str(safe.get("name", ""))
@@ -93,8 +177,6 @@ def create_asset(db: Session, data: AssetCreate, organization_id: int = None) ->
     safe["asset_tag"] = asset_tag
 
     tag_conflict(db, organization_id, asset_tag)
-    if safe.get("employee_id") is not None:
-        get_org_employee_or_404(db, organization_id, safe["employee_id"])        # only someone working in this organization
 
     # Ensure enum fields use Python enum instances, not plain strings
     enum_fields = {
@@ -105,12 +187,31 @@ def create_asset(db: Session, data: AssetCreate, organization_id: int = None) ->
         if fld in safe and isinstance(safe[fld], str):
             safe[fld] = enum_cls(safe[fld])
 
+    # A8: "assigned" needs someone to hold it, and naming someone means handing the asset to them in this one
+    # transaction (no separate create-then-assign that can stop halfway and leave the tag taken).
+    employee_id = safe.get("employee_id")
+    status = safe.get("status") or AssetStatus.AVAILABLE
+    if employee_id is not None:
+        _working_employee(db, organization_id, employee_id)
+        if status not in (AssetStatus.AVAILABLE, AssetStatus.ASSIGNED):
+            raise BadRequestException(
+                f"An asset created as {status.value} cannot be assigned to an employee; create it as available or "
+                "leave the employee empty.")
+        safe["status"] = AssetStatus.ASSIGNED
+        safe["assigned_date"] = safe.get("assigned_date") or datetime.utcnow().date()
+    elif status == AssetStatus.ASSIGNED:
+        raise BadRequestException("Choose the employee to assign this asset to, or create it as available.")
+    else:
+        safe["assigned_date"] = None
+
     asset = Asset(**safe)
     if organization_id:
         asset.organization_id = organization_id
     db.add(asset)
     commit_or_conflict(db)
     db.refresh(asset)
+    if asset.employee_id is not None:
+        _after_assigned(db, asset, created_by)
     return asset
 
 
@@ -183,7 +284,8 @@ def get_assets(
 
     sort_col = SORTABLE_FIELDS.get(sort_by, Asset.created_at)
     sort_fn = desc if sort_order == "desc" else asc
-    assets = query.options(selectinload(Asset.employee)).order_by(sort_fn(sort_col)).offset((page - 1) * per_page).limit(per_page).all()
+    assets = (query.options(selectinload(Asset.employee)).order_by(sort_fn(sort_col), sort_fn(Asset.id))   # stable pages
+              .offset((page - 1) * per_page).limit(per_page).all())
 
     items = []
     for a in assets:
@@ -233,8 +335,21 @@ def update_asset(db: Session, asset_id: int, data: AssetUpdate, updated_by: int 
         raise BadRequestException("Asset tag cannot be empty")
     if update_data.get("asset_tag") and update_data["asset_tag"] != asset.asset_tag:
         tag_conflict(db, asset.organization_id, update_data["asset_tag"], exclude_id=asset.id)
-    if update_data.get("employee_id") is not None and update_data["employee_id"] != asset.employee_id:
-        get_org_employee_or_404(db, asset.organization_id, update_data["employee_id"])
+    # Who holds an asset changes through assign / transfer / return, not through an edit (A7, A8). An edit form that
+    # sends employee_id unchanged or null (it does not manage the holder) is accepted and leaves the holder alone.
+    new_holder = update_data.pop("employee_id", None)
+    if new_holder is not None and new_holder != asset.employee_id:
+        get_org_employee_or_404(db, asset.organization_id, new_holder)
+        raise BadRequestException("Use Assign (for an available asset) or Transfer (for an assigned one) to change who "
+                                  "holds an asset.")
+    new_status = update_data.get("status")
+    if isinstance(new_status, str):
+        new_status = update_data["status"] = AssetStatus(new_status)
+    if new_status == AssetStatus.ASSIGNED and asset.status != AssetStatus.ASSIGNED:
+        raise BadRequestException("An asset becomes assigned through Assign, which records who holds it.")
+    if new_status is not None and new_status != AssetStatus.ASSIGNED and asset.status == AssetStatus.ASSIGNED:
+        update_data["employee_id"] = None            # no longer held by anyone
+        update_data["assigned_date"] = None
     for field, value in update_data.items():
         setattr(asset, field, value)
     if updated_by is not None:
@@ -252,25 +367,13 @@ def delete_asset(db: Session, asset_id: int, organization_id: Optional[int] = No
 
 def assign_asset(db: Session, asset_id: int, employee_id: int, assigned_by: int, organization_id: Optional[int] = None) -> Asset:
     asset = get_asset_by_id(db, asset_id, organization_id)
-    if asset.status == AssetStatus.RETIRED:
-        raise BadRequestException("Cannot assign a retired asset")
-    if asset.status == AssetStatus.LOST:
-        raise BadRequestException("Cannot assign a lost asset")
-    get_org_employee_or_404(db, asset.organization_id, employee_id)       # same organization as the asset, still working here
-    asset.employee_id = employee_id
-    asset.status = AssetStatus.ASSIGNED
-    asset.assigned_date = datetime.utcnow().date()
-    asset.updated_by = assigned_by
+    _working_employee(db, asset.organization_id, employee_id)              # same organization as the asset, still working here
+    if asset.status != AssetStatus.AVAILABLE:                              # A7: reassigning goes through /transfer
+        raise AssetConflict(_not_available_message(asset))
+    _claim_available(db, asset, employee_id, assigned_by)
     db.commit()
     db.refresh(asset)
-    try:
-        from app.modules.employee.models import Employee
-        from app.modules.hr import onboarding_documents
-        actor = db.get(Employee, assigned_by) if assigned_by else None
-        onboarding_documents.on_asset_assigned(db, asset, actor)          # HR-ONB-015 equipment issuance form
-        db.refresh(asset)
-    except Exception:
-        db.rollback()
+    _after_assigned(db, asset, assigned_by)
     return asset
 
 
@@ -292,13 +395,14 @@ def return_asset(db: Session, asset_id: int, reason: str, condition: Optional[st
 
 def transfer_asset(db: Session, asset_id: int, new_employee_id: int, transferred_by: int, organization_id: Optional[int] = None) -> Asset:
     asset = get_asset_by_id(db, asset_id, organization_id)
-    if asset.status == AssetStatus.RETIRED:
-        raise BadRequestException("Cannot transfer a retired asset")
-    if asset.status == AssetStatus.LOST:
-        raise BadRequestException("Cannot transfer a lost asset")
-    get_org_employee_or_404(db, asset.organization_id, new_employee_id)
+    _working_employee(db, asset.organization_id, new_employee_id)
+    if asset.status != AssetStatus.ASSIGNED:
+        if asset.status == AssetStatus.AVAILABLE:
+            raise AssetConflict(f"Asset {asset.asset_tag} is not assigned to anyone; use Assign instead of Transfer.")
+        raise AssetConflict(_not_available_message(asset))
+    if asset.employee_id == new_employee_id:
+        raise AssetConflict(f"Asset {asset.asset_tag} is already assigned to this employee.")
     asset.employee_id = new_employee_id
-    asset.status = AssetStatus.ASSIGNED
     asset.assigned_date = datetime.utcnow().date()
     asset.updated_by = transferred_by
     db.commit()
@@ -462,6 +566,7 @@ def get_asset_requests(
     employee_id: Optional[int] = None,
     organization_id: Optional[int] = None,
     employee_ids: Optional[list[int]] = None,
+    search: Optional[str] = None,
 ) -> dict:
     per_page = min(per_page, 100)
     query = db.query(AssetRequest)
@@ -479,8 +584,14 @@ def get_asset_requests(
     if employee_id:
         query = query.filter(AssetRequest.employee_id == employee_id)
 
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.outerjoin(Employee, AssetRequest.employee_id == Employee.id).filter(
+            AssetRequest.employee_name.ilike(term) | AssetRequest.asset_type.ilike(term) | AssetRequest.reason.ilike(term)
+            | Employee.first_name.ilike(term) | Employee.last_name.ilike(term))
+
     total = query.count()
-    requests = query.order_by(AssetRequest.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    requests = query.order_by(AssetRequest.created_at.desc(), AssetRequest.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
 
     items = []
     for req in requests:
@@ -554,13 +665,27 @@ def reject_asset_request(db: Session, request_id: int, organization_id: Optional
     return req
 
 
-def fulfill_asset_request(db: Session, request_id: int, organization_id: Optional[int] = None) -> AssetRequest:
+def fulfill_asset_request(db: Session, request_id: int, asset_id: int, fulfilled_by: Optional[int] = None,
+                          organization_id: Optional[int] = None) -> AssetRequest:
+    """A9: fulfilling a request hands the requester an available asset of the same organization, in the same transaction."""
     req = _get_asset_request_by_id(db, request_id, organization_id)
     if req.status != AssetRequestStatus.APPROVED:
         raise BadRequestException("Asset request is not in APPROVED status")
+    if req.employee_id is None:
+        raise AssetConflict("This request has no requesting employee to give the asset to.")
+    asset = get_asset_by_id(db, asset_id, req.organization_id)              # another organization's asset: 404
+    _working_employee(db, req.organization_id, req.employee_id)
+    if asset.status != AssetStatus.AVAILABLE:
+        raise AssetConflict(_not_available_message(asset))
+    _claim_available(db, asset, req.employee_id, fulfilled_by)
     req.status = AssetRequestStatus.FULFILLED
     req.fulfilled_on = datetime.utcnow()
+    line = f"Fulfilled with asset {asset.asset_tag} ({asset.name})."
+    req.notes = f"{req.notes}\n{line}" if req.notes else line
     db.commit()
+    db.refresh(req)
+    db.refresh(asset)
+    _after_assigned(db, asset, fulfilled_by)
     db.refresh(req)
     return req
 

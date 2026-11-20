@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useAuth } from "../../context/AuthContext";
+import { useState, useEffect, useRef, useCallback } from "react";
 import PageHeader from "../../components/PageHeader";
 import { employeeName, employeeInitials, employeeEmail } from "../../utils/fieldAccess";
 import {
-  getAssets, createAsset, getAssetCategories, getHrEmployees, assignAsset,
+  getAssets, createAsset, getAssetCategories, getAssetDashboard, assignAsset,
 } from "../../service/hrService";
+import { PAGE_SIZE, Pager, useDebounced, useEmployeeOptions } from "./assetPickers";
 import {
-  Package, Search, Plus, X, Loader2, CheckCircle, Clock, AlertCircle, User, ChevronDown,
+  Package, Search, Plus, X, Loader2, CheckCircle, AlertCircle, User, ChevronDown,
 } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -18,6 +18,8 @@ const STATUS_COLORS = {
 };
 
 const STATUS_OPTIONS = ["available", "assigned", "maintenance", "retired", "lost"];
+// A new asset starts without a holder in one of these states; choosing an employee makes it "assigned" on the server.
+const CREATE_STATUS_OPTIONS = ["available", "maintenance", "retired", "lost"];
 const CONDITION_OPTIONS = ["new", "good", "fair", "poor", "damaged"];
 
 const initialForm = {
@@ -27,68 +29,71 @@ const initialForm = {
 };
 
 export default function OrgAdminAssetsPage() {
-  const { user } = useAuth();
   const [assets, setAssets] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [counts, setCounts] = useState(null);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ ...initialForm });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const settledSearch = useDebounced(search);
+  const employeeId = selectedEmployee?.id;
+  const latest = useRef(0);
 
-  const fetchData = async () => {
+  // One page at a time from the server; search, status and holder are filtered there, not in the browser.
+  const fetchAssets = useCallback(async () => {
+    const mine = ++latest.current;             // a slower, older answer never overwrites a newer one
     setLoading(true);
-    setError(null);
-    const errors = [];
     try {
-      const [assetData, empData, catData] = await Promise.all([
-        getAssets().catch((e) => { errors.push(`Assets: ${e.message}`); return null; }),
-        getHrEmployees({ per_page: 200, include_all_roles: true }).catch((e) => { errors.push(`Employees: ${e.message}`); return null; }),
-        getAssetCategories().catch((e) => { errors.push(`Categories: ${e.message}`); return null; }),
-      ]);
-      if (assetData) setAssets(assetData?.items || (Array.isArray(assetData) ? assetData : []));
-      if (empData) {
-        const empList = empData?.items || (Array.isArray(empData) ? empData : []);
-        setEmployees(empList);
-      }
-      if (catData) {
+      const data = await getAssets({
+        page,
+        per_page: PAGE_SIZE,
+        search: settledSearch.trim() || undefined,
+        status: statusFilter || undefined,
+        employee_id: employeeId || undefined,
+      });
+      if (mine !== latest.current) return;
+      setAssets(data?.items || []);
+      setTotal(data?.total ?? 0);
+    } catch (err) {
+      if (mine !== latest.current) return;
+      setError(`Assets: ${err.message || "failed to load"}`);
+      setAssets([]);
+      setTotal(0);
+    } finally {
+      if (mine === latest.current) setLoading(false);
+    }
+  }, [page, settledSearch, statusFilter, employeeId]);
+
+  // The cards count every asset in the organization (the asset dashboard), not the rows on this page.
+  const fetchCounts = useCallback(async () => {
+    try {
+      setCounts(await getAssetDashboard());
+    } catch {
+      setCounts(null);
+    }
+  }, []);
+
+  useEffect(() => { fetchAssets(); }, [fetchAssets]);
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
+  useEffect(() => {
+    getAssetCategories()
+      .then((catData) => {
         const cats = Array.isArray(catData) ? catData : catData?.items || catData?.data || [];
         setCategories(cats.map((c) => c.name));
-      }
-      if (errors.length) setError(errors.join(" | "));
-    } catch (err) {
-      setError(err.message || "Failed to load data");
-      setAssets([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      })
+      .catch((e) => setError(`Categories: ${e.message}`));
+  }, []);
+  useEffect(() => { setPage(1); }, [settledSearch, statusFilter, employeeId]);
 
-  useEffect(() => { fetchData(); }, []);
-
-  const filtered = useMemo(() => {
-    let result = assets;
-    if (selectedEmployee) {
-      const eid = selectedEmployee.id;
-      result = result.filter((a) =>
-        a.employee_id === eid || a.employeeId === eid
-      );
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((a) =>
-        (a.name || a.itemName || "").toLowerCase().includes(q) ||
-        (a.assetTag || a.asset_tag || "").toLowerCase().includes(q) ||
-        (a.serialNumber || a.serial_number || "").toLowerCase().includes(q) ||
-        (a.employeeName || a.employee_name || "").toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [assets, search, selectedEmployee]);
+  const refresh = async () => { await Promise.all([fetchAssets(), fetchCounts()]); };
 
   const openCreate = () => {
     setForm({ ...initialForm });
@@ -110,26 +115,22 @@ export default function OrgAdminAssetsPage() {
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
+      // One call: with an employee the server creates the asset already assigned to them, or creates nothing at all.
       const payload = {
         name: form.name.trim(),
         asset_tag: form.assetTag.trim(),
         category: form.category || null,
         serial_number: form.serialNumber || null,
-        status: form.status,
+        status: form.employee_id ? "assigned" : form.status,
         condition: form.condition,
         purchase_date: form.purchaseDate || null,
         purchase_cost: form.purchasePrice ? Number(form.purchasePrice) : null,
         notes: form.notes || null,
+        employee_id: form.employee_id ? parseInt(form.employee_id, 10) : null,
       };
-      const created = await createAsset(payload);
-      const assetId = created?.id || created?.data?.id;
-
-      if (assetId && form.employee_id) {
-        await assignAsset(assetId, { employee_id: parseInt(form.employee_id) });
-      }
-
+      await createAsset(payload);
       setShowModal(false);
-      await fetchData();
+      await refresh();
     } catch (err) {
       setFormErrors({ submit: err.message || "Failed to save asset" });
     } finally {
@@ -139,16 +140,15 @@ export default function OrgAdminAssetsPage() {
 
   const handleAssign = async (assetId, employeeId) => {
     try {
-      await assignAsset(assetId, { employee_id: parseInt(employeeId) });
-      await fetchData();
+      await assignAsset(assetId, { employee_id: parseInt(employeeId, 10) });
+      await refresh();
     } catch (err) {
       setError(err.message || "Failed to assign asset");
     }
   };
 
-  const totalCount = assets.length;
-  const assignedCount = assets.filter((a) => a.status === "assigned").length;
-  const availableCount = assets.filter((a) => a.status === "available").length;
+  const filtering = Boolean(settledSearch.trim() || statusFilter || employeeId);
+  const cardValue = (v) => (v === undefined || v === null ? "..." : v);
 
   return (
     <div className="space-y-6">
@@ -167,20 +167,20 @@ export default function OrgAdminAssetsPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Total Assets</p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-800">{loading ? "..." : totalCount}</p>
+          <p className="mt-1 text-2xl font-extrabold text-slate-800" data-testid="count-total">{cardValue(counts?.total_assets)}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Assigned</p>
-          <p className="mt-1 text-2xl font-extrabold text-blue-600">{loading ? "..." : assignedCount}</p>
+          <p className="mt-1 text-2xl font-extrabold text-blue-600" data-testid="count-assigned">{cardValue(counts?.assigned_count)}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Available</p>
-          <p className="mt-1 text-2xl font-extrabold text-green-600">{loading ? "..." : availableCount}</p>
+          <p className="mt-1 text-2xl font-extrabold text-green-600" data-testid="count-available">{cardValue(counts?.available_count)}</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text" placeholder="Search by name, tag, serial..."
@@ -188,7 +188,12 @@ export default function OrgAdminAssetsPage() {
             className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
           />
         </div>
-        <EmployeeFilter employees={employees} value={selectedEmployee} onChange={setSelectedEmployee} />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status"
+          className="px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400">
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>))}
+        </select>
+        <EmployeeFilter value={selectedEmployee} onChange={setSelectedEmployee} />
         {selectedEmployee && (
           <button onClick={() => setSelectedEmployee(null)}
             className="text-xs text-slate-400 hover:text-red-500 font-medium transition">
@@ -208,11 +213,11 @@ export default function OrgAdminAssetsPage() {
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 font-medium">Loading assets...</span>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : assets.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <Package className="mx-auto h-10 w-10 text-slate-300" />
           <p className="mt-3 text-sm font-medium text-slate-500">
-            {assets.length === 0 ? "No assets yet. Add your first asset." : "No assets match your search."}
+            {filtering ? "No assets match your search." : "No assets yet. Add your first asset."}
           </p>
         </div>
       ) : (
@@ -230,7 +235,7 @@ export default function OrgAdminAssetsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map((a) => {
+                {assets.map((a) => {
                   const status = a.status || "available";
                   const empName = a.employeeName || a.employee_name || "";
                   return (
@@ -260,11 +265,7 @@ export default function OrgAdminAssetsPage() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         {status === "available" && (
-                          <AssignDropdown
-                            employees={employees}
-                            asset={a}
-                            onAssign={handleAssign}
-                          />
+                          <AssignDropdown asset={a} onAssign={handleAssign} />
                         )}
                         {status === "assigned" && (
                           <span className="text-xs text-slate-400 flex items-center justify-end gap-1">
@@ -278,6 +279,7 @@ export default function OrgAdminAssetsPage() {
               </tbody>
             </table>
           </div>
+          <Pager page={page} total={total} onPage={setPage} label="assets" />
         </div>
       )}
 
@@ -330,15 +332,21 @@ export default function OrgAdminAssetsPage() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Assign to Employee</label>
-                <EmployeeSelectModal employees={employees} value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
+                <EmployeeSelectModal value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Status</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition">
-                    {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
-                  </select>
+                  {form.employee_id ? (
+                    <p className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-blue-700 bg-blue-50">
+                      assigned (to the chosen employee)
+                    </p>
+                  ) : (
+                    <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition">
+                      {CREATE_STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Condition</label>
@@ -383,37 +391,51 @@ export default function OrgAdminAssetsPage() {
   );
 }
 
-function EmployeeFilter({ employees, value, onChange }) {
-  const [input, setInput] = useState("");
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+function EmployeeOption({ emp, selected = false }) {
+  return (
+    <>
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+        selected ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-500"
+      }`}>
+        {employeeInitials(emp)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium truncate">{employeeName(emp)}</p>
+        {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
+      </div>
+      {selected && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
+    </>
+  );
+}
 
-  const suggestions = useMemo(() => {
-    if (!input) return [];
-    const q = input.toLowerCase();
-    return employees.filter((e) =>
-      employeeName(e, "").toLowerCase().includes(q) ||
-      (employeeEmail(e) || "").toLowerCase().includes(q)
-    ).slice(0, 10);
-  }, [employees, input]);
-
+function useOutsideClose(ref, close) {
   useEffect(() => {
     const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target)) close();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [ref, close]);
+}
 
-  const displayName = value ? employeeName(value) : "";
+// Filter the list by holder: anyone in the organization (someone who has left may still hold assets), searched on the server.
+function EmployeeFilter({ value, onChange }) {
+  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClose(ref, close);
+  const { items: suggestions } = useEmployeeOptions(input, {
+    enabled: open && !value && Boolean(input.trim()), includeInactive: true,
+  });
 
   return (
     <div ref={ref} className="relative w-64">
       {value ? (
         <div className="flex items-center gap-2 border border-blue-200 bg-blue-50 rounded-xl px-3 py-2 text-sm text-blue-700 font-medium">
           <User size={14} />
-          <span className="flex-1 truncate">{displayName}</span>
-          <button onClick={() => { onChange(null); setInput(""); }}
+          <span className="flex-1 truncate">{employeeName(value)}</span>
+          <button onClick={() => { onChange(null); setInput(""); }} aria-label="Clear employee filter"
             className="text-blue-400 hover:text-blue-600 transition">
             <X size={14} />
           </button>
@@ -430,22 +452,13 @@ function EmployeeFilter({ employees, value, onChange }) {
           <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </>
       )}
-      {open && !value && suggestions.length > 0 && (
-        <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-white rounded-xl border border-slate-200 shadow-lg max-h-60 overflow-y-auto">
+      {open && !value && input.trim() && suggestions.length > 0 && (
+        <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-white rounded-xl border border-slate-200 shadow-lg max-h-60 overflow-y-auto p-1">
           {suggestions.map((emp) => (
-            <button
-              key={emp.id}
-              type="button"
+            <button key={emp.id} type="button"
               onClick={() => { onChange(emp); setInput(""); setOpen(false); }}
-              className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition flex items-center gap-3 border-b border-slate-50 last:border-0"
-            >
-              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
-                {employeeInitials(emp)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800 truncate">{employeeName(emp)}</p>
-                {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
-              </div>
+              className="w-full text-left px-2 py-2 rounded-lg text-sm flex items-center gap-2.5 hover:bg-blue-50 text-slate-700">
+              <EmployeeOption emp={emp} />
             </button>
           ))}
         </div>
@@ -454,29 +467,16 @@ function EmployeeFilter({ employees, value, onChange }) {
   );
 }
 
-function EmployeeSelectModal({ employees, value, onChange }) {
+// Who a new asset goes to: active staff only, searched on the server and ordered by name.
+function EmployeeSelectModal({ value, onChange }) {
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(null);
   const ref = useRef(null);
-
-  const selectedEmp = value ? employees.find((e) => String(e.id) === String(value)) : null;
-
-  const suggestions = useMemo(() => {
-    if (!input) return employees.slice(0, 8);
-    const q = input.toLowerCase();
-    return employees.filter((e) =>
-      employeeName(e, "").toLowerCase().includes(q) ||
-      (employeeEmail(e) || "").toLowerCase().includes(q)
-    ).slice(0, 8);
-  }, [employees, input]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClose(ref, close);
+  const { items: suggestions, loading } = useEmployeeOptions(input, { enabled: open, limit: 8 });
+  const selectedEmp = value && picked && String(picked.id) === String(value) ? picked : null;
 
   return (
     <div ref={ref} className="relative">
@@ -501,28 +501,22 @@ function EmployeeSelectModal({ employees, value, onChange }) {
             />
           </div>
           <div className="max-h-48 overflow-y-auto">
-            <button type="button" onClick={() => { onChange(""); setOpen(false); setInput(""); }}
+            <button type="button" onClick={() => { onChange(""); setPicked(null); setOpen(false); setInput(""); }}
               className={`w-full text-left px-2 py-2 rounded-lg text-sm transition ${!value ? "bg-blue-50 text-blue-700 font-medium" : "hover:bg-slate-50 text-slate-500"}`}>
               — Keep available —
             </button>
+            {!loading && suggestions.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-3">No active employees match</p>
+            )}
             {suggestions.map((emp) => {
               const isSelected = String(emp.id) === String(value);
               return (
                 <button key={emp.id} type="button"
-                  onClick={() => { onChange(String(emp.id)); setOpen(false); setInput(""); }}
+                  onClick={() => { onChange(String(emp.id)); setPicked(emp); setOpen(false); setInput(""); }}
                   className={`w-full text-left px-2 py-2 rounded-lg text-sm flex items-center gap-2.5 transition ${
                     isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50 text-slate-700"
                   }`}>
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    isSelected ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-500"
-                  }`}>
-                    {employeeInitials(emp)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{employeeName(emp)}</p>
-                    {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
-                  </div>
-                  {isSelected && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
+                  <EmployeeOption emp={emp} selected={isSelected} />
                 </button>
               );
             })}
@@ -533,29 +527,15 @@ function EmployeeSelectModal({ employees, value, onChange }) {
   );
 }
 
-function AssignDropdown({ employees, asset, onAssign }) {
+function AssignDropdown({ asset, onAssign }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
   const [assignInput, setAssignInput] = useState("");
   const [saving, setSaving] = useState(false);
   const ref = useRef(null);
-
-  const filteredEmp = useMemo(() => {
-    if (!assignInput) return employees.slice(0, 10);
-    const q = assignInput.toLowerCase();
-    return employees.filter((e) =>
-      employeeName(e, "").toLowerCase().includes(q) ||
-      (employeeEmail(e) || "").toLowerCase().includes(q)
-    ).slice(0, 10);
-  }, [employees, assignInput]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClose(ref, close);
+  const { items: filteredEmp, loading } = useEmployeeOptions(assignInput, { enabled: open });
 
   return (
     <div ref={ref} className="relative inline-block text-left">
@@ -577,30 +557,19 @@ function AssignDropdown({ employees, asset, onAssign }) {
             <Search size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           </div>
           <div className="max-h-48 overflow-y-auto -mx-1">
-            {filteredEmp.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">No employees match</p>
+            {loading && filteredEmp.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">Searching...</p>
+            ) : filteredEmp.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">No active employees match</p>
             ) : (
               filteredEmp.map((emp) => {
                 const isSelected = String(emp.id) === selected;
                 return (
-                  <button
-                    key={emp.id}
-                    type="button"
-                    onClick={() => setSelected(String(emp.id))}
+                  <button key={emp.id} type="button" onClick={() => setSelected(String(emp.id))}
                     className={`w-full text-left px-2 py-2 rounded-lg text-sm flex items-center gap-2.5 transition ${
                       isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50 text-slate-700"
-                    }`}
-                  >
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      isSelected ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-500"
                     }`}>
-                      {employeeInitials(emp)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{employeeName(emp)}</p>
-                      {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
-                    </div>
-                    {isSelected && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
+                    <EmployeeOption emp={emp} selected={isSelected} />
                   </button>
                 );
               })

@@ -9,6 +9,7 @@ Endpoints:
 
   ASSETS CRUD
     GET    /hr/assets                     → List assets (paginated, filterable)
+    GET    /hr/assets/employee-options    → Admin picker: active staff by name, searched on the server
     POST   /hr/assets                     → Create an asset
     GET    /hr/assets/{asset_id}          → Get one asset
     PUT    /hr/assets/{asset_id}          → Update an asset
@@ -26,7 +27,7 @@ Endpoints:
     POST   /hr/assets/requests                      → Create asset request
     PUT    /hr/assets/requests/{req_id}/approve      → Approve request
     PUT    /hr/assets/requests/{req_id}/reject       → Reject request
-    PUT    /hr/assets/requests/{req_id}/fulfill      → Fulfill request
+    PUT    /hr/assets/requests/{req_id}/fulfill      → Fulfill request (body: {"asset_id"}: assigns that asset)
     PUT    /hr/assets/requests/{req_id}/cancel       → Cancel request
 
   CATEGORIES
@@ -56,7 +57,7 @@ from app.core.rate_limiter import limiter
 
 from app.modules.hr import asset_service
 from app.modules.employee.ownership import is_admin
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.modules.hr.models import AssetStatus, AssetRequestStatus, RequestPriority
 from app.modules.hr.schemas import (
     AssetCreate, AssetUpdate, AssetResponse, AssetDashboardResponse, AssetListResponse,
@@ -159,7 +160,7 @@ def list_assets(
 )
 @limiter.limit("30/hour")
 def create_asset(request: Request, data: AssetCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return asset_service.create_asset(db, data, organization_id=current_user.organization_id)
+    return asset_service.create_asset(db, data, organization_id=current_user.organization_id, created_by=current_user.id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -273,6 +274,7 @@ def _maintenance_of(db, asset_id: int, maint_id: int, user):
     - `per_page` → results per page (default: 20, max: 100)
     - `status`   → filter by status
     - `priority` → filter by priority
+    - `search`   → employee name, asset type or reason
     """,
 )
 def list_asset_requests(
@@ -283,9 +285,10 @@ def list_asset_requests(
     status:      Optional[AssetRequestStatus] = Query(None, description="Filter by status"),
     priority:    Optional[RequestPriority]    = Query(None, description="Filter by priority"),
     employee_id: Optional[int]                = Query(None, description="Filter by employee ID"),
+    search:      Optional[str]                = Query(None, max_length=100, description="Employee name, asset type or reason"),
 ):
     return asset_service.get_asset_requests(db, page, per_page, status, priority, employee_id, current_user.organization_id,
-                                            employee_ids=_own_scope(current_user, employee_id))
+                                            employee_ids=_own_scope(current_user, employee_id), search=search)
 
 
 @asset_router.post(
@@ -331,8 +334,16 @@ def reject_asset_request(req_id: int, db: Session = Depends(get_db), current_use
     summary="Fulfill an asset request",
     dependencies=[Depends(get_current_admin)],
 )
-def fulfill_asset_request(req_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return asset_service.fulfill_asset_request(db, req_id, current_user.organization_id)
+def fulfill_asset_request(
+    req_id: int,
+    asset_id: Optional[int] = Body(None, embed=True, description="The available asset handed to the requester"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    if asset_id is None:
+        raise BadRequestException("Choose the available asset to give the requester (asset_id).")
+    return asset_service.fulfill_asset_request(db, req_id, asset_id, fulfilled_by=current_user.id,
+                                               organization_id=current_user.organization_id)
 
 
 @asset_router.put(
@@ -535,6 +546,22 @@ def export_assets_excel(
 # ════════════════════════════════════════════════════════════════════════════
 # ASSIGN / RETURN
 # ════════════════════════════════════════════════════════════════════════════
+
+@asset_router.get(
+    "/employee-options",
+    summary="People an admin can pick for an asset",
+    description="Active staff of the organization (or everyone with include_inactive=true, for filtering by holder), "
+                "matched on name / email / code and ordered by name. At most 50.",
+)
+def asset_employee_options(
+    search: Optional[str] = Query(None, max_length=100),
+    limit: int = Query(20, ge=1, le=50),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    return asset_service.get_assignable_employees(db, current_user.organization_id, search, limit, include_inactive)
+
 
 @asset_router.put(
     "/{asset_id}/assign",
