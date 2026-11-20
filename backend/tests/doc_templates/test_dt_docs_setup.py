@@ -426,7 +426,11 @@ def test_a_document_the_organisation_cannot_customise_is_refused_up_front(world,
     assert r.status_code == 200, r.text
 
 
-def test_templates_and_other_documents_are_uploaded_separately_and_templates_are_filled_automatically(world, no_ai):
+def test_templates_and_other_documents_are_uploaded_separately_and_templates_are_filled_automatically(world, no_ai, monkeypatch):
+    from app.config import settings
+    # contract.pdf (L3) only becomes "our version" when the platform allows organisation-approved high-risk templates; the
+    # default is off (CI), the refused case is covered above. Set it here so the test does not depend on the local .env.
+    monkeypatch.setattr(settings, "TEMPLATES_TENANT_ATTESTATION_L3_ENABLED", True)
     s = _session(world)
     sid = s["id"]
     assert _upload(world, sid, "offer_letter.docx", label="tpl:offer_letter").status_code == 200
