@@ -112,6 +112,19 @@ DOMAINS: tuple[PolicyDomain, ...] = (
              "I don't read individual pay records in chat. Your pay details are on your payslips under "
              "Documents → Payslips (/employee/documents/payslips). For a question about a specific payment, "
              "choose 'Talk to HR'."),
+            # Protected pay-discussion guardrail (Benefits & Compensation spec §28.1, §29): never generated, because
+            # the specs quote "employees are prohibited from discussing pay" as something the system must NOT say,
+            # and a model can misread that into a ban.
+            (_re(r"\b(can|may|could|am\s+i\s+allowed\s+to|is\s+it\s+(ok|okay|allowed|legal)\s+to|are\s+we\s+allowed\s+to)\b.{0,25}"
+                 r"\b(discuss|share|talk\s+about|tell|disclose|reveal|compare)\b.{0,30}\b(my\s+|our\s+)?(salary|salaries|pay|wages?|compensation|ctc|package)\b"),
+             "Zoiko HR's policy framework doesn't prohibit employees from discussing their own pay, and in many "
+             "countries the right to share or not share your pay information is protected by law (for example "
+             "equal-pay and pay-transparency rules). You choose whether to share it.\n"
+             "- Talking about your own salary is different from sharing confidential payroll data about other people, "
+             "which you shouldn't access or pass on.\n"
+             "- If your contract has a confidentiality clause, HR can explain how it applies where you work — such "
+             "clauses generally can't stop you discussing your own pay where the law protects it.\n"
+             "For a question about your own situation, choose 'Talk to HR'."),
             (_re(r"\b(which|what)\s+(benefit|health|insurance|medical|pension)\s*(plan)?s?\s+(did i|have i)\s+(choose|chose|select|enrol)\w*\b",
                  r"\bmy\s+(benefit|insurance|pension)\s+(election|enrol+ment|selection)s?\b"),
              "I can't see individual benefit elections in chat. Your HR team can confirm what you're enrolled in — "

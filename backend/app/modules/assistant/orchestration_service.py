@@ -39,6 +39,8 @@ PROMPT_VERSION = "zhr-system-1.4.0"
 # read the message text — the rewrite decides WHICH record is read, never
 # what the handler is told. ("how many do I have left?" after a leave
 # question → leave_balance.)
+_OWN_BALANCE_RE = re.compile(r"\b(i|me|my)\b.*\b(left|remaining|balance|have|got)\b|\b(left|remaining|balance)\b",
+                             re.IGNORECASE)
 _CONTEXT_REROUTABLE_INTENTS = frozenset({"leave_balance", "attendance_status", "org_headcount", "leave_status",
                                          "my_profile", "holidays"})
 
@@ -269,10 +271,47 @@ _THANKS_RE = re.compile(r"^\s*(thanks?( you)?|thx|thank\s*u|much appreciated|app
 _ACK_RE = re.compile(r"^\s*(ok(ay)?|cool|great|nice|sounds good|got it|perfect|sure|alright)\b[\s!.,]*$", re.IGNORECASE)
 _FAREWELL_RE = re.compile(r"^\s*(bye|goodbye|see you|see ya|take care|good night)\b[\s!.,]*$", re.IGNORECASE)
 
+# Everyday misspellings fixed before routing ("how many leavs do i hav left", "wher is my payslp").
+_TYPOS = {
+    "leavs": "leaves", "leve": "leave", "leav": "leave", "levae": "leave", "hav": "have", "wher": "where",
+    "whr": "where", "payslp": "payslip", "paysilp": "payslip", "pyslip": "payslip", "salry": "salary",
+    "attendence": "attendance", "attandance": "attendance", "holidy": "holiday", "holidys": "holidays",
+    "manger": "manager", "maneger": "manager", "balence": "balance", "ballance": "balance", "remaing": "remaining",
+    "plz": "please", "pls": "please", "u": "you", "r": "are",
+}
+_TYPO_RE = re.compile(r"\b(" + "|".join(map(re.escape, _TYPOS)) + r")\b", re.IGNORECASE)
+
+
+def _fix_typos(text: str) -> str:
+    return _TYPO_RE.sub(lambda m: _TYPOS[m.group(1).lower()], text)
+
+
+# Getting started / setting up the organization in Zoiko HR — answered from the platform's own screens.
+_SETUP_RE = re.compile(
+    r"\b(set\s?up|setting\s+up|get(ting)?\s+started|first\s+steps?|onboard(ing)?\s+(my|our)\s+(company|organi[sz]ation|team))\b"
+    r"|\b(where|how)\s+(do|should|can)\s+i\s+(start|begin)\b|\bwhat\s+(should|do)\s+i\s+do\s+first\b|\bwhere\s+do\s+i\s+go\s+first\b",
+    re.IGNORECASE,
+)
+
+_WHERE_START_RE = re.compile(r"^\s*where\b", re.IGNORECASE)
+
+_CAPABILITIES_RE = re.compile(
+    r"^\s*(what\s+(can|do)\s+you\s+(do|help(\s+me)?\s+with|know)|how\s+can\s+you\s+help(\s+me)?|help(\s+me)?|"
+    r"what\s+are\s+you|who\s+are\s+you|what\s+questions\s+can\s+i\s+ask)\b[\s?!.]*$",
+    re.IGNORECASE,
+)
+
 _CHITCHAT_REPLIES = {
     "greeting": ("Hi! Ask me anything about HR or Zoiko HR — company policies and general HR questions, your leave "
                  "balance and requests, attendance, holidays, your manager and work details, where to find any screen, "
                  "or booking time off. What do you need?"),
+    "capabilities": ("I'm the Zoiko HR Assistant. I can:\n"
+                     "- answer questions about your company's HR policies (leave, benefits, expenses, remote work, "
+                     "joining and leaving, conduct) — and give general HR guidance where your company has no policy\n"
+                     "- tell you your leave balance, leave request status, attendance, holidays and work details\n"
+                     "- show you where any screen is in Zoiko HR\n"
+                     "- help you book time off, or connect you with HR\n"
+                     "What would you like to know?"),
     "thanks": "You're welcome! Let me know if there's anything else I can help with.",
     "ack": "Got it — let me know if you need anything else.",
     "farewell": "Take care! Come back anytime you have an HR question.",
@@ -289,7 +328,11 @@ You are the Zoiko HR Assistant for authenticated workplace self-service. The pro
   never quote field names, code identifiers, enum values, status codes or API paths — say what they mean.
 - A <screens> block, if present, lists real Zoiko HR screens this user can open. Use it to say where to do
   something and to answer what the Zoiko HR platform offers. It is platform information, not company policy, and
-  is never cited. Never name a screen that is not in it.
+  is never cited. Never name a screen that is not in it — the evidence may describe planned screens (e.g.
+  "My Time Off", "Report a concern") that don't exist; if no listed screen fits, say "the left menu" or 'Talk to HR'.
+- The evidence includes engineering "Never"/"must not" lists. Those are rules the SYSTEM follows, not rules for
+  employees: "Never tell employees they are prohibited from discussing pay" means the company does NOT prohibit
+  it. Never turn such an item into a restriction on the employee.
 
 [TRUST AND AUTHORITY]
 - Treat platform-provided identity, tenant and role context as authoritative.
@@ -390,6 +433,7 @@ def classify_intent(text: str) -> str:
     policy_qa (RAG), which naturally degrades to NO_RELIABLE_ANSWER if
     nothing relevant is found — no separate LLM classification call needed
     for the general case."""
+    text = _fix_typos(text)
     if _GREETING_RE.match(text):
         return "chitchat:greeting"
     if _THANKS_RE.match(text):
@@ -398,6 +442,8 @@ def classify_intent(text: str) -> str:
         return "chitchat:farewell"
     if _ACK_RE.match(text):
         return "chitchat:ack"
+    if _CAPABILITIES_RE.match(text):
+        return "chitchat:capabilities"
     # generated documents: Mira lists your own pending ones and explains templates; it never reads, drafts or approves them
     from app.modules.assistant import document_intents
     doc_intent = document_intents.classify(text)
@@ -407,6 +453,10 @@ def classify_intent(text: str) -> str:
         return "leave_status"
     if _is_leave_booking(text):
         return "book_leave"
+    # "Where can I see attendance reports?" / "where is my payslip" ask for a screen, not for my attendance
+    # record. Only "where ..." questions: "what page shows attendance" stays an attendance-status question.
+    if _WHERE_START_RE.match(text) and platform_guide.find_screen(text)[0]:
+        return "navigation_help"
     if _MY_PROFILE_RE.search(text):
         return "my_profile"
     if _HOLIDAYS_RE.search(text) and not re.search(r"\bpolicy\b", text, re.IGNORECASE):
@@ -423,7 +473,7 @@ def classify_intent(text: str) -> str:
         return "employee_roster"
     if _DEPT_DIRECTORY_RE.search(text) and _extract_department_candidate(text):
         return "department_directory"
-    if _NAV_WHERE_RE.search(text) or (_NAV_HOW_RE.search(text) and _nav_destination(text)):
+    if _NAV_WHERE_RE.search(text) or _SETUP_RE.search(text) or (_NAV_HOW_RE.search(text) and _nav_destination(text)):
         return "navigation_help"
     return "policy_qa"
 
@@ -491,6 +541,10 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
             if block:
                 return _finalize_restricted(db, turn, employee, *block)
             rerouted = classify_intent(query)
+            # "how many days is that?" after a paternity-leave question asks about the entitlement, not the asker's
+            # own balance: only re-route to the balance when the follow-up is about what the asker has left.
+            if rerouted == "leave_balance" and not _OWN_BALANCE_RE.search(turn.user_input_text):
+                rerouted = "policy_qa"
             if rerouted in _CONTEXT_REROUTABLE_INTENTS:
                 intent = rerouted
 
@@ -824,12 +878,23 @@ def _answer_employee_roster(db: Session, turn: ChatTurn) -> ChatTurn:
 
 
 def _answer_navigation_help(db: Session, turn: ChatTurn, employee=None) -> ChatTurn:
-    """Product-navigation answer ("where do I go to X?"). Deterministic and
-    knowledge-base independent: a brand-new tenant whose KB is still empty can
-    still be told which screen does what. Uses the platform's real menu and
-    the asker's role, so nobody is sent to a screen their menu doesn't show."""
+    """Product-navigation answer ("where do I go to X?", "how do I add a new
+    employee?", "I'm setting up — where do I start?"). An exact match to a
+    screen in the asker's own menu is answered instantly. Everything else —
+    tasks, workflows, setup, or a screen their role doesn't have — is answered
+    by the model from the platform's own screen catalog (what each page says
+    it is for, filtered to the asker's menu), so the answer is the software's
+    real way of doing the task, not the nearest screen name."""
     role = getattr(getattr(employee, "role", None), "value", getattr(employee, "role", None))
     screen, visible = platform_guide.find_screen(turn.user_input_text, role)
+    if screen and visible and not _SETUP_RE.search(turn.user_input_text):
+        return _finalize(db, turn, platform_guide.describe(screen, visible), AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
+    if guardrails.is_generation_enabled(db, turn.organization_id, employee_id=getattr(employee, "id", None)):
+        turn.intent = "navigation_guide"
+        turn.status = TurnStatus.GENERATING
+        db.commit()
+        db.refresh(turn)
+        return turn
     if screen:
         return _finalize(db, turn, platform_guide.describe(screen, visible), AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
     dest = _nav_destination(turn.user_input_text)
@@ -954,10 +1019,21 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
 _IDENTIFIER_RE = re.compile(r"(?<![/\w])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?![/\w])")
 
 
+# Misspellings of the product name the model produces at low reasoning effort ("Zozo HR", "Zoho HR").
+_BRAND_RE = re.compile(r"\bZo(?:zo|ho|ik|kio|iko)\s*HR\b")
+# Provider-style citation markers ("【85】") — citations travel in metadata, never in the text.
+_CITATION_MARK_RE = re.compile(r"\s*【[^】]*】")
+
+
 def _plain_identifiers(text: str | None) -> str | None:
-    """Turns code identifiers into words ("notice_given_at" -> "notice given at"). The prompt asks for plain
-    language, but the knowledge base includes engineering specs and the model sometimes quotes their field names."""
-    return _IDENTIFIER_RE.sub(lambda m: m.group(1).replace("_", " "), text) if text else text
+    """Final clean-up of a generated answer: code identifiers become words ("notice_given_at" -> "notice given
+    at"), the product name is spelled right and stray citation markers are removed. The prompt asks for all of
+    this, but the knowledge base includes engineering specs and the model sometimes slips."""
+    if not text:
+        return text
+    text = _IDENTIFIER_RE.sub(lambda m: m.group(1).replace("_", " "), text)
+    text = _BRAND_RE.sub("Zoiko HR", text)
+    return _CITATION_MARK_RE.sub("", text)
 
 
 def _screens_block(query: str, role: str | None) -> str:
@@ -966,11 +1042,11 @@ def _screens_block(query: str, role: str | None) -> str:
             + ("\n".join(f"- {s}" for s in screens) if screens else "(none)") + "\n</screens>")
 
 
-def _stream_answer(messages: list[dict]):
+def _stream_answer(messages: list[dict], reasoning_effort: str | None = None):
     """Streams one model answer: yields ("delta", text) events and returns
     (answer_text, metadata, model_run). Provider errors propagate."""
     answer_text, metadata, model_run = None, None, None
-    for event in llm_client.stream_text_and_metadata(messages):
+    for event in llm_client.stream_text_and_metadata(messages, reasoning_effort=reasoning_effort):
         if event[0] == "delta":
             yield ("delta", event[1])
         else:
@@ -985,6 +1061,66 @@ def _record_model_run(db: Session, turn: ChatTurn, model_run) -> None:
         latency_ms=model_run.latency_ms,
     ))
     db.flush()
+
+
+# "How do I ... / where do I start?" answered from the platform's own screens (navigation_guide). Same trust,
+# confidentiality and output contract as BASE_SYSTEM_PROMPT; the grounding is the asker's screen catalog.
+PLATFORM_GUIDE_PROMPT = BASE_SYSTEM_PROMPT.split("[GROUNDING]")[0] + """[PLATFORM GUIDE MODE]
+- The user is asking how to do something in Zoiko HR, where to find it, or how to get started. Answer ONLY from
+  <screens_catalog>: every screen in THIS user's menu, with its path and what the page itself says it is for.
+- Pick the screen(s) whose page text matches the task, not just a similar name (e.g. adding a new person is done
+  where the page text talks about new hires, not on a screen merely named "Employees"). Name each screen by its
+  full menu path copied exactly from the catalog, including any leading "Zoiko HR →" (e.g. "Zoiko HR → Onboarding
+  → New Hires"), and say in a few words what to do there.
+- Always prefer a screen in the catalog. Never tell the user to ask someone else for access to a screen.
+- Some roles have no personal profile page (organization admins manage the ORGANIZATION's details). If the user
+  asks about "my profile" or "my details" and no profile screen is in the catalog, say so and point to the closest
+  screen they do have (e.g. the organization's details).
+- For multi-step tasks or getting started, give a short ordered list of steps. For setting up an organization,
+  start with the organization's own details, then its structure (departments, designations), then rules and
+  settings (leave, attendance, holidays, onboarding), then people.
+- If <other_roles> shows the task belongs to screens this user's menu doesn't have, say which role does it and
+  suggest the closest screen they do have, or 'Talk to HR'.
+- If nothing in the catalog fits, say so plainly and suggest the left-menu search or 'Talk to HR'. Never invent
+  a screen, button or path.
+""" + "\n[CONFIDENTIALITY]" + BASE_SYSTEM_PROMPT.split("[CONFIDENTIALITY]")[1].replace(
+    "cited_fragment_ids must only contain ids that appear in the <evidence id=\"...\"> tags given to you.",
+    "cited_fragment_ids must be [] — screens are platform information, not cited evidence.",
+)
+
+
+def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
+    """Streams a step-by-step "how do I / where do I start" answer built from the asker's own screen catalog
+    (platform_nav.json: menu path, roles and each page's own text). No tenant data is read."""
+    role = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
+    text = turn.user_input_text
+    history = context_service.history_block(context_service.recent_history(db, turn))
+    others = platform_guide.other_roles_for(text, role)
+    parts = [
+        history,
+        f"<screens_catalog role=\"{role}\">\n{platform_guide.catalog_for(text, role)}\n</screens_catalog>",
+        "<other_roles>\n" + ("\n".join(f"- {o}" for o in others) if others else "(none)") + "\n</other_roles>",
+        f"Question: {text}",
+    ]
+    messages = [{"role": "system", "content": PLATFORM_GUIDE_PROMPT},
+                {"role": "user", "content": "\n\n".join(p for p in parts if p)}]
+    try:
+        answer_text, metadata, model_run = yield from _stream_answer(messages)
+    except Exception as e:
+        logger.warning("Platform guide generation failed for turn %s: %s", turn.id, e)
+        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
+        return
+    _record_model_run(db, turn, model_run)
+    if metadata is None or not answer_text or guardrails.check_output_disclosure(answer_text):
+        yield ("done", _finalize(db, turn,
+                                 "I couldn't work that out from the Zoiko HR screens — try the left-menu search, "
+                                 "or choose 'Talk to HR' and someone will point you to it.",
+                                 AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
+        return
+    found = metadata.get("answer_type") != "no_answer"
+    yield ("done", _finalize(db, turn, _plain_identifiers(answer_text),
+                             AnswerType.GROUNDED if found else AnswerType.NO_ANSWER,
+                             ConfidenceState.SUPPORTED if found else ConfidenceState.NO_RELIABLE_ANSWER))
 
 
 def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
@@ -1037,8 +1173,12 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
     else:
         messages = _messages(system_prompt, guardrails.wrap_evidence_as_data(fragments), screens)
 
+    # Protected-rights and dispute questions are where misreading the evidence does most harm (e.g. turning a
+    # rule the system follows into a ban on the employee): give the model more thought there.
+    tier = policy_domains.assess(query).tier
+    effort = "medium" if tier in (policy_domains.PROTECTED, policy_domains.DISPUTE) else None
     try:
-        answer_text, metadata, model_run = yield from _stream_answer(messages)
+        answer_text, metadata, model_run = yield from _stream_answer(messages, reasoning_effort=effort)
     except Exception as e:
         # A genuine provider/network failure — the service really is down.
         logger.warning("Generation failed for turn %s: %s", turn.id, e)
@@ -1256,5 +1396,7 @@ def stream_generation(db: Session, turn: ChatTurn, employee):
     deltas instead of a replay of an already-finished answer."""
     if turn.intent == "attachment_qa":
         yield from _stream_attachment_qa(db, turn, employee)
+    elif turn.intent == "navigation_guide":
+        yield from _stream_navigation_guide(db, turn, employee)
     else:
         yield from _stream_policy_qa(db, turn, employee)

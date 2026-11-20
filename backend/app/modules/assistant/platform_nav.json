@@ -1,5 +1,5 @@
 {
- "generated_from": "frontend/src/navigation.js",
+ "generated_from": "frontend/src/navigation.js + routes/PortalApp.jsx page copy",
  "screens": [
   {
    "section": "ORGANIZATION ADMIN",
@@ -9,7 +9,8 @@
    "href": "/organization-admin/dashboard",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "Live counts across organization staff, leaves, and approvals · View all metrics · Engineering leads headcount · Configured roles & titles · All time-off accounted for · Hardware & licenses tracked · Evaluation Time Remaining · Contact sales to continue"
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -19,7 +20,8 @@
    "href": "/organization-admin/organization",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "A live record of your organization's identity, plan, and workforce. · View audit log · Core identity information · Plan, status and account limits · Where this organization is registered — details given while registering · Update your organization details · IBM Plex Mono · Across your organization · Seats Over Limit"
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -29,7 +31,8 @@
    "href": "/organization-admin/payroll-guidance",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "Reference & Learning Guide · Welcome to Payroll · Payroll workflow overview · Where to start · Example — Organization Profile (Sample Data) · Get this right first · Example — Monthly Cycle (Sample Data) · Set this before running payroll · Example — India Compliance Profile (Sample Data) · Keep this current · Example — Monthly Breakdown for a ₹14,00,000 CTC (Sample Data) · Design salary structures once, reuse them · Standard vs. Enterprise · Changing a live policy · Example — Employee Record (Sample Data) · Bulk update, not bulk re-import · Duplicate uploads are guarded · Example — Leave Request (Sample Data) · Approve before cut-off · Payroll run process · One run per period"
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -40,7 +43,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Thank you, we have your request · Your reference is · A confirmation is on its way to · We saved your request but could not send the confirmation email right now. Our team will still contact you. · I agree that Zoiko HR may contact me about this request. · Your plan, payments and subscription in one place. · View-only for your role · Your payment went through at Stripe, but we have not been able to confirm it on your plan yet. · Check payment again · Choose your plan · Pick a plan and billing cycle. Payment is taken on the secure Stripe checkout. · Payments are processed by Stripe. Card details never reach our servers. · Changes require an organization billing authority."
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -50,7 +54,8 @@
    "href": "/organization-admin/support-access",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "Zoiko support can only see your organization when an admin approves it: read-only, time-limited, and fully logged. · Nothing was opened. · Awaiting your decision · Approved and live access · End session now · Approved (not used yet) · The action failed · Why are you rejecting it? (shown to support) · Session ended. Support was signed out immediately."
   },
   {
    "section": "HR ADMIN",
@@ -60,7 +65,8 @@
    "href": "/hr-admin/dashboard",
    "roles": [
     "hr_admin"
-   ]
+   ],
+   "about": "HR Admin Dashboard · Daily attendance over the last two weeks. · Headcount by department · Active employees grouped by department. · Payroll by department · Recent leave activity · Latest leave requests and their current status. · Dashboard data is unavailable · Your workforce, at a glance · Review team activity, follow up on requests, and keep your organization moving. · Key items that may need your attention. · A quick view across your HR functions. · Recently added employees · The newest additions to your organization. · The workforce dashboard could not be loaded. · Pending leave requests · Checked in today · Attendance records for today · Across your hiring pipeline"
   },
   {
    "section": "HR ADMIN",
@@ -70,7 +76,8 @@
    "href": "/hr-admin/my-organization",
    "roles": [
     "hr_admin"
-   ]
+   ],
+   "about": "Organization profile, workforce and account details. · Company identity and primary contact information. · Location & regional settings · The region and formats used for your organization. · Organization details are unavailable · Organization details could not be loaded. · Code not set · People operations access · Maximum organization users · State or province · Payment Overdue — Recovery in Progress · Payment Overdue — Expansion Restricted · Payment Overdue — Services Restricted · Payment Overdue — Termination Imminent · Your subscription payment is overdue. Recovery is still in progress — update your payment method to avoid service restrictions."
   },
   {
    "section": "HR ADMIN",
@@ -80,7 +87,8 @@
    "href": "/hr-admin/documents",
    "roles": [
     "hr_admin"
-   ]
+   ],
+   "about": "Document readiness, review activity and expiry tracking across your organization. · Upload a document to see it here. · Could not load document stats. Check your connection. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action"
   },
   {
    "section": "PRODUCTS",
@@ -93,7 +101,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Directory, headcount and employee exports · Department-wise headcount and cost analysis · Job title distribution and grade mix · Leave utilisation and trends · Daily attendance, overtime and shift efficiency · Pipeline health and open requisitions · Headcount planning and succession insights · New hire joining and task completion · Headcount by Department · Employee count per department · Attendance by Department · Attendance records per department · Present vs absent across recent days · Employees mapped per shift · Requests by status · Goals, reviews and appraisals · Cycle volume and outstanding work · Feedback, appraisals and ratings in the current cycle · Org Health Score"
   },
   {
    "section": "PRODUCTS",
@@ -107,7 +116,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Document readiness, review activity and expiry tracking across your organization. · Upload a document to see it here. · Could not load document stats. Check your connection. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action"
   },
   {
    "section": "PRODUCTS",
@@ -121,7 +131,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Organise employee records, contracts, payslips and compliance files. · Emp. ID / Code · File not stored on the server — re-upload required · Assign a document to an employee · Offer & Contract · Tax & Compliance · Click to select file · PDF, Word, Excel, PowerPoint, CSV, text, images accepted · Expiry Date (optional) · This version's file is not stored on the server. · Upload New Version · Offer & Contracts · New version uploaded · Clear employee ID search · Upload documents using the Upload Document button above. · File not stored on the server · What changed in this version? · This document could not be previewed · Download it below to open it in another application. · This sheet is empty"
   },
   {
    "section": "PRODUCTS",
@@ -135,7 +146,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Keep policies, handbooks and official files organised and easy to share. · Assign folder to employees · Creating inside current folder · Upload Company Documents · Upload policies, handbooks, or company files · Click or drag files here · Assign to employees after upload · Could not fetch company documents. · Company policies and handbooks will appear here once uploaded. · The file is not on the server. Upload it again. · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here"
   },
   {
    "section": "PRODUCTS",
@@ -149,7 +161,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Review submissions, track decisions and keep a clear approval history. · Approval Chain: HR Admin → Org Admin · Only an HR Admin or the Org Admin can approve or reject a document. An approval by either one completes the document and skips any remaining step. · Feedback required when rejecting. · Org Admin and HR Admin approvals instantly approve the document, skipping remaining chain steps. · This will reject the document and notify the uploader. · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here"
   },
   {
    "section": "PRODUCTS",
@@ -163,7 +176,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Depts with Head · Manage organizational entities · Budget by Department · Employees by Department · Recently Created Departments · Root Departments Overview"
   },
   {
    "section": "PRODUCTS",
@@ -177,7 +191,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage organizational entities · Parent Entity (Optional) · Create New Department · It will appear again in pickers and reports as an active department. · It will be hidden from department pickers and marked inactive. Employees and history are kept. A department with active employees or active sub-departments cannot be deactivated."
   },
   {
    "section": "PRODUCTS",
@@ -191,7 +206,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage organizational entities · Organizational hierarchy tree and functional links · Org Chart Hierarchy"
   },
   {
    "section": "PRODUCTS",
@@ -205,7 +221,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Export and analyze department data · Department Data Report"
   },
   {
    "section": "PRODUCTS",
@@ -219,7 +236,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Configure departments module preferences · Maximum depth limits how deep a department can sit under its parent. The other switches are saved with your organization for the hierarchy rules. · These control how the Department List looks for everyone in your organization. · Department head changed · Department budget updated · Department status changed · New department added under your hierarchy · Department deletion requested · Could not load the department settings. · Could not save the settings. Nothing was changed. · Default Department Code Prefix · Default Status for New Departments · Auto-generate Department Codes"
   },
   {
    "section": "PRODUCTS",
@@ -233,7 +251,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Overview of job titles, levels, and organizational structure · Lowest minimum to highest maximum · Employees in Designations · Active employees assigned · Create your first designation to see levels, salary ranges and department coverage here. · Go to Designation List · Salary Range by Level · Entry to Mid (L1-L3)"
   },
   {
    "section": "PRODUCTS",
@@ -247,7 +266,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Refresh from the server · Add User form · Reason for position request · Reports to designation ID · Pay grade ID · Approved job description · Submit position request · Automatic codes are turned off in Designation Settings. · Designation list refreshed. · Could not save the designation. · N employee(s) hold this designation · Could not load the position authorization record. · Could not submit the position request. · Could not save the position decision. · Filter by source · Add New Designation · What needs fixing · A draft is created first. Nothing is sent to the recipient until it is issued. · E-mail signing link · Not delivered (record only)"
   },
   {
    "section": "PRODUCTS",
@@ -261,7 +281,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Organizational hierarchy and designation relationships · Interns, trainees, and junior staff · Associates and junior specialists · Senior specialists and leads · Team leads and department managers · Senior managers and directors · Directors and senior directors · Senior vice presidents"
   },
   {
    "section": "PRODUCTS",
@@ -275,7 +296,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Analytics and insights across all designations · Minimum - maximum pay across current headcount · Reports appear once designations exist: add them in the list or upload employees with a Designation column. · Go to Designation List · Active employees holding a designation, by joining date (cumulative) · Budget by Department · Salary budget (min - max) · All have a salary range"
   },
   {
    "section": "PRODUCTS",
@@ -289,7 +311,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Configure designations module preferences · Maximum depth limits the level (L1 to L10) a designation can be given. The other switches are saved with your organization for the hierarchy rules. · These control how the Designation List looks for everyone in your organization. · Designation head changed · Designation budget updated · Designation status changed · New designation added under your hierarchy · Designation deletion requested · Could not load the designation settings. · Could not save the settings. Nothing was changed. · Default Designation Code Prefix · Default Status for New Designations · Auto-generate Designation Codes"
   },
   {
    "section": "PRODUCTS",
@@ -303,7 +326,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Leave overview, balances, and team availability · Team Overview — Today · Balances will appear once leaves are assigned"
   },
   {
    "section": "PRODUCTS",
@@ -317,7 +341,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Review and manage employee leave requests · Leave request deleted · Refuse leave request · Refusing does not affect any minimum leave entitlement the employee has under the law. · Confirm family leave · Check the dates and pay with the employee. Do not record medical details. · Decision records and letters · Alternative dates you could offer (optional) · Pay summary (as the policy and law provide) · This request has a sickness reason. It is special-category data: only reveal it if you need it. Viewing it is recorded. · Give the reason for refusing. The employee sees it in their decision notice. · Request refused. The employee received a notice with your reason."
   },
   {
    "section": "PRODUCTS",
@@ -331,7 +356,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Team leave calendar view · View team leaves and company holidays · Add Company Holiday · Name and date are required"
   },
   {
    "section": "PRODUCTS",
@@ -345,7 +371,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Analytics and insights on leave utilization · Leave Type Distribution"
   },
   {
    "section": "PRODUCTS",
@@ -359,7 +386,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Live attendance metrics, workforce distribution, and statistics · 0 ? \"up\" : v · Live Workforce Overview · Real-time snapshot of employee availability, remote work status, and department-level attendance trends. · Attendance Trend (7 days)"
   },
   {
    "section": "PRODUCTS",
@@ -373,7 +401,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Daily Attendance Records · Track and manage daily employee attendance logs · Review check-ins, check-outs, and daily statuses · ITEMS_PER_PAGE && ( · Notes / Remarks · You haven't added any attendance records yet."
   },
   {
    "section": "PRODUCTS",
@@ -387,7 +416,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage company-wide public holidays and observances · Only the year was given, so the usual date for this holiday was used. Edit it later if yours differs. · Track public and company events · Description / Remarks · Make this holiday recur annually · (date filled in) · Could not read that file. · Could not read that data. · There are no valid holidays to import. Fix the problems listed, or choose another file. · The template could not be downloaded. Try again."
   },
   {
    "section": "PRODUCTS",
@@ -401,7 +431,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Avg Work Hours · Data-driven insights, efficiency metrics, and comprehensive attendance reporting · 0 ? \"up\" : ch[key] · Filter and export attendance reports · Attendance Volume Trend · Shift Efficiency Comparison · Detailed Department Summary"
   },
   {
    "section": "PRODUCTS",
@@ -415,7 +446,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Working time requests · Overtime, attendance corrections and shift notices, each with its decision record. · Waiting for a decision · How is it compensated? · As set out in policy · Time off in lieu · Publish a shift pattern · Roster and send notices · Change someone's shifts · Dates (YYYY-MM-DD, comma separated) · Why the notice is short (needed when it is shorter than usual) · Change shifts and send notice · Standard working day for timekeeping (hours) · Normal notice for a shift change (days) · A change on shorter notice needs a reason and an HR approver before the notice is sent. · Forgot to check in/out · Give a reason when refusing."
   },
   {
    "section": "PRODUCTS",
@@ -429,7 +461,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Your current plan does not include it. Upgrade to Advanced to start using it. Your existing data is not affected. · See plans and upgrade"
   },
   {
    "section": "PRODUCTS",
@@ -443,7 +476,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Your current plan does not include it. Upgrade to Advanced to start using it. Your existing data is not affected. · See plans and upgrade"
   },
   {
    "section": "PRODUCTS",
@@ -457,7 +491,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Your current plan does not include it. Upgrade to Advanced to start using it. Your existing data is not affected. · See plans and upgrade"
   },
   {
    "section": "PRODUCTS",
@@ -471,7 +506,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Your current plan does not include it. Upgrade to Advanced to start using it. Your existing data is not affected. · See plans and upgrade"
   },
   {
    "section": "PRODUCTS",
@@ -485,7 +521,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Your current plan does not include it. Upgrade to Advanced to start using it. Your existing data is not affected. · See plans and upgrade"
   },
   {
    "section": "PRODUCTS",
@@ -499,7 +536,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Probation, appraisals and improvement plans · New probation review · What is going well · Not confirmed (unsuccessful) · New end date · Why (reviewed by HR before the letter) · What we need to see (one per line) · Final review meeting · Employee given a chance to respond on · Reasonable adjustments considered · If not applicable, why · HR reviewed the decision on · The employee has a legal protection flagged by the pack · Legal review completed · Reasons (HR-reviewed text) · Needs a requester, an HR approver and an authorised signatory (three people). Issuing the letter does not end employment, access or pay. · Send for decision · Manager assessment (evidence required for every rating)"
   },
   {
    "section": "PRODUCTS",
@@ -513,7 +551,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Records and letters · Waiting for a decision · Approved, to complete · Request a change · New responsibilities (one per line) · Linked salary revision number (must be approved) · Duties change too · A move to another country or region, or a change of hours or contract type, needs a terms variation instead. · Move a team to a new manager · Job title change · Probation not confirmed · Approved. The letter has been produced. · Choose the employee and the effective date. · Change requested. Someone else must approve it. · Could not request the change. · Could not run the bulk change. · Not produced yet · The documents could not be loaded. · This record has no content. · Add all shown"
   },
   {
    "section": "PRODUCTS",
@@ -527,7 +566,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Top Candidate Sources · Hiring pipeline, open requisitions, and recruitment telemetry · Candidates you add or who apply appear here by stage. · Live candidate stages · 1px solid #E2E8F0 · 0 10px 25px -5px rgba(0,0,0,0.1) · Interviews This Week · Offers In Progress · Time to Hire · Offer Acceptance Rate · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
   },
   {
    "section": "PRODUCTS",
@@ -541,7 +581,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Awaiting an organization admin's decision · Compensation & Budget · View the hiring authorization record · Approve and open for candidates · Give the role a title. · What the position is, who it reports into and how many people you need. · Location & timing · Where the hire will work and when you would like them to start. · The person who owns this hire and signs off on candidates. · Yearly pay range per hire. Leave blank if the budget is not set yet. · Shown to candidates on the posting. Be specific about the work and what success looks like. · Create, approve, publish, and track hiring requests across the organization. · Budgeted Headcount Cost · Open in Candidates → · Add a currency"
   },
   {
    "section": "PRODUCTS",
@@ -555,7 +596,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "How the recruiting team reaches the candidate. · The role they applied for and where they came from. · Background that helps the hiring team shortlist. · Visible to the recruiting team only. · Manage applicant pool · Applicant details and activity · Review, screen, and move applicants through every hiring stage. · Load privacy notice status · Import from CV · View in Onboarding → · Candidate privacy notice · Optional reviewed note for final-stage offer rejections · Review bulk rejection · Review the server preflight results before confirming these candidate status changes. · Confirming rejects eligible candidates. Candidates skipped or not found will remain unchanged."
   },
   {
    "section": "PRODUCTS",
@@ -569,7 +611,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Nothing scheduled today · Notes for the panel · Not linked to a candidate record: the candidate is not emailed · Coordinate interview schedules, interview panels, and feedback completion. · All feedback is in · Interviews in the last and next 30 days · % of the busiest interviewer · Interview panels appear here once interviews are scheduled. · Boolean(a && b) && ((a.s · Not linked to a candidate record, so no invitation is emailed to them. · Pick a start time to use these. · Add the link so the invitation includes it. · Pick a start time to check for overlaps. · Send calendar invitations · A completed interview is final. · Held interviews with no feedback or scorecard yet"
   },
   {
    "section": "PRODUCTS",
@@ -583,7 +626,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
   },
   {
    "section": "PRODUCTS",
@@ -597,7 +641,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
   },
   {
    "section": "PRODUCTS",
@@ -610,7 +655,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Overview of onboarding activities and metrics. · Total New Hires · Checklist Items Pending · Upcoming Orientation Sessions · Monthly Joining Trend · New hires appear here by stage once an offer is sent or accepted. · New hires with a joining date ahead of today appear here. · Live onboarding metrics could not be loaded. · Add New Hire · New hires by current stage · Overdue checklist items · Overdue pre-boarding tasks · Payroll forms to verify · Active New Hires · Joining This Month · Pre-boarding Tasks Open · Completed This Month · Payroll Forms to Verify · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
   },
   {
    "section": "PRODUCTS",
@@ -623,7 +669,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "How to reach the new hire. The pre-onboarding link and login details go to this email. · The position they are joining, the team and who they report to. · Where the record starts and whether onboarding kicks off right away. · Internal notes for HR. The new hire does not see them. · Pre-onboarding link sent · Pre-onboarding link not sent yet · Joining date not set · Profile details entered by the new hire · Send the pre-onboarding portal link · Accepted-offer candidates and their onboarding progress. Switch to All Onboarding to view other records. · Start onboarding now · Applies Settings: checklists, document requests and emails the pre-onboarding link. · Add New Hire"
   },
   {
    "section": "PRODUCTS",
@@ -636,7 +683,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Track pre-onboarding links, requested documents and pre-joining tasks. · Review uploads in Documents · Move to Pre-Joining · Move to In Progress · Nobody is in pre-onboarding right now. · Documents to request · Signed offer letter · Waiting for new hire · Due in 7 days · Pre-onboarding link created, but the email could not be sent. Copy the link and share it. · Could not copy automatically. Select the link and copy it. · The task could not be saved. · Add one for a new hire with “Add Task”. · Open Pre-boarding Tasks · Completed This Week · New Hires With Open Tasks · Add pre-boarding task · Edit pre-boarding task · Choose the new hire, then describe the task."
   },
   {
    "section": "PRODUCTS",
@@ -649,7 +697,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Request, collect and review new hires' onboarding documents. · Add a file for a new hire, or one that belongs to no one yet. · The new hire is emailed a link to upload these through their pre-onboarding page. · Request documents from a new hire · If this new hire has an open request for the same category, the upload fills that request. · There are no active new hires. · Documents to request · The new hire is emailed this reason and asked to upload the document again. · Signed offer letter · Requested (waiting for new hire) · The file could not be loaded. · The browser blocked the new tab. Use Download instead. · Document uploaded. It fills the open request and is ready for review."
   },
   {
    "section": "PRODUCTS",
@@ -662,7 +711,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Create checklist templates and track each new hire's onboarding tasks. · Due dates are worked out from each new hire's joining date when the checklist is assigned. · There are no active new hires. Completed or cancelled hires cannot be given checklists. · This checklist has no items. · Task owners are emailed their tasks when the checklist is assigned. · A newly chosen owner is emailed the task. · Choose an employee · Action blocked (optional) · Owners are emailed their tasks. · On start day · Add at least one checklist item. · The checklist could not be saved. · Item added. Its owner has been emailed if one was chosen. · The item could not be saved. · Checklist exception recorded."
   },
   {
    "section": "PRODUCTS",
@@ -675,7 +725,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Schedule and manage onboarding orientation sessions. · Remove from session · Nothing to wrap up · Set the date, place and presenter. · This session's date has passed. Record attendance, then mark it completed. · New attendees can be added only to a scheduled session. · Every active new hire is already on this session. · Use \"New Session\" to schedule one. · Past sessions still marked scheduled appear here. · View all in Past · A session can be marked completed only on or after its date. · The session could not be saved. Please try again. · Remove this attendee from the session? · Attendee removed from the session. · Session cancelled. Attendees were emailed that it was cancelled."
   },
   {
    "section": "PRODUCTS",
@@ -688,7 +739,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Analyse onboarding metrics and generate reports. · Monthly Joining Trend · Cancelled new hires are not counted in these figures. · Joiners appear here by month once new hires have a joining date. · The joining report could not be loaded. · Avg days from joining to completion · Total joiners (cancelled excluded) · Hires measured for average · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
   },
   {
    "section": "PRODUCTS",
@@ -701,7 +753,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Submitted bank and payroll forms awaiting finance verification. · Financial values are masked. Reveal only when needed to verify payroll details. · Return for changes · What needs to change? · New hire forms · Review submitted onboarding forms. Financial details remain masked unless you explicitly reveal them. · Finance permission needed · Bank and payroll details are shown only to the finance viewers your organization admin has chosen. An organization admin can add you under Onboarding settings, in Finance viewers. · Go to Onboarding settings · Payroll verification queue · Reveal financial details · Onboarding forms could not be loaded. · The form could not be verified."
   },
   {
    "section": "PRODUCTS",
@@ -714,7 +767,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Decide what happens automatically when a new hire is created. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Link valid for · Shown in the welcome email and on the new hire's pre-onboarding page. · Remind new hires about missing documents every · How onboarding runs · Signed offer letter · Onboarding settings could not be loaded. · Please fix the highlighted fields. · Onboarding settings saved. They apply to new hires created from now on."
   },
   {
    "section": "PRODUCTS",
@@ -726,7 +780,8 @@
    "href": "/zoiko-hr/employee-management",
    "roles": [
     "manager"
-   ]
+   ],
+   "about": "Employee Management Dashboard · Employee management overview and analytics · Upcoming Probation End · Dashboard load error: · New Hires This Month · Exits This Month · Recent employee lifecycle events will appear here"
   },
   {
    "section": "PRODUCTS",
@@ -738,7 +793,8 @@
    "href": "/zoiko-hr/employee-management/employees",
    "roles": [
     "manager"
-   ]
+   ],
+   "about": "Manage employee directory and records. · Password Reset Successful · Temporary password generated. Share it with the employee. · Upload an Excel (.xlsx, .xls) or CSV file with employee records. Columns are auto-mapped by header name. · Click to select or drag & drop a file · Skipped / Failed · Download Error Report · Deactivate this employee? They will be marked as terminated. · Reset password for this employee? A new temporary password will be generated. · Add New Employee · Date of Joining · Date of Birth · Template download failed: · Choose an Excel or CSV file"
   },
   {
    "section": "PRODUCTS",
@@ -750,7 +806,8 @@
    "href": "/zoiko-hr/employee-management/organization",
    "roles": [
     "manager"
-   ]
+   ],
+   "about": "View and manage employee reporting hierarchy and department structure · Org chart load error:"
   },
   {
    "section": "PRODUCTS",
@@ -762,7 +819,8 @@
    "href": "/zoiko-hr/employee-management/lifecycle",
    "roles": [
     "manager"
-   ]
+   ],
+   "about": "Track employee lifecycle events and status changes. · Lifecycle load error: · Confirm probation completion for this employee? · Enter new designation ID: · Enter new department ID: · Process resignation for this employee? · Process exit for this employee? This will mark them as terminated."
   },
   {
    "section": "PRODUCTS",
@@ -774,7 +832,8 @@
    "href": "/organization-admin/assets",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "Manage your organization's assets and assign them to employees · Create and optionally assign to an employee · Assign to Employee"
   },
   {
    "section": "PRODUCTS",
@@ -786,7 +845,8 @@
    "href": "/organization-admin/assets/requests",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "Review and manage employee asset requests"
   },
   {
    "section": "PRODUCTS",
@@ -800,7 +860,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Learning & Development · Course catalog, training programs, assessments, and reports. · Overview of learning and development KPIs. · Avg Skill Level · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100. · Leave empty for unlimited. If set, whole number from 1 to 100. · Leave empty for no limit. If set, whole number from 1 to 600."
   },
   {
    "section": "PRODUCTS",
@@ -814,7 +875,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Learning & Development · Course catalog, training programs, assessments, and reports. · Overview of learning and development KPIs. · Avg Skill Level · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100. · Leave empty for unlimited. If set, whole number from 1 to 100. · Leave empty for no limit. If set, whole number from 1 to 600."
   },
   {
    "section": "PRODUCTS",
@@ -828,7 +890,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Learning & Development · Course catalog, training programs, assessments, and reports. · Overview of learning and development KPIs. · Avg Skill Level · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100. · Leave empty for unlimited. If set, whole number from 1 to 100. · Leave empty for no limit. If set, whole number from 1 to 600."
   },
   {
    "section": "PRODUCTS",
@@ -842,7 +905,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Learning & Development · Course catalog, training programs, assessments, and reports. · Overview of learning and development KPIs. · Avg Skill Level · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100. · Leave empty for unlimited. If set, whole number from 1 to 100. · Leave empty for no limit. If set, whole number from 1 to 600."
   },
   {
    "section": "PRODUCTS",
@@ -856,7 +920,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Learning & Development · Course catalog, training programs, assessments, and reports. · Overview of learning and development KPIs. · Avg Skill Level · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100. · Leave empty for unlimited. If set, whole number from 1 to 100. · Leave empty for no limit. If set, whole number from 1 to 600."
   },
   {
    "section": "PRODUCTS",
@@ -870,7 +935,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Overview of compensation, benefits, and costs. · Total Salary Cost"
   },
   {
    "section": "PRODUCTS",
@@ -884,7 +950,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage salary structure templates. · Amount / formula · Add a component · Amount or formula · Required. A fixed amount, a percentage, or a formula. A component's default amount is only filled in as a suggestion. · Add Salary Structure · Update Salary Structure · The components could not be loaded. · The amount could not be changed. · The component could not be removed. · Every component is already in this structure · Add to structure"
   },
   {
    "section": "PRODUCTS",
@@ -898,7 +965,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Define salary bands and grade structures. · Add Pay Grade · Update Pay Grade · Max must be greater than min · Create Pay Grade"
   },
   {
    "section": "PRODUCTS",
@@ -912,7 +980,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage salary components and compensation items. · Set per structure · Add Salary Component · A suggested starting value. The amount that counts is set for this component inside each salary structure. · Update Salary Component · The component could not be created. · The component could not be updated."
   },
   {
    "section": "PRODUCTS",
@@ -926,7 +995,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Define compensation band ranges and levels. · Highest Band Max: · Add Compensation Band · Update Compensation Band · Max must be greater than min"
   },
   {
    "section": "PRODUCTS",
@@ -940,7 +1010,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Track and manage salary revision history. · Add Salary Revision · Update Salary Revision"
   },
   {
    "section": "PRODUCTS",
@@ -953,7 +1024,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Salary revisions and allowance awards need a second person before anyone is told. · New salary revision · Sentence for the employee's letter (optional) · Submit for approval · New allowance award · Review date (optional) · Why the employee is eligible · Conditions it depends on (shown in the letter) · Send for approval · Employees can download their own statement any time from My compensation. Use this for an annual run. · Managers may open the compensation documents of their own reports · Off by default. Only an organization admin can change this. · Expense claims above this total need a second approver · Correction (no letter) · Comment (required to reject)"
   },
   {
    "section": "PRODUCTS",
@@ -967,7 +1039,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage employee allowances. · There are no employees in this organization yet. Add an employee first, then you can give them an allowance. · The allowance could not be updated. · The allowance could not be created."
   },
   {
    "section": "PRODUCTS",
@@ -981,7 +1054,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage employee benefits, enrollments, and coverage."
   },
   {
    "section": "PRODUCTS",
@@ -994,7 +1068,8 @@
    "roles": [
     "manager",
     "hr_admin"
-   ]
+   ],
+   "about": "Employee Self Service · Overview of your ESS portal · Overview of your employee self-service portal · Request Time Off"
   },
   {
    "section": "PRODUCTS",
@@ -1007,7 +1082,8 @@
    "roles": [
     "manager",
     "hr_admin"
-   ]
+   ],
+   "about": "Employee Self Service · View and manage your personal information · 123 Main St, New York, NY 10001 · Senior Software Engineer"
   },
   {
    "section": "PRODUCTS",
@@ -1020,7 +1096,8 @@
    "roles": [
     "manager",
     "hr_admin"
-   ]
+   ],
+   "about": "Employee Self Service · Manage your leave requests and view balance · My Leave Management · Submit new leave requests and track your request history. · Apply for Leave · Work From Home · Start and end dates are required · You haven't submitted any leave requests yet. Click the 'Apply for Leave' button above to get started."
   },
   {
    "section": "PRODUCTS",
@@ -1033,7 +1110,8 @@
    "roles": [
     "manager",
     "hr_admin"
-   ]
+   ],
+   "about": "Employee Self Service · Live attendance dashboard and working hours analytics · Regular Day Shift · Shift: 09:00 AM – 05:30 PM · Break: 1h flexible · Avg Daily Hours · Target: 8.0h / day · Weekly Hours & Punctuality · Daily logged hours compared to 8.0h target baseline · Standard Work Week: 40.0 Hours · Distribution of working days for current period · Absent / Unplanned · 09:00 - 17:30 · After 8.0h daily · Attendance Log Records · Detailed check-in, check-out, duration, and status per date · General Day (09:00 - 17:30) · General Day Shift · Currently Clocked In · Not Clocked In · First Check-In: 09:02 AM · Clock in to start shift · Avg 14m delay"
   },
   {
    "section": "PRODUCTS",
@@ -1046,7 +1124,8 @@
    "roles": [
     "manager",
     "hr_admin"
-   ]
+   ],
+   "about": "Employee Self Service · Access learning courses and track progress · Browse courses and track your learning progress · Courses will appear here once they are published."
   },
   {
    "section": "PRODUCTS",
@@ -1059,7 +1138,8 @@
    "roles": [
     "manager",
     "hr_admin"
-   ]
+   ],
+   "about": "Employee Self Service · Configure your employee self-service preferences · Leave request updates · ESS request updates · Show email address · Show phone number · Show emergency contacts · Allow document downloads · Share payslips with manager · Share certificates with HR · Items Per Page"
   },
   {
    "section": "PRODUCTS",
@@ -1073,7 +1153,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage travel requests and expenses · Recent Itinerary Requests · Dashboard compilation failed:"
   },
   {
    "section": "PRODUCTS",
@@ -1087,7 +1168,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Submit and monitor operational items · New Travel Request · Purpose of Travel · The travel requests could not be loaded. · Choose the staff member, and enter the destination, start date and end date. · The end date cannot be before the start date. · The travel request could not be created. Please try again."
   },
   {
    "section": "PRODUCTS",
@@ -1101,7 +1183,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Review incoming travel authorizations · An unexpected error occurred while loading approvals. · The server could not be reached. Please try again. · Authorization fetch failed: · Action execution failed. Verify authorization states. · Object rendered directly:"
   },
   {
    "section": "PRODUCTS",
@@ -1115,7 +1198,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Manage travel expenses and reimbursements · Review employee expense claims and approve or reject reimbursements · Transaction Audit Stream · Claims submitted by employees will appear here for review. · An unexpected error occurred while loading expenses. · Claim marked as reimbursed. · The claim could not be updated."
   },
   {
    "section": "PRODUCTS",
@@ -1129,7 +1213,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Configure travel module preferences · Max Trip Duration (days) · Reimbursement Deadline (days) · Email & Push Notifications · When enabled, users will receive notifications for travel request approvals, expense reimbursements, and policy updates. · Some settings need attention. Fix the highlighted fields and save again. · Travel settings saved."
   },
   {
    "section": "PRODUCTS",
@@ -1143,7 +1228,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Strategic organizational alignment · Headcount by Department · Recent Workforce Initiatives"
   },
   {
    "section": "PRODUCTS",
@@ -1157,7 +1243,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Strategic workforce planning and budgeting · ITEMS_PER_PAGE && ( · Year must be between 2020 and 2100"
   },
   {
    "section": "PRODUCTS",
@@ -1171,7 +1258,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Department-wise workforce planning and vacancy tracking · ITEMS_PER_PAGE && ( · Workforce plan ID (optional) · There are no departments in this organization yet. Create a department first, then plan its headcount. · Filled plus vacant cannot be more than approved. An empty number counts as 0. · The headcount record could not be saved. · Could not load the authorization record. · Could not submit the headcount request. · Could not save the authorization decision. · Headcount authorization record · Edit Headcount Record · New Headcount Record · What needs fixing · A draft is created first. Nothing is sent to the recipient until it is issued. · E-mail signing link · Not delivered (record only)"
   },
   {
    "section": "PRODUCTS",
@@ -1185,7 +1273,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Key position mapping and talent pipeline management · All Risk Levels · ITEMS_PER_PAGE && ( · Plan owner (optional) · The approved plan document is generated from this authorization. Readiness issues have links to fix pages. · There are no employees in this organization yet. Add employees first, then you can plan their succession. · The list of employees could not be loaded. Close this window and try again. · The succession record could not be saved. · Could not load the succession authorization record. · Could not submit the succession plan. · Could not save the succession decision. · Succession authorization record · Add Succession Record · What needs fixing"
   },
   {
    "section": "PRODUCTS",
@@ -1198,7 +1287,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Create, check, version and approve structured job descriptions · New job description · Create new version · Check inclusive language · Submit for approval · Return for revision · This approved version may be linked to an authorized position. · The job description could not be saved. · Job description created. · Inclusive-language check failed. · Submitted for approval. · Job description approved. · Job description returned for revision. · New draft version created. · Key responsibilities (one per line) · Essential requirements (one per line) · Desirable requirements (one per line) · Reports to designation · Direct reports summary · Untitled job description"
   },
   {
    "section": "PRODUCTS",
@@ -1212,7 +1302,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Generate and export workforce analytics reports · ITEMS_PER_PAGE && ("
   },
   {
    "section": "MY WORKSPACE",
@@ -1224,7 +1315,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Visa & Work Permits · Banking & Documents · Date of Birth · Date of Joining · Work Permit Expiry · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1236,7 +1328,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "The account must be in your own name as it appears on your profile. · Your banking details are encrypted and stored securely. · Not added yet · Your profile could not be found. Reload the page and try again. · The bank details could not be saved. · Account Holder Name · Hide account number · Show account number · IFSC / Routing Code · PAN Card / Tax ID · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1248,7 +1341,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Request New Asset · Submit a request to your IT team · Reason for Request · Provide at least 10 characters · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1260,7 +1354,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Set as primary · Full home address · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1272,7 +1367,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Manage your password and authentication preferences. · Add an extra layer of security to your account with 2FA. · You'll be asked for a verification code each time you sign in from a new device. · At least 8 characters · One uppercase letter · One special character · Enter your current password · Password is too weak · Passwords do not match · Confirm your password · Forgot your current password? Email me a reset link · Create a strong password · Confirm New Password · Re-enter your new password · 2FA is enabled on your account · Use Google Authenticator or Authy · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1284,7 +1380,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Employee Self Service · Your personal overview for today. · Apply for Leave · Some parts of this page could not be loaded, so a few numbers may be missing. · Leave, travel and expense requests · My Leave Requests · Your latest requests and what was decided · You have not applied for any leave yet. · Your dashboard could not be loaded. · Personal overview for today. Everything you need for your workday. · Apply for time off · Submit a claim · Plan a business trip · Details and bank info · Documents to action · Nothing is waiting for you. · Could not load your documents."
   },
   {
    "section": "MY WORKSPACE",
@@ -1296,7 +1393,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Your attendance records from the server. · Avg Daily Hours · Attendance Log Records · Detailed check-in, check-out, duration, and status per date · Records load from the server once they exist. · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1308,7 +1406,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Overtime and attendance corrections, and the decisions on them. · Ask before you work overtime unless it is an emergency. A request for a past date is recorded as retrospective. · This was an emergency · Forgot to check in/out · I confirm the corrected times are accurate. · Waiting for a decision · The request could not be sent. · Overtime request sent to your manager. · My overtime requests · Correction sent. Your record changes only if it is approved. · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1320,7 +1419,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Your pay components and compensation letters. Only you and HR can see them. · Estimated annual value (before deductions): · Letters and statements · Your compensation could not be loaded. · Your statement is ready. · Read and acknowledge · Employee Self Service · Not produced yet · The documents could not be loaded."
   },
   {
    "section": "MY WORKSPACE",
@@ -1331,7 +1431,8 @@
    "href": "/employee/performance",
    "roles": [
     "employee"
-   ]
+   ],
+   "about": "Probation reviews, self-assessments and internal transfer requests. · Your comments (optional) · A recommendation is not a final decision. Your comments become part of the review. · Issued: acknowledge it in Documents to action. · Only appraisals reviewed by your organization admin appear here. · Draft — not yet finalised by your organization admin. · Request an internal transfer · Requesting a transfer will not affect how you are treated in your current role. Moves to another country need a different process. · Location (same country) · I have told my current manager (you can choose not to before HR contacts you) · Recommend ending employment · That did not work."
   },
   {
    "section": "MY WORKSPACE",
@@ -1343,7 +1444,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Manage your personal preferences and notification settings. · Your saved settings could not be loaded. Reload the page to try again. · Receive updates via email · Receive alerts via SMS · Browser push alerts · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1355,7 +1457,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Explore your courses, training programs, and quizzes. Learn at your own pace. · Employee Self Service · Some learning details could not be loaded. Refresh to try again. · View all courses · Nothing underway yet. Start a course from the Courses tab. · Courses for everyone and for your department will appear here. · Programs for everyone and for your department will appear here."
   },
   {
    "section": "MY WORKSPACE",
@@ -1367,7 +1470,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Explore your courses, training programs, and quizzes. Learn at your own pace. · Employee Self Service · Some learning details could not be loaded. Refresh to try again. · View all courses · Nothing underway yet. Start a course from the Courses tab. · Courses for everyone and for your department will appear here. · Programs for everyone and for your department will appear here."
   },
   {
    "section": "MY WORKSPACE",
@@ -1379,7 +1483,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Explore your courses, training programs, and quizzes. Learn at your own pace. · Employee Self Service · Some learning details could not be loaded. Refresh to try again. · View all courses · Nothing underway yet. Start a course from the Courses tab. · Courses for everyone and for your department will appear here. · Programs for everyone and for your department will appear here."
   },
   {
    "section": "MY WORKSPACE",
@@ -1391,7 +1496,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Explore your courses, training programs, and quizzes. Learn at your own pace. · Employee Self Service · Some learning details could not be loaded. Refresh to try again. · View all courses · Nothing underway yet. Start a course from the Courses tab. · Courses for everyone and for your department will appear here. · Programs for everyone and for your department will appear here."
   },
   {
    "section": "MY WORKSPACE",
@@ -1403,7 +1509,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "View your leave balances, active requests, and complete history. · Apply for Leave · Your leave allocation has not been initialized yet. Please reach out to your HR administrator to set up your annual leave quota. · Contact HR Department · User not found. Please log in again. · Leave request question · Leave balance not set up · Employee Self Service · Your message has been sent to the HR team. · Minimum 10 characters. HR will reply to your email on file. · Too many requests. Please wait a while before trying again."
   },
   {
    "section": "MY WORKSPACE",
@@ -1415,7 +1522,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Submit a new leave request for manager review and approval. · View Leave History · Paternity / partner · Shared / parental · Pay option (where offered) · I am interested in keep-in-touch days · We may ask for the evidence the law allows, such as a certificate of expected birth. Please do not share more medical information than we ask for. HR will confirm your dates and pay. · We are very sorry for your loss. You do not have to tell us anything you do not want to share. · I need to travel · Message to your manager (optional) · Cover and handover (optional, seen by your manager and HR) · (optional, you do not need to give a diagnosis) · Submit Leave Request"
   },
   {
    "section": "MY WORKSPACE",
@@ -1427,7 +1535,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "View your personal leave schedule and public holidays. · My Leave Schedule · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1439,7 +1548,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Complete record of all your leave requests. · User not found. Please log in again. · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1451,7 +1561,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Documents shared with you by the company · Filter by category · Documents shared by the company will appear here. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here · This file is large — only the first 2 MB is shown. Download it to read everything. · Fit to window · The file type could not be determined. · Unsupported preview type. · Could not render this document · (no text on this slide) · (this file is empty)"
   },
   {
    "section": "MY WORKSPACE",
@@ -1463,7 +1574,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Documents to action · Acknowledgements, signatures, reviews and forms that are waiting for you. · Nothing is waiting for you. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Could not load your documents."
   },
   {
    "section": "MY WORKSPACE",
@@ -1475,7 +1587,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "The policies that apply to you, and the versions you have received. · Documents issued to you · Your policies could not be loaded. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action"
   },
   {
    "section": "MY WORKSPACE",
@@ -1487,7 +1600,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Documents waiting for you as an authorised signatory of the employer. · Reason for rejecting · The person who requested the document will see this reason. · Review & sign · Nothing to sign right now. · The document could not be loaded. · You cannot approve a document you requested or that is about you. Another signatory must do this. · The decision could not be saved. · Your signatory queue could not be loaded. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action · Read the document · Read & acknowledge · Sign for the employer · The PDF could not be downloaded. · You have acknowledged receipt of this document. A record has been kept."
   },
   {
    "section": "MY WORKSPACE",
@@ -1499,7 +1613,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Documents your organization has shared with you. View and download only. · Documents your organization shares with you will appear here. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here · This file is large — only the first 2 MB is shown. Download it to read everything. · Fit to window · The file type could not be determined. · Unsupported preview type. · Could not render this document · (no text on this slide) · (this file is empty)"
   },
   {
    "section": "MY WORKSPACE",
@@ -1511,7 +1626,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Download your monthly salary slips. · Last Month CTC · Last Net Pay · Payslips assigned to you will appear here. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here · This file is large — only the first 2 MB is shown. Download it to read everything. · Fit to window · The file type could not be determined. · Unsupported preview type. · Could not render this document · (no text on this slide) · (this file is empty)"
   },
   {
    "section": "MY WORKSPACE",
@@ -1523,7 +1639,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Offer & Contracts · Your employment agreements, offer letters, and legal documents. · Offer letters and contracts assigned to you will appear here. · Documents to Action · Awaiting My Signature · Tax & Compliance · Documents to action · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here · This file is large — only the first 2 MB is shown. Download it to read everything. · Fit to window · The file type could not be determined. · Unsupported preview type. · Could not render this document · (no text on this slide) · (this file is empty)"
   },
   {
    "section": "MY WORKSPACE",
@@ -1535,7 +1652,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Tax & Compliance · Access your Form 16, TDS certificates, and investment declarations. · Tax Filing Notice · Form 16 for FY 2025-26 will be available by July 15, 2026. Please consult your tax advisor for filing. · Tax documents assigned to you will appear here. · Documents to Action · Awaiting My Signature · Offer & Contracts · Documents to action · This document could not be previewed · Download it below to open it in another application. · This sheet is empty · This format cannot be rendered here · This presentation cannot be rendered here · This file is large — only the first 2 MB is shown. Download it to read everything. · Fit to window · The file type could not be determined."
   },
   {
    "section": "MY WORKSPACE",
@@ -1547,7 +1665,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Overview of your business travel and reimbursements. · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1559,7 +1678,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Raise and track your business travel requests. · New Travel Request · Travel Date From · Travel Date To · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1571,7 +1691,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "View the approval status of your travel requests. · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1583,7 +1704,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Submit and track your business travel reimbursements. · New Expense Claim · Not linked to a trip · What was it for? · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1595,7 +1717,8 @@
    "roles": [
     "employee",
     "manager"
-   ]
+   ],
+   "about": "Configure your personal travel preferences and limits. · Automatically notify your reporting manager for every travel request. · Your saved settings could not be loaded. Reload the page to try again. · Nothing to save: you have not changed any setting. · Employee Self Service"
   },
   {
    "section": "NOTIFICATIONS",
@@ -1608,7 +1731,8 @@
     "manager",
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Messages sent to you by the Zoiko HR team. · Mark all as read · PAGE_SIZE && ( · Could not update the notification. · Could not mark notifications as read. · You're all caught up · You have no notifications · Mark as unread · Mark as read"
   },
   {
    "section": "USER MANAGEMENT",
@@ -1618,7 +1742,8 @@
    "href": "/hr-admin/settings",
    "roles": [
     "hr_admin"
-   ]
+   ],
+   "about": "Runs one organization: its people, settings and billing. · Creates the organization and its first administrator, and starts an evaluation. · Email is unavailable - set a temporary password instead · Email a reset link (recommended) · The user gets a single-use link valid for 60 minutes and chooses their own password. · Set a temporary password · Shown to you once. The user must change it at next sign-in. · Either way, the user's current sessions are signed out and the action is audit-logged. · Use Add Organization to create the first one. · Could not create the organization. · Confirm that this person should get full platform access · Could not suspend the organization."
   },
   {
    "section": "USER MANAGEMENT",
@@ -1629,7 +1754,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "Assistant Knowledge Admin · Author and publish the seven knowledge categories the HR assistant retrieves answers from — Policy, FAQs, SOPs, Compliance, Handbook, Guide and Forms — and control its kill switches. · Visible on zoikohr.com · Suspend (reversible — publish again to reactivate) · Edit title / type / tier · Add new version · Visible on zoikohr.com (public, unauthenticated assistant) · New knowledge source · Permanently delete this draft source? This cannot be undone. · Disable AI answers · Disable actions (bookings) · Title (e.g. Annual Leave Policy)"
   },
   {
    "section": "USER MANAGEMENT",
@@ -1640,7 +1766,8 @@
    "roles": [
     "hr_admin",
     "admin"
-   ]
+   ],
+   "about": "HR Assistant — Support Tickets · Tickets raised when the assistant hands an employee off to HR — every org admin sees every ticket raised in this organization. · Assistant couldn't answer · Employee requested HR · Resolution note (optional)"
   },
   {
    "section": "ADMINISTRATION",
@@ -1650,7 +1777,8 @@
    "href": "/organization-admin/users",
    "roles": [
     "admin"
-   ]
+   ],
+   "about": "Compensation & statutory · Pick a country template in the import dialog · Manage organization users, roles, and access permissions from one place. · 20 countries have their own template: identifier columns, address labels, examples and currency follow the country. Each file has a \"How to fill\" sheet. · Share this temporary password with the new user securely. · Generate a new temporary password for · Date of Joining · Date of Birth · Date of joining · Full time (default) · Date of birth · Bank account number · 3 created, 2 updated · Password reset successful. · 0 8px 20px -8px rgba(59,130,246,0.7) · 1px solid #FECACA · 1px solid rgba(10,17,40,0.08)"
   }
  ]
 }
