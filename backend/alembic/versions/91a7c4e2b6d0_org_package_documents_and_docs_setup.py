@@ -1,6 +1,6 @@
 """The organisation's onboarding package, portal form overrides, upload categories and the docs setup wizard
 
-Revision ID: d1e2f3a4b5c6
+Revision ID: 91a7c4e2b6d0
 Revises: c6d7e8f9a0b6
 Create Date: 2026-11-19
 
@@ -15,7 +15,7 @@ behaviour. After upgrading, run scripts/privacy_apply_rls.py (new tenant tables)
 import sqlalchemy as sa
 from alembic import op
 
-revision = "d1e2f3a4b5c6"
+revision = "91a7c4e2b6d0"
 down_revision = "c6d7e8f9a0b6"
 branch_labels = None
 depends_on = None
