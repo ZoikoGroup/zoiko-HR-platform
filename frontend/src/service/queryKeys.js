@@ -107,6 +107,23 @@ export const keys = {
     users: { all: ["orgAdmin", "users"], list: (p) => ["orgAdmin", "users", params(p)] },
     assignableRoles: () => ["orgAdmin", "assignableRoles"],
   },
+  attendance: {
+    all: ["attendance"],
+    me: {
+      all: ["attendance", "me"],
+      today: () => ["attendance", "me", "today"],
+      month: (month) => ["attendance", "me", "month", month || "current"],
+      day: (date) => ["attendance", "me", "day", date],
+    },
+    today: (p) => ["attendance", "today", params(p)],
+    approvals: (p) => ["attendance", "approvals", params(p)],
+    records: {
+      all: ["attendance", "records"],
+      list: (p) => ["attendance", "records", "list", params(p)],
+      detail: (id) => ["attendance", "records", "detail", id],
+      audit: (id) => ["attendance", "records", "audit", id],
+    },
+  },
   notifications: {
     all: ["notifications"],
     unreadCount: () => ["notifications", "unreadCount"],

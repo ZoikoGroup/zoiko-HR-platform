@@ -89,6 +89,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/documents/policies",
     "/employee/documents/to-action",
     "/employee/documents/signatory-queue",
+    // their own attendance: an organization admin punches in and requests corrections too (attendance plan Q9)
+    "/employee/ess/attendance",
+    "/employee/ess/time-requests",
     // their own files: an organization admin is also an employee (every Documents tab is shown to them)
     "/employee/documents/my-files",
     "/employee/documents/payslips",
@@ -139,6 +142,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/documents/policies",
     "/employee/documents/to-action",
     "/employee/documents/signatory-queue",
+    // their own attendance: an HR admin punches in and requests corrections too (attendance plan Q9)
+    "/employee/ess/attendance",
+    "/employee/ess/time-requests",
     // their own files: an HR admin is also an employee (every Documents tab is shown to them)
     "/employee/documents/my-files",
     "/employee/documents/payslips",

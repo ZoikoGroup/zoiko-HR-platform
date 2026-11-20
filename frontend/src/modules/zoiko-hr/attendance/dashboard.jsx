@@ -1,30 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { NavLink } from "react-router-dom";
 import { Users, UserCheck, UserX, AlertTriangle, Luggage, Home, Clock, TrendingUp, TrendingDown, Minus, Download, Filter, Loader2, BarChart3, Building2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getAttendanceDashboard, exportAttendanceCsv, exportAttendanceExcel } from "../../../service/hrService";
+import SubNav from "./components/AttendanceSubNav";
+import TodayPanel from "./components/TodayPanel";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/zoiko-hr/attendance" },
-  { label: "Attendance Records", href: "/zoiko-hr/attendance/daily" },
-  { label: "Holiday Calendar", href: "/zoiko-hr/attendance/holidays" },
-  { label: "Attendance Analytics", href: "/zoiko-hr/attendance/analytics" },
-];
 
-function SubNav() {
-  return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
-      {NAV_ITEMS.map((item) => (
-        <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
-          className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
-          }>
-          {item.label}
-        </NavLink>
-      ))}
-    </div>
-  );
-}
 
 function StatCard({ title, value, icon: Icon, change, trend }) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
@@ -122,6 +103,7 @@ export default function AttendanceDashboard() {
   return (
     <HRPage title="Attendance Overview" subtitle="Live attendance metrics, workforce distribution, and statistics">
       <SubNav />
+      <TodayPanel />
 
       <div className="space-y-6">
         
@@ -173,7 +155,7 @@ export default function AttendanceDashboard() {
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
             <div className="relative w-full sm:w-auto">
               <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}
+              <select aria-label="Department" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}
                 className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
                 <option value="">All Departments</option>
                 {deptOptions.map((d) => (<option key={d} value={d}>{d}</option>))}

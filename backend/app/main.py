@@ -499,6 +499,12 @@ documents_routers = _safe_import(lambda: [
 ], "hr.documents")
 for _r in documents_routers or []:
     app.include_router(_r)
+# Attendance engine (attendance plan): self-service punching under /hr/me/attendance, mounted before hr_router.
+attendance_routers = _safe_import(lambda: [
+    __import__("app.modules.hr.attendance.me_router", fromlist=["x"]).router,
+], "hr.attendance")
+for _r in attendance_routers or []:
+    app.include_router(_r)
 app.include_router(support_data_router)
 app.include_router(support_login_operator_router)
 app.include_router(support_login_tenant_router)

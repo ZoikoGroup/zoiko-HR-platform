@@ -165,6 +165,7 @@ import app.modules.support_login.models  # noqa: F401,E402
 import app.modules.doc_templates.models  # noqa: F401,E402
 import app.modules.hr.documents.models  # noqa: F401,E402
 import app.modules.hr.documents.automation.models  # noqa: F401,E402
+import app.modules.hr.attendance.models  # noqa: F401,E402
 
 # Plan seat limits (Core 50, Advanced 250) hold on every write path, not only the routes that check them up front.
 from app.modules.billing import seat_policy as _seat_policy  # noqa: E402
@@ -225,6 +226,10 @@ _SELF_HEALED_TABLES = (
     "doc_template_settings", "generated_documents",
     # documents module (ZHR-DOCS-ARCH-001, migrations e1a2b3c4d5f0 …): existing tables that gained columns
     "hr_document_versions", "hr_document_folders", "document_approval_steps", "document_approval_logs",
+    # attendance engine (attendance plan, migration a7c1d2e3f4a0): attendance_records / shifts / shift_rosters are listed
+    # above; the correction requests gained kind / requested_status / requested_breaks. The duplicate merge, UTC backfill
+    # and unique index run only through `alembic upgrade head` (never on boot).
+    "attendance_correction_requests",
 )
 
 

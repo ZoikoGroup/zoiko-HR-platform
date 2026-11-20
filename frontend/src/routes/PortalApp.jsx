@@ -70,7 +70,6 @@ const ZoikoHRLearning = lazyRoute(() => import("../modules/zoiko-hr/learning/lea
 const EssDashboard = lazyRoute(() => import("../modules/zoiko-hr/ess/dashboard.jsx"));
 const EssProfile = lazyRoute(() => import("../modules/zoiko-hr/ess/profile.jsx"));
 const EssLeaveManagement = lazyRoute(() => import("../modules/zoiko-hr/ess/leave-management.jsx"));
-const EssAttendance = lazyRoute(() => import("../modules/zoiko-hr/ess/attendance.jsx"));
 const EssRequests = lazyRoute(() => import("../modules/zoiko-hr/ess/requests.jsx"));
 const EssSettings = lazyRoute(() => import("../modules/zoiko-hr/ess/settings.jsx"));
 
@@ -97,6 +96,7 @@ const EmployeeDocumentCategories = lazyRoute(() => import("../modules/zoiko-hr/d
 const EmployeeCategoryFiles = lazyRoute(() => import("../modules/zoiko-hr/documents/employee-documents/EmployeeCategoryFilesPage.jsx"));
 const DocumentsAutomation = lazyRoute(() => import("../modules/zoiko-hr/documents/automation/AutomationSettingsPage.jsx"));
 const DocumentCategorySettings = lazyRoute(() => import("../modules/zoiko-hr/documents/settings/DocumentCategorySettingsPage.jsx"));
+const AttendanceApprovals = lazyRoute(() => import("../modules/zoiko-hr/attendance/ApprovalsPage.jsx"));
 const ApprovalWorkflow = lazyRoute(() => import("../modules/zoiko-hr/documents/approvals/ApprovalWorkflowPage.jsx"));
 // Document template engine (docs/templates)
 const TemplateLibraryPage = lazyRoute(() => import("../modules/zoiko-hr/documents/templates/TemplateLibraryPage.jsx"));
@@ -270,6 +270,7 @@ const routeOverrides = {
   "/zoiko-hr/leave/reports": <ZoikoHRLeaveReports />,
   // Attendance
   "/zoiko-hr/attendance": <ZoikoHRAttendanceDashboard />,
+  "/zoiko-hr/attendance/approvals": <AttendanceApprovals />,
   "/zoiko-hr/attendance/daily": <ZoikoHRAttendanceDailyRecords />,
   "/zoiko-hr/attendance/leaves": <ZoikoHRAttendanceLeaves />,
   "/zoiko-hr/attendance/shifts": <ZoikoHRAttendanceShifts />,
@@ -312,7 +313,8 @@ const routeOverrides = {
   "/zoiko-hr/ess": <EssDashboard />,
   "/zoiko-hr/ess/profile": <EssProfile />,
   "/zoiko-hr/ess/leave": <EssLeaveManagement />,
-  "/zoiko-hr/ess/attendance": <EssAttendance />,
+  // the old ESS attendance page had a pretend clock-in (attendance plan M3): everyone uses My Attendance now
+  "/zoiko-hr/ess/attendance": <Navigate to="/employee/ess/attendance" replace />,
   // retired ESS document pages (ZHR-DOCS-ARCH-001 Phase 9): old links land on the employee Documents tabs
   "/zoiko-hr/ess/my-documents": <Navigate to="/employee/documents/my-files" replace />,
   "/zoiko-hr/ess/assigned-documents": <Navigate to="/employee/documents/company" replace />,

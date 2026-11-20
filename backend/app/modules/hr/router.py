@@ -440,12 +440,20 @@ def payroll_summary(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 @hr_router.post(
     "/attendance",
-    response_model=AttendanceResponse,
     summary="Record attendance",
     description="Create a new attendance record for an employee."
 )
-def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_attendance_record(db, data, current_user.organization_id)
+def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    # Admins and HR admins only (anyone signed in could create records for anyone before). Same checks as
+    # POST /hr/attendance/records: the employee must belong to the caller's organization.
+    from app.modules.hr.attendance import records_service
+    body = data.model_dump()
+    body["status"] = getattr(body.get("status"), "value", body.get("status"))
+    body["reason"] = "Added through the attendance API"
+    for key in ("check_in", "check_out"):
+        if body.get(key) is not None:
+            body[key] = body[key].isoformat()
+    return records_service.create(db, current_user, body)
 
 
 

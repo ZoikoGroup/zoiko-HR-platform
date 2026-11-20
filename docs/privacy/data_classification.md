@@ -41,16 +41,27 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_CONFIDENTIAL**: `notes`
 - **FINANCIAL**: `purchase_cost`
 
+## `attendance_audit_log` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `attendance_id`, `actor_id`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `work_date`, `action`, `actor_type`, `source`, `before`, `after`, `ip_address`, `user_agent`
+- **SPECIAL_CATEGORY**: `reason`
+
+## `attendance_breaks` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `attendance_id`
+- **PERSONAL_CONFIDENTIAL**: `start_at`, `end_at`, `source`
+
 ## `attendance_correction_requests` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `attendance_record_id`, `document_id`
-- **PERSONAL_CONFIDENTIAL**: `employee_id`, `date`, `original_check_in`, `original_check_out`, `requested_check_in`, `requested_check_out`, `reason_detail`, `evidence_file`, `declared_at`, `requested_by`, `status`, `decided_by`, `decided_at`, `applied_at`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `date`, `original_check_in`, `original_check_out`, `requested_check_in`, `requested_check_out`, `kind`, `requested_status`, `requested_breaks`, `reason_detail`, `evidence_file`, `declared_at`, `requested_by`, `status`, `decided_by`, `decided_at`, `applied_at`
 - **SPECIAL_CATEGORY**: `reason`, `decision_reason`
 
 ## `attendance_records` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `is_deleted`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `overtime_request_id`
-- **PERSONAL_CONFIDENTIAL**: `employee_id`, `date`, `status`, `check_in`, `check_out`, `break_start`, `break_end`, `total_hours`, `notes`, `overtime_authorized_hours`
+- **PERSONAL_BASIC**: `overtime_request_id`, `shift_id`, `created_by`, `updated_by`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `date`, `status`, `check_in`, `check_out`, `break_start`, `break_end`, `total_hours`, `notes`, `overtime_authorized_hours`, `check_in_at`, `check_out_at`, `work_date_tz`, `source`, `late_minutes`, `break_minutes`, `worked_minutes`, `overtime_minutes`, `status_locked`, `auto_marked`
 
 ## `authorised_signatories` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
@@ -417,6 +428,10 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `employee_reporting` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `employee_id`, `manager_id`, `dotted_manager_id`, `department_id`, `designation_id`, `reporting_level`, `team_size`, `cost_center`, `location`, `is_direct_report`, `effective_from`, `effective_to`
+
+## `employee_shifts` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `employee_id`, `shift_id`, `effective_from`, `effective_to`, `assigned_by`
 
 ## `employees` (default PERSONAL_BASIC; most sensitive column rank 6)
 - **PLATFORM_META**: `id`, `role`, `is_active`, `status`, `organization_id`, `created_at`, `updated_at`, `must_change_password`, `email_verified`
@@ -805,12 +820,12 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **SPECIAL_CATEGORY**: `reason`, `short_notice_reason`
 
 ## `shift_rosters` (default PERSONAL_BASIC; most sensitive column rank 2)
-- **PLATFORM_META**: `id`, `created_at`, `updated_at`
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `employee_id`, `shift_id`, `date`, `is_active`, `assigned_by`, `notified_at`, `document_id`, `notice_id`
 
 ## `shifts` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `name`, `shift_type`, `start_time`, `end_time`, `grace_time_minutes`, `break_duration_minutes`, `is_overtime_eligible`, `requires_attendance`, `standard_hours`, `description`, `is_active`
+- **PERSONAL_BASIC**: `name`, `shift_type`, `start_time`, `end_time`, `grace_time_minutes`, `break_duration_minutes`, `is_overtime_eligible`, `requires_attendance`, `standard_hours`, `working_days`, `half_day_min_minutes`, `description`, `is_active`
 
 ## `structure_components` (default FINANCIAL; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `created_at`, `updated_at`

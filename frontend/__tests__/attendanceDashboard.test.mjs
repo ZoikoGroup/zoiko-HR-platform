@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import React from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 afterEach(() => cleanup());
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60)); });
@@ -25,8 +26,11 @@ async function load(t, handler) {
     getAttendanceDashboard: async (p) => { calls.push(p); return handler(p); },
     exportAttendanceCsv: async () => {}, exportAttendanceExcel: async () => {},
   } });
+  // the live "Today" panel (attendance M6) has its own tests: attendanceM6.test.mjs
+  t.mock.module("../src/service/attendanceService.js", { exports: { getAttendanceToday: () => new Promise(() => {}) } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/attendance/dashboard.jsx?t=${Math.random()}`);
-  render(React.createElement(Page));
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  render(React.createElement(QueryClientProvider, { client: qc }, React.createElement(Page)));
   await settle();
   return calls;
 }
@@ -50,7 +54,7 @@ test("department rows say how many of the department are present", async (t) => 
 
 test("the department filter is fed by the server list and is sent back to it", async (t) => {
   const calls = await load(t, async () => DATA);
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "Ops" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Department" }), { target: { value: "Ops" } });
   await settle();
   assert.deepEqual(calls, [{}, { department: "Ops" }]);
 });

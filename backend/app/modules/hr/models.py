@@ -40,6 +40,8 @@ class AttendanceStatus(str, enum.Enum):
     REMOTE  = "remote"
     HALF_DAY = "half_day"
     LATE    = "late"
+    WEEKLY_OFF = "weekly_off"        # a non-working day for the person (attendance M1)
+    MISSED_PUNCH = "missed_punch"    # checked in but never out; counts 0 hours until a correction is approved
 
 class LeaveType(str, enum.Enum):
     SICK     = "sick"
@@ -258,12 +260,33 @@ class AttendanceRecord(Base):
     created_at  = Column(DateTime, server_default=func.now())
     updated_at  = Column(DateTime, onupdate=func.now())
 
+    # ── attendance M1 (docs: attendance plan §4) ──────────────────────────────────────────────────────────────────
+    # check_in_at / check_out_at are the real instants, in UTC. check_in / check_out above stay as the LOCAL wall-clock
+    # mirror that the existing dashboard, analytics and exports read. `date` is the work date: the local date of the
+    # check-in in the employee's time zone (else the organization's), recorded in work_date_tz.
+    check_in_at      = Column(DateTime, nullable=True)
+    check_out_at     = Column(DateTime, nullable=True)
+    work_date_tz     = Column(String(64), nullable=True)
+    source           = Column(String(12), nullable=False, default="manual", server_default="manual")  # see attendance/constants.SOURCES
+    shift_id         = Column(Integer, ForeignKey("shifts.id"), nullable=True)
+    late_minutes     = Column(Integer, nullable=False, default=0, server_default="0")
+    break_minutes    = Column(Integer, nullable=False, default=0, server_default="0")
+    worked_minutes   = Column(Integer, nullable=False, default=0, server_default="0")   # net of breaks
+    overtime_minutes = Column(Integer, nullable=False, default=0, server_default="0")   # beyond the standard day (approval decides what counts)
+    status_locked    = Column(Boolean, nullable=False, default=False, server_default="0")  # an admin set the status: never recomputed
+    auto_marked      = Column(Boolean, nullable=False, default=False, server_default="0")  # written by the end-of-day job
+    created_by       = Column(Integer, nullable=True)     # employees.id (no FK: a second FK to employees would make
+    updated_by       = Column(Integer, nullable=True)     # the `employee` relationship ambiguous)
+
     employee    = relationship("Employee", back_populates="attendance_records")
     organization = relationship("Organization")
 
+    # One live record per person per work date is enforced by the partial unique index uq_attendance_emp_day, created
+    # by migration (it needs existing duplicates merged first, see attendance/backfill.py) and checked in the services.
     __table_args__ = (
         Index("ix_attendance_org_date", "organization_id", "date"),
         Index("ix_attendance_employee_date", "employee_id", "date"),
+        Index("ix_attendance_org_date_status", "organization_id", "date", "status"),
     )
 
 
@@ -280,6 +303,8 @@ class Shift(Base):
     is_overtime_eligible  = Column(Boolean, default=True)
     requires_attendance   = Column(Boolean, default=True)
     standard_hours        = Column(Numeric(4, 2), nullable=True)   # overrides attendance.standard_workday_hours for this shift
+    working_days          = Column(JSON, nullable=True)            # e.g. ["mon","tue","wed","thu","fri"]; None = the org's working days
+    half_day_min_minutes  = Column(Integer, nullable=True)         # None = attendance.half_day_min_hours
     description           = Column(Text, nullable=True)
     is_active             = Column(Boolean, default=True)
     organization_id       = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
@@ -299,6 +324,8 @@ class ShiftRoster(Base):
     notified_at = Column(DateTime, nullable=True)                         # when the shift notice (HR-TIM-003/004) was issued
     document_id = Column(Integer, nullable=True)                          # generated_documents.id of that notice
     notice_id   = Column(Integer, nullable=True)                          # shift_notices.id
+    # attendance M1: rosters are scoped to the organization like every other table (backfilled from the employee)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     created_at  = Column(DateTime, server_default=func.now())
     updated_at  = Column(DateTime, onupdate=func.now())
 
@@ -2499,8 +2526,12 @@ class AttendanceCorrectionRequest(Base):
     date                  = Column(Date, nullable=False)
     original_check_in     = Column(DateTime, nullable=True)
     original_check_out    = Column(DateTime, nullable=True)
-    requested_check_in    = Column(DateTime, nullable=False)
-    requested_check_out   = Column(DateTime, nullable=False)
+    requested_check_in    = Column(DateTime, nullable=True)          # NULL for a status-only request (attendance M1)
+    requested_check_out   = Column(DateTime, nullable=True)
+    kind                  = Column(String(20), nullable=False, default="missed_punch", server_default="missed_punch")
+                                                                     # missed_punch | wrong_status | break | time_change
+    requested_status      = Column(String(20), nullable=True)        # wrong_status: the status asked for
+    requested_breaks      = Column(JSON, nullable=True)              # break: [{"start": "13:00", "end": "13:30"}]
     reason                = Column(String(40), nullable=False)       # forgot | system_issue | off_site | other
     reason_detail         = Column(Text, nullable=True)
     evidence_file         = Column(String(500), nullable=True)

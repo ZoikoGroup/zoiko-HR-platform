@@ -167,6 +167,10 @@ _WRITE_INVALIDATION = [
     (r"/hr/document-folders", "/hr/document"),
     (r"/hr/holidays", "/hr/holidays"),
     (r"/hr/attendance/shifts", "/hr/attendance"),
+    # approving an overtime or correction request changes attendance records (hours, check-in/out, status)
+    (r"/hr/time", "/hr/attendance"),
+    # an employee punching in / out or taking a break changes their own records and the live dashboard
+    (r"/hr/me/attendance", "/hr/attendance"),
     (r"/admin/users", "/hr/admin/users"),
     (r"/hr/admin/users", "/hr/admin/users"),
     # Any billing write (checkout confirm, plan change, payment) must drop the

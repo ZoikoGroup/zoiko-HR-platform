@@ -193,6 +193,7 @@ const products = {
         { label: "Attendance", icon: Clock, children: [
           { label: "Dashboard",              href: "/zoiko-hr/attendance",             icon: LayoutDashboard },
           { label: "Attendance Records",     href: "/zoiko-hr/attendance/daily",       icon: ClipboardList },
+          { label: "Attendance Approvals",   href: "/zoiko-hr/attendance/approvals",   icon: ClipboardCheck, featureKey: "hr.attendance.core" },
           { label: "Holiday Calendar",       href: "/zoiko-hr/attendance/holidays",     icon: CalendarDays },
           { label: "Attendance Analytics",   href: "/zoiko-hr/attendance/analytics",    icon: BarChart3 },
           { label: "Time Requests",          href: "/zoiko-hr/attendance/time-requests", icon: Clock, featureKey: "hr.attendance.core" },
@@ -255,7 +256,7 @@ const products = {
           { label: "Dashboard",          href: "/zoiko-hr/ess",                   icon: LayoutDashboard },
           { label: "Profile",            href: "/zoiko-hr/ess/profile",           icon: UserCircle },
           { label: "Leave Management",   href: "/zoiko-hr/ess/leave",             icon: Calendar },
-          { label: "Attendance",         href: "/zoiko-hr/ess/attendance",        icon: Clock },
+          { label: "Attendance",         href: "/employee/ess/attendance",        icon: Clock },
           { label: "Learning",           href: "/zoiko-hr/ess/requests",          icon: BookOpen },
           { label: "Settings",           href: "/zoiko-hr/ess/settings",          icon: SlidersHorizontal },
         ]},

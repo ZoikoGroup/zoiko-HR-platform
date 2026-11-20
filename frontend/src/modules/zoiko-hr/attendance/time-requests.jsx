@@ -1,6 +1,7 @@
 // Working time requests (Prompt 3 §C): overtime authorizations and attendance corrections waiting for a decision, the
 // decision records they produce, publishing a shift pattern to many people (with a preview of who would receive a notice),
 // and changing someone's shifts. Nobody can decide their own request; the server enforces it and returns a plain message.
+import { correctionSummary } from "./constants";
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Check, Clock, Send, X } from "lucide-react";
 import HRPage from "../../../components/HRPage";
@@ -73,7 +74,7 @@ function RequestList({ kind, onToast }) {
                     {!r.pre_approved && <span className="ml-1 rounded bg-amber-100 px-1.5 text-xs text-amber-900">Retrospective</span>}
                     {r.emergency && <span className="ml-1 rounded bg-red-100 px-1.5 text-xs text-red-900">Emergency</span>}</p>
                 ) : (
-                  <p className="text-slate-600">Recorded {hhmm(r.original_check_in)}–{hhmm(r.original_check_out)} → requested {hhmm(r.requested_check_in)}–{hhmm(r.requested_check_out)} · {REASONS[r.reason] || r.reason}{r.reason_detail ? `: ${r.reason_detail}` : ""}</p>
+                  <p className="text-slate-600">Recorded {hhmm(r.original_check_in)}–{hhmm(r.original_check_out)} → {correctionSummary(r)} · {REASONS[r.reason] || r.reason}{r.reason_detail ? `: ${r.reason_detail}` : ""}</p>
                 )}
                 <p className="text-xs text-slate-500">{STATUS_TEXT[r.status] || r.status}{r.decided_at ? ` · ${fmtDateTime(r.decided_at)}` : ""}{r.decision_reason ? ` · ${r.decision_reason}` : ""}</p>
               </div>

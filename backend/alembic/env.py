@@ -22,6 +22,7 @@ import app.modules.support_access.models  # noqa: F401,E402
 import app.modules.doc_templates.models  # noqa: F401,E402
 import app.modules.hr.documents.models  # noqa: F401,E402
 import app.modules.hr.documents.automation.models  # noqa: F401,E402
+import app.modules.hr.attendance.models  # noqa: F401,E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
