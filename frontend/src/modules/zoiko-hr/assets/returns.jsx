@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { getAssetRequests, createAssetRequest, approveAssetRequest, rejectAssetRequest, fulfillAssetRequest, cancelAssetRequest } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
+import FulfillAssetDialog from "../../organization-admin/FulfillAssetDialog";
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Low" }, { value: "medium", label: "Medium" },
@@ -37,17 +38,20 @@ export default function Returns() {
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
+  const [fulfilling, setFulfilling] = useState(null);
 
-  const handleAction = useCallback(async (id, action) => {
+  const handleAction = useCallback(async (id, action, payload) => {
     setActionLoading(`${action}-${id}`);
     try {
       if (action === "approve") await approveAssetRequest(id);
       if (action === "reject") await rejectAssetRequest(id);
-      if (action === "fulfill") await fulfillAssetRequest(id);
+      if (action === "fulfill") await fulfillAssetRequest(id, payload);   // { asset_id }: the asset handed to the requester
       if (action === "cancel") await cancelAssetRequest(id);
       await fetchData();
+      return true;
     } catch (err) {
       setError(err.message || `Failed to ${action} request`);
+      return false;
     } finally {
       setActionLoading(null);
     }
@@ -217,7 +221,7 @@ export default function Returns() {
                           )}
                           {status === "approved" && (
                             <>
-                              <button onClick={() => handleAction(r.id, "fulfill")} disabled={actionLoading === `fulfill-${r.id}`}
+                              <button onClick={() => setFulfilling(r)} disabled={actionLoading === `fulfill-${r.id}`}
                                 className="px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 rounded transition-colors disabled:opacity-40">
                                 {actionLoading === `fulfill-${r.id}` ? "..." : "Fulfill"}
                               </button>
@@ -298,6 +302,17 @@ export default function Returns() {
             </form>
           </div>
         </div>
+      )}
+
+      {fulfilling && (
+        <FulfillAssetDialog
+          request={fulfilling}
+          saving={actionLoading === `fulfill-${fulfilling.id}`}
+          onClose={() => setFulfilling(null)}
+          onFulfill={async (assetId) => {
+            if (await handleAction(fulfilling.id, "fulfill", { asset_id: assetId })) setFulfilling(null);
+          }}
+        />
       )}
     </div>
   );

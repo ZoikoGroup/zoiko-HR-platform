@@ -1078,6 +1078,13 @@ class LeaveStatisticsResponse(BaseModel):
     monthly_trend: Optional[list[dict]] = None
 
 
+def _not_in_future(value):
+    """A purchase date cannot be after today (a typo like 2099 would otherwise be kept)."""
+    if value is not None and value > _date_type.today():
+        raise ValueError("Purchase date cannot be in the future")
+    return value
+
+
 class AssetCreate(BaseModel):
     employee_id: Optional[int] = None
     name: str = Field(..., min_length=1, max_length=150)
@@ -1091,6 +1098,11 @@ class AssetCreate(BaseModel):
     condition: Optional[AssetCondition] = None
     status: AssetStatus = AssetStatus.AVAILABLE
     notes: Optional[str] = None
+
+    @field_validator("purchase_date")
+    @classmethod
+    def purchase_date_not_in_future(cls, value):
+        return _not_in_future(value)
 
 
 class AssetUpdate(BaseModel):
@@ -1106,6 +1118,11 @@ class AssetUpdate(BaseModel):
     condition: Optional[AssetCondition] = None
     status: Optional[AssetStatus] = None
     notes: Optional[str] = None
+
+    @field_validator("purchase_date")
+    @classmethod
+    def purchase_date_not_in_future(cls, value):
+        return _not_in_future(value)
 
 
 class AssetResponse(BaseModel):
@@ -1138,17 +1155,17 @@ class AssetListResponse(BaseModel):
 
 class MaintenanceCreate(BaseModel):
     asset_id: int
-    asset_name: Optional[str] = None
-    asset_tag: Optional[str] = None
-    issue: str
+    asset_name: Optional[str] = Field(None, max_length=150)          # lengths match the asset_maintenance_requests columns
+    asset_tag: Optional[str] = Field(None, max_length=100)
+    issue: str = Field(..., min_length=1)
     priority: MaintenancePriority = MaintenancePriority.MEDIUM
-    reported_by: Optional[str] = None
+    reported_by: Optional[str] = Field(None, max_length=150)
     reported_by_id: Optional[int] = None
     reported_on: date
 
 
 class MaintenanceUpdate(BaseModel):
-    issue: Optional[str] = None
+    issue: Optional[str] = Field(None, min_length=1)
     priority: Optional[MaintenancePriority] = None
     status: Optional[MaintenanceStatus] = None
 
@@ -1180,8 +1197,8 @@ class MaintenanceResponse(BaseModel):
 
 class AssetRequestCreate(BaseModel):
     employee_id: Optional[int] = None
-    employee_name: Optional[str] = None
-    asset_type: str
+    employee_name: Optional[str] = Field(None, max_length=150)       # lengths match the asset_requests columns
+    asset_type: str = Field(..., min_length=1, max_length=100)
     quantity: int = Field(default=1, ge=1)
     priority: RequestPriority = RequestPriority.MEDIUM
     reason: Optional[str] = None
@@ -1226,8 +1243,8 @@ class AssetCategoryResponse(BaseModel):
 
 
 class AssetReportGenerate(BaseModel):
-    report_type: str
-    title: str
+    report_type: str = Field(..., min_length=1, max_length=50)        # lengths match the asset_reports columns
+    title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     parameters: Optional[str] = None
 
@@ -1774,7 +1791,7 @@ class CourseCreate(_CourseChecks):
     duration_hours: int
     department: Optional[str] = None
     resource_link: Optional[str] = None
-    cost: Optional[Decimal] = Field(None, ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)      # Numeric(10, 2) (audit L15)
     status: str = "active"
     is_mandatory: bool = False
     mandatory_audience: Optional[dict] = None       # policy-style audience: {"type": "all"|"departments"|..., "ids": [...]}
@@ -1793,11 +1810,12 @@ class CourseUpdate(_CourseChecks):
     duration_hours: Optional[int] = None
     department: Optional[str] = None
     resource_link: Optional[str] = None
-    cost: Optional[Decimal] = Field(None, ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)      # Numeric(10, 2) (audit L15)
     status: Optional[str] = None
     is_mandatory: Optional[bool] = None
     mandatory_audience: Optional[dict] = None
     renewal_months: Optional[int] = Field(None, ge=1, le=120)
+    version: Optional[str] = Field(None, max_length=40)
     version: Optional[str] = Field(None, max_length=40)
 
 
@@ -1830,14 +1848,27 @@ class CourseListResponse(BaseModel):
 class EnrollmentCreate(BaseModel):
     course_id: int
     employee_id: int
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+ENROLLMENT_STATUSES = ("enrolled", "in_progress", "completed", "dropped")
 
 
 class EnrollmentUpdate(BaseModel):
     status: Optional[str] = None
     progress_pct: Optional[int] = Field(None, ge=0, le=100)
     score: Optional[int] = Field(None, ge=0, le=100)
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_enrollment_status(cls, v):
+        if v is None:
+            return v
+        value = str(v).strip().lower().replace(" ", "_")
+        if value not in ENROLLMENT_STATUSES:
+            raise ValueError("Status must be enrolled, in progress, completed or dropped.")
+        return value
 
 
 class EnrollmentResponse(BaseModel):
@@ -1861,12 +1892,12 @@ class EnrollmentResponse(BaseModel):
 
 class LearningPathCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
 
 
 class LearningPathUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
     is_active: Optional[bool] = None
 
 
@@ -1900,6 +1931,18 @@ class LearningPathResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+CERTIFICATION_STATUSES = ("active", "expired", "revoked")
+
+
+def _cert_status(v):
+    if v is None:
+        return None
+    value = str(v).strip().lower()
+    if value not in CERTIFICATION_STATUSES:
+        raise ValueError("Status must be active, expired or revoked.")
+    return value
+
+
 class CertificationCreate(BaseModel):
     employee_id: int
     certification_name: str = Field(..., min_length=1, max_length=200)
@@ -1912,21 +1955,32 @@ class CertificationCreate(BaseModel):
     certificate_number: Optional[str] = Field(None, max_length=120)
     renewal_requirements: Optional[str] = Field(None, max_length=1000)
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_status(cls, v):
+        return _cert_status(v) or "active"
+
 
 class CertificationUpdate(BaseModel):
     certification_name: Optional[str] = Field(None, min_length=1, max_length=200)
-    issuing_organization: Optional[str] = None
+    issuing_organization: Optional[str] = Field(None, max_length=200)
     issue_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    credential_url: Optional[str] = None
+    credential_url: Optional[str] = Field(None, max_length=500)
     status: Optional[str] = None
     certificate_number: Optional[str] = Field(None, max_length=120)
     renewal_requirements: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_status(cls, v):
+        return _cert_status(v)
 
 
 class CertificationResponse(BaseModel):
     id: int
     employee_id: int
+    employee_name: Optional[str] = None          # lists and the certification report name the holder (audit L10)
     certification_name: str
     issuing_organization: Optional[str]
     issue_date: date
@@ -1949,13 +2003,14 @@ class SkillCreate(BaseModel):
 
 class SkillUpdate(BaseModel):
     skill_name: Optional[str] = Field(None, min_length=1, max_length=200)
-    category: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=100)
     proficiency_level: Optional[int] = Field(None, ge=1, le=5)
 
 
 class SkillResponse(BaseModel):
     id: int
     employee_id: int
+    employee_name: Optional[str] = None          # the skills list names the holder
     skill_name: str
     category: Optional[str]
     proficiency_level: int
@@ -2078,6 +2133,9 @@ class AssessmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+ANSWER_MAX = 500          # learning_assessment_questions.correct_answer is String(500) (audit L15)
+
+
 def normalize_question(question_type, options, correct_answer):
     """Checks a question hangs together and returns (options, correct_answer) in their stored form."""
     qtype = str(question_type or "").strip().lower()
@@ -2091,6 +2149,10 @@ def normalize_question(question_type, options, correct_answer):
         if t and t.lower() not in [x.lower() for x in opts]:
             opts.append(t)
     answer = " ".join(str(correct_answer).split()) if correct_answer is not None else ""
+    if any(len(o) > ANSWER_MAX for o in opts):
+        raise ValueError(f"Each option can be at most {ANSWER_MAX} characters.")
+    if len(answer) > ANSWER_MAX:
+        raise ValueError(f"The correct answer can be at most {ANSWER_MAX} characters.")
     if qtype == "multiple_choice":
         if len(opts) < 2:
             raise ValueError("A multiple choice question needs at least two different options.")
@@ -2210,11 +2272,18 @@ class QuizAttemptSubmit(BaseModel):
     answers: str
 
 
+class QuizAttemptGrade(BaseModel):
+    """An admin's marks for the essay answers of an attempt waiting for review: {question_id: points}."""
+    essay_points: dict[int, int]
+
+
 class QuizAttemptResponse(BaseModel):
     id: int
     assessment_id: int
     employee_id: int
     employee_name: Optional[str] = None
+    assessment_title: Optional[str] = None       # set on the review queue
+    course_name: Optional[str] = None
     enrollment_id: Optional[int]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
@@ -2387,9 +2456,22 @@ class ProgramAssignmentCreate(BaseModel):
     employee_id: int
 
 
+PARTICIPANT_STATUSES = ("assigned", "attended", "completed", "absent", "withdrawn")
+
+
 class ProgramAssignmentUpdate(BaseModel):
     status: Optional[str] = None
     attended_at: Optional[datetime] = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_status(cls, v):
+        if v is None:
+            return v
+        value = str(v).strip().lower()
+        if value not in PARTICIPANT_STATUSES:
+            raise ValueError("Status must be assigned, attended, completed, absent or withdrawn.")
+        return value
 
 
 class ProgramAssignmentResponse(BaseModel):
@@ -2406,11 +2488,11 @@ class ProgramAssignmentResponse(BaseModel):
 
 class CalendarEventCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
     event_date: date
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    event_type: str = "session"
+    event_type: str = Field("session", min_length=1, max_length=50)
     course_id: Optional[int] = None
     program_id: Optional[int] = None
     location: Optional[str] = Field(None, max_length=200)
@@ -2418,14 +2500,14 @@ class CalendarEventCreate(BaseModel):
 
 class CalendarEventUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
     event_date: Optional[date] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    event_type: Optional[str] = None
+    event_type: Optional[str] = Field(None, min_length=1, max_length=50)
     course_id: Optional[int] = None
     program_id: Optional[int] = None
-    location: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=200)
 
 
 class CalendarEventResponse(BaseModel):
@@ -2455,7 +2537,9 @@ class LearningDashboardResponse(BaseModel):
     total_certifications: int = 0
     total_skills: int = 0
     avg_skill_level: float = 0.0
-    pending_assessments: int = 0
+    pending_assessments: int = 0        # kept for older clients: the same number as awaiting_review
+    awaiting_review: int = 0            # submitted quiz attempts whose essays wait for a mark
+    in_progress_attempts: int = 0       # quizzes opened and not submitted yet
     upcoming_events: int = 0
     enrollment_trend: list[dict] = []
     category_distribution: list[dict] = []
@@ -3186,6 +3270,26 @@ class PerformanceReviewResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _travel_destination(v) -> str:
+    text = " ".join(str(v or "").split())
+    if not text:
+        raise ValueError("Destination is required.")
+    if len(text) < 2 or len(text) > 200:
+        raise ValueError("Destination must be between 2 and 200 characters.")
+    if not any(ch.isalpha() for ch in text):
+        raise ValueError("Enter a real place name for the destination.")
+    return text
+
+
+def _travel_purpose(v) -> Optional[str]:
+    text = " ".join(str(v or "").split())
+    if not text:
+        return None
+    if len(text) > 500:
+        raise ValueError("Purpose can be at most 500 characters.")
+    return text
+
+
 class TravelRequestCreate(BaseModel):
     employee_id: Optional[int] = None
     destination: str
@@ -3196,24 +3300,12 @@ class TravelRequestCreate(BaseModel):
     @field_validator("destination", mode="before")
     @classmethod
     def _v_destination(cls, v):
-        text = " ".join(str(v or "").split())
-        if not text:
-            raise ValueError("Destination is required.")
-        if len(text) < 2 or len(text) > 200:
-            raise ValueError("Destination must be between 2 and 200 characters.")
-        if not any(ch.isalpha() for ch in text):
-            raise ValueError("Enter a real place name for the destination.")
-        return text
+        return _travel_destination(v)
 
     @field_validator("purpose", mode="before")
     @classmethod
     def _v_purpose(cls, v):
-        text = " ".join(str(v or "").split())
-        if not text:
-            return None
-        if len(text) > 500:
-            raise ValueError("Purpose can be at most 500 characters.")
-        return text
+        return _travel_purpose(v)
 
     @field_validator("start_date", "end_date", mode="before")
     @classmethod
@@ -3250,11 +3342,30 @@ class TravelRequestResponse(BaseModel):
 
 
 class TravelRequestUpdate(BaseModel):
-    destination: Optional[str] = Field(None, max_length=200)
+    """What is sent is checked; what is left out stays as it is. A destination, when sent, follows the same rules as on
+    create (audit T3: an edit could blank it); dates and status cannot be cleared."""
+    destination: Optional[str] = None
     purpose: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     status: Optional[RequestStatus] = None
+
+    @field_validator("destination", mode="before")
+    @classmethod
+    def _v_destination(cls, v):
+        return _travel_destination(v)          # None / blank / spaces -> "Destination is required."
+
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def _v_purpose(cls, v):
+        return _travel_purpose(v)
+
+    @field_validator("start_date", "end_date", "status", mode="before")
+    @classmethod
+    def _v_not_null(cls, v, info):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError(f"{info.field_name.replace('_', ' ').capitalize()} cannot be empty.")
+        return v
 
 
 class TravelApprovalCreate(BaseModel):
@@ -3379,8 +3490,45 @@ class TravelExpenseResponse(BaseModel):
     approved_at: Optional[datetime]
     reimbursed_at: Optional[datetime]
     created_at: Optional[datetime]
+    within_policy: Optional[bool] = None      # False: above the daily expense limit (flagged for the reviewer, not blocked)
+    # two-step approval (audit T16): status stays in_progress after the first of two approvals
+    first_approver_id: Optional[int] = None
+    first_approver_name: Optional[str] = None
+    first_approved_at: Optional[datetime] = None
+    awaiting_second_approval: bool = False
+    first_approved_by_me: bool = False         # the caller gave the first approval, so a different person must decide
 
     model_config = {"from_attributes": True}
+
+
+class CurrencyAmount(BaseModel):
+    currency: str
+    amount: Decimal
+
+
+class CategoryAmount(BaseModel):
+    label: str
+    currency: str
+    amount: Decimal
+
+
+class TravelExpenseTotals(BaseModel):
+    """Totals over every claim that matches the filters (not just the page), one line per currency, never added across
+    currencies."""
+    total_claimed: list[CurrencyAmount] = []     # pending + approved + reimbursed
+    approved: list[CurrencyAmount] = []          # approved + reimbursed
+    pending: list[CurrencyAmount] = []
+    rejected: list[CurrencyAmount] = []
+    reimbursed: list[CurrencyAmount] = []
+    categories: list[CategoryAmount] = []        # per category and currency, rejected / cancelled claims left out
+
+
+class TravelExpensePage(BaseModel):
+    items: list[TravelExpenseResponse]
+    total: int
+    page: int
+    per_page: int
+    totals: TravelExpenseTotals
 
 
 class TravelReceiptCreate(BaseModel):
@@ -3530,7 +3678,10 @@ class TravelDashboardStats(BaseModel):
     total_requests: int = 0
     pending_requests: int = 0
     approved_requests: int = 0
-    total_expenses: Decimal = 0
+    total_expenses: Decimal = 0                          # legacy single number; only meaningful with one currency
+    approved_expenses_by_currency: list[CurrencyAmount] = []     # approved + reimbursed claims (audit T9)
+    reimbursed_expenses_by_currency: list[CurrencyAmount] = []
+    expenses_by_category: list[CategoryAmount] = []
 
 
 class WorkforcePlanCreate(BaseModel):

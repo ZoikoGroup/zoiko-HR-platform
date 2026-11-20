@@ -11,7 +11,7 @@ const NAV_ITEMS = [
 
 function SubNav() {
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
+    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100 dark:border-[#334155]">
       {NAV_ITEMS.map((item) => (
         <NavLink
           key={item.href}
@@ -19,7 +19,7 @@ function SubNav() {
           end={false}
           className={({ isActive }) =>
             `whitespace-nowrap px-4 py-2.5 text-sm font-semibold rounded-t-xl transition-all duration-200 ${
-              isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/40" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/40 dark:bg-blue-950/40" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 hover:bg-gray-50 dark:hover:bg-[#334155]/50"
             }`
           }
         >

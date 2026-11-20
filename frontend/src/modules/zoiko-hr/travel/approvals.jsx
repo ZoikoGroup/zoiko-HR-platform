@@ -2,6 +2,10 @@ import { useState, useEffect, Component } from "react";
 import { Check, X, ShieldCheck, CircleAlert, Calendar, MapPin, User, Building, RefreshCw } from "lucide-react";
 import TravelLayout from "./TravelLayout";
 import { api } from "../../../service/api";
+import { staffName, asPage } from "../../../utils/travelDisplay";
+import TravelPager from "./TravelPager";
+
+const PER_PAGE = 25;
 
 const STATUS_COLORS = {
   approved: "bg-green-100 text-green-800",
@@ -28,15 +32,6 @@ function getNested(obj, path, fallback = "—") {
   return current != null ? String(current) : fallback;
 }
 
-function getEmployeeDisplay(emp) {
-  if (!emp) return "Unknown";
-  if (typeof emp === "string") return emp;
-  if (typeof emp === "object") {
-    const fullName = `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
-    return fullName || emp.full_name || emp.name || emp.email || "Unknown";
-  }
-  return "Unknown";
-}
 
 function getDepartmentName(emp) {
   if (!emp) return "—";
@@ -70,10 +65,10 @@ class ApprovalsErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center max-w-xl mx-auto my-10">
+        <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl p-6 text-center max-w-xl mx-auto my-10">
           <CircleAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
-          <h3 className="text-md font-bold text-gray-800">Something went wrong</h3>
-          <p className="text-sm text-gray-600 mt-1">An unexpected error occurred while loading approvals.</p>
+          <h3 className="text-md font-bold text-gray-800 dark:text-slate-200">Something went wrong</h3>
+          <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">An unexpected error occurred while loading approvals.</p>
           <button
             onClick={() => { this.setState({ error: null }); window.location.reload(); }}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors"
@@ -89,24 +84,33 @@ class ApprovalsErrorBoundary extends Component {
 
 function ApprovalsContent() {
   const [approvals, setApprovals] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [actionError, setActionError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
   const [employees, setEmployees] = useState({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
-  const loadData = async () => {
+  // one page of trips from the server, with the total (audit T6). Names come from the server's employee_name on each
+  // row (audit T8); the staff list (every role) is only used for the department column.
+  const loadData = async (nextPage = page, { silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setFetchError(null);
       const [travelRes, empRes] = await Promise.all([
-        api.get("/hr/travel?page=1&per_page=100&search="),
-        api.get("/hr/employees?page=1&per_page=100")
+        api.get(`/hr/travel?page=${nextPage}&per_page=${PER_PAGE}`),
+        api.get("/hr/employees?page=1&per_page=100&include_all_roles=true").catch(() => [])
       ]);
       const empMap = {};
       const empList = safeArray(empRes?.items || empRes);
       empList.forEach(emp => { if (emp?.id != null) empMap[emp.id] = emp; });
       setEmployees(empMap);
-      setApprovals(safeArray(travelRes?.items || travelRes));
+      const res = asPage(travelRes, nextPage, PER_PAGE);
+      setApprovals(safeArray(res.items));
+      setTotal(res.total);
+      setPage(nextPage);
     } catch (e) {
       console.error("Authorization fetch failed:", e);
       setFetchError(e);
@@ -116,27 +120,31 @@ function ApprovalsContent() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAction = async (id, status) => {
-    if (id == null) return;
+  // a rejection is confirmed first; the server's answer (or its refusal) is shown on the page, and the list is reloaded so
+  // it shows what was actually saved (audit T13 / T15)
+  const handleAction = async (row, status) => {
+    const id = row?.id;
+    if (id == null || actionLoading != null) return;
+    if (status === "rejected" && !window.confirm(`Reject the trip to ${getDestinationDisplay(row.destination)} for ${staffName(row, employees)}? This cannot be undone.`)) return;
     setActionLoading(id);
+    setActionError("");
+    setActionNotice("");
     try {
       await api.put(`/hr/travel/${id}`, { status });
-      setApprovals(prev => prev.map(a => a?.id === id ? { ...a, status } : a));
+      setActionNotice(status === "approved" ? "Travel request approved." : "Travel request rejected.");
     } catch (err) {
-      alert("Action execution failed. Verify authorization states.");
+      setActionError(err?.message || "The request could not be updated. Please try again.");
     } finally {
+      await loadData(page, { silent: true });
       setActionLoading(null);
     }
   };
 
-  const getEmployeeName = (empId) => {
-    if (empId == null) return "Unknown";
-    const emp = employees[empId];
-    return getEmployeeDisplay(emp) || `ID: ${empId}`;
-  };
+  const getEmployeeName = (row) => staffName(row, employees);
 
   const getDepartment = (empId) => {
     if (empId == null) return "—";
@@ -155,7 +163,7 @@ function ApprovalsContent() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-gray-500 font-medium">
+      <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-slate-400 font-medium">
         <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
         Loading approval records...
       </div>
@@ -164,11 +172,11 @@ function ApprovalsContent() {
 
   if (fetchError) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center max-w-xl mx-auto my-10">
+      <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl p-6 text-center max-w-xl mx-auto my-10">
         <CircleAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
-        <h3 className="text-md font-bold text-gray-800">Unable to load approvals</h3>
-        <p className="text-sm text-gray-600 mt-1">The server could not be reached. Please try again.</p>
-        <button onClick={loadData} className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors">
+        <h3 className="text-md font-bold text-gray-800 dark:text-slate-200">Unable to load approvals</h3>
+        <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">The server could not be reached. Please try again.</p>
+        <button onClick={() => loadData(page)} className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors">
           <RefreshCw className="w-4 h-4" /> Retry
         </button>
       </div>
@@ -177,7 +185,7 @@ function ApprovalsContent() {
 
   if (approvals.length === 0) {
     return (
-      <div className="text-center py-12 bg-white rounded-xl border border-gray-100 text-gray-400 text-sm font-medium">
+      <div className="text-center py-12 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] text-gray-400 dark:text-slate-400 text-sm font-medium">
         <ShieldCheck className="w-12 h-12 text-gray-300 mx-auto mb-3" />
         No approval records found
       </div>
@@ -185,10 +193,13 @@ function ApprovalsContent() {
   }
 
   return (
-    <div className="overflow-x-auto border border-gray-200 bg-white rounded-xl shadow-sm">
+    <div className="space-y-3">
+    {actionError && <div role="alert" className="px-4 py-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-sm rounded-lg">{actionError}</div>}
+    {actionNotice && <div role="status" className="px-4 py-3 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg">{actionNotice}</div>}
+    <div className="overflow-x-auto border border-gray-200 dark:border-[#334155] bg-white dark:bg-[#1e293b] rounded-xl shadow-sm">
       <table className="w-full text-left border-collapse text-sm">
         <thead>
-          <tr className="bg-gray-50 border-b border-gray-200 font-bold text-gray-600">
+          <tr className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-200 dark:border-[#334155] font-bold text-gray-600 dark:text-slate-300">
             <th className="p-4"><User className="w-3.5 h-3.5 inline mr-1" /> Employee</th>
             <th className="p-4"><Building className="w-3.5 h-3.5 inline mr-1" /> Department</th>
             <th className="p-4"><MapPin className="w-3.5 h-3.5 inline mr-1" /> Destination</th>
@@ -197,44 +208,46 @@ function ApprovalsContent() {
             <th className="p-4 text-right">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100 text-gray-700 font-medium">
+        <tbody className="divide-y divide-gray-100 dark:divide-[#334155] text-gray-700 dark:text-slate-300 font-medium">
           {approvals.map((row, idx) => (
-            <tr key={row?.id || idx} className="hover:bg-gray-50/30 transition-colors">
-              <td className="p-4 font-semibold text-gray-900">{safeRender(getEmployeeName(row?.employee_id))}</td>
-              <td className="p-4 text-gray-500">{safeRender(getDepartment(row?.employee_id))}</td>
-              <td className="p-4 text-gray-600">{safeRender(getDestinationDisplay(row?.destination))}</td>
-              <td className="p-4 text-gray-600">{safeRender(safeStr(row?.start_date, "—"))} — {safeRender(safeStr(row?.end_date, "—"))}</td>
+            <tr key={row?.id || idx} className="hover:bg-gray-50/30 dark:hover:bg-[#334155]/50 transition-colors">
+              <td className="p-4 font-semibold text-gray-900 dark:text-white">{safeRender(getEmployeeName(row))}</td>
+              <td className="p-4 text-gray-500 dark:text-slate-400">{safeRender(getDepartment(row?.employee_id))}</td>
+              <td className="p-4 text-gray-600 dark:text-slate-300">{safeRender(getDestinationDisplay(row?.destination))}</td>
+              <td className="p-4 text-gray-600 dark:text-slate-300">{safeRender(safeStr(row?.start_date, "—"))} — {safeRender(safeStr(row?.end_date, "—"))}</td>
               <td className="p-4">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${
-                  STATUS_COLORS[(row?.status || "").toLowerCase()] || "bg-gray-100 text-gray-800"
+                  STATUS_COLORS[(row?.status || "").toLowerCase()] || "bg-gray-100 text-gray-800 dark:text-slate-200"
                 }`}>{safeRender(row?.status || "Pending")}</span>
               </td>
               <td className="p-4 text-right">
                 {(!row?.status || row.status.toLowerCase() === "pending") ? (
                   <div className="flex gap-2 justify-end">
                     <button
-                      onClick={() => handleAction(row?.id, "approved")}
-                      disabled={actionLoading === row?.id}
+                      onClick={() => handleAction(row, "approved")}
+                      disabled={actionLoading != null}
                       className="inline-flex items-center gap-1 text-xs bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-3 py-1.5 font-bold rounded-lg shadow-sm transition-colors"
                     >
                       <Check className="w-3 h-3" /> {safeRender(actionLoading === row?.id ? "..." : "Approve")}
                     </button>
                     <button
-                      onClick={() => handleAction(row?.id, "rejected")}
-                      disabled={actionLoading === row?.id}
+                      onClick={() => handleAction(row, "rejected")}
+                      disabled={actionLoading != null}
                       className="inline-flex items-center gap-1 text-xs bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white px-3 py-1.5 font-bold rounded-lg shadow-sm transition-colors"
                     >
                       <X className="w-3 h-3" /> {safeRender(actionLoading === row?.id ? "..." : "Reject")}
                     </button>
                   </div>
                 ) : (
-                  <span className="text-xs text-gray-400 font-medium italic">Processed</span>
+                  <span className="text-xs text-gray-400 dark:text-slate-400 font-medium italic">Processed</span>
                 )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+    <TravelPager page={page} perPage={PER_PAGE} total={total} onPage={(p) => loadData(p)} label="requests" />
     </div>
   );
 }

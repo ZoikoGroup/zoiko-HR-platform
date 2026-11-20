@@ -136,6 +136,7 @@ export const ASSESSMENT_LABELS = { title: "Title", description: "Description", c
 export const QUESTION_LABELS = { question_text: "Question text", question_type: "Question type", options: "Options", correct_answer: "Correct answer", points: "Points" };
 
 export function resultOf(attempt) {
+  if (attempt.status === "pending_review") return { label: "Awaiting review", tone: "amber" };
   if (attempt.status !== "completed") return { label: "In progress", tone: "blue" };
   return attempt.passed ? { label: "Passed", tone: "green" } : { label: "Failed", tone: "red" };
 }

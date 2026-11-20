@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Award, ChevronRight, FileText } from "lucide-react";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
-import { attemptsLeft, quizResult } from "../../../../utils/employeeLearning";
+import { attemptsLeft, awaitingReview, quizResult } from "../../../../utils/employeeLearning";
 
 export default function LearnerAssessments({ courses, assessmentsByCourse, attemptsByAssessment, onStartQuiz }) {
   const rows = useMemo(() => {
@@ -31,7 +31,8 @@ export default function LearnerAssessments({ courses, assessmentsByCourse, attem
         const attempts = attemptsByAssessment[assessment.id] || [];
         const result = quizResult(assessment, attempts);
         const left = attemptsLeft(assessment, attempts);
-        const canTake = !result?.passed && left !== 0;
+        const waiting = awaitingReview(attempts);
+        const canTake = !result?.passed && !waiting && left !== 0;
         const status = result?.passed ? "completed" : result ? "in_progress" : "not_started";
 
         return (
@@ -64,7 +65,7 @@ export default function LearnerAssessments({ courses, assessmentsByCourse, attem
                 </button>
               ) : (
                 <span className="text-xs font-semibold text-gray-400 dark:text-[#64748b]">
-                  {result?.passed ? "Passed" : "No tries left"}
+                  {result?.passed ? "Passed" : waiting ? "Awaiting review" : "No tries left"}
                 </span>
               )}
             </div>

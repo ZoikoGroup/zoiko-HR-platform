@@ -215,7 +215,8 @@ def test_admin_lists_every_claim_even_ones_without_a_trip_or_a_currency(env):
     env.db.commit()
     r = env.get("/hr/travel-expenses?page=1&per_page=100&search=")
     assert r.status_code == 200, r.text
-    rows = r.json()
+    rows = r.json()["items"]                     # paging parameters sent: one page with its total (audit T6)
+    assert r.json()["total"] == 2
     assert len(rows) == 2 and {x["employee_name"] for x in rows} == {"Ann Lee"}          # the other organization's claim is not listed
     assert {x["request_id"] for x in rows} == {None, trip["id"]}
 

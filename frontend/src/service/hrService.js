@@ -167,7 +167,7 @@ export const getHrEmployees = async (params = {}) => {
     }
   }
 };
-export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);
@@ -333,7 +333,10 @@ export const getAssetRequests = (params = {}) => api.get("/hr/assets/requests", 
 export const createAssetRequest = (payload) => api.post("/hr/assets/requests", payload);
 export const approveAssetRequest = (reqId, payload) => api.put(`/hr/assets/requests/${reqId}/approve`, payload);
 export const rejectAssetRequest = (reqId) => api.put(`/hr/assets/requests/${reqId}/reject`);
-export const fulfillAssetRequest = (reqId) => api.put(`/hr/assets/requests/${reqId}/fulfill`);
+// payload: { asset_id } — the available asset handed to the requester (the server assigns it in the same step)
+export const fulfillAssetRequest = (reqId, payload) => api.put(`/hr/assets/requests/${reqId}/fulfill`, payload);
+// Admin picker: active staff ordered by name, searched on the server ({ search, limit, include_inactive })
+export const getAssetEmployeeOptions = (params = {}) => api.get("/hr/assets/employee-options", { params });
 export const cancelAssetRequest = (reqId) => api.put(`/hr/assets/requests/${reqId}/cancel`);
 
 export const getAssetCategories = () => api.get("/hr/assets/categories");
@@ -389,6 +392,34 @@ export const createCourse = (payload) => api.post("/hr/learning/courses", payloa
 export const updateCourse = (id, payload) => api.put(`/hr/learning/courses/${id}`, payload);
 export const deleteCourse = (id) => api.delete(`/hr/learning/courses/${id}`);
 
+// ── LEARNING RECORDS (audit L4): enrollments, certifications, skills, program participants ──
+// Lists take { page, per_page, employee_id, ... }; an admin sees the organization, anyone else only what is theirs.
+export const getEnrollments = (params = {}) => api.get("/hr/learning/enrollments", { params });
+/** An admin may name anyone in the organization; anyone else is always enrolled themselves. */
+export const createEnrollment = (courseId, employeeId) => api.post("/hr/learning/enrollments", { course_id: courseId, employee_id: employeeId });
+export const updateEnrollment = (id, payload) => api.put(`/hr/learning/enrollments/${id}`, payload);
+export const deleteEnrollment = (id) => api.delete(`/hr/learning/enrollments/${id}`);
+
+export const getCertifications = (params = {}) => api.get("/hr/learning/certifications", { params });
+export const createCertification = (payload) => api.post("/hr/learning/certifications", payload);
+export const updateCertification = (id, payload) => api.put(`/hr/learning/certifications/${id}`, payload);
+export const deleteCertification = (id) => api.delete(`/hr/learning/certifications/${id}`);
+
+export const getSkills = (params = {}) => api.get("/hr/learning/skills", { params });
+export const createSkill = (payload) => api.post("/hr/learning/skills", payload);
+export const updateSkill = (id, payload) => api.put(`/hr/learning/skills/${id}`, payload);
+export const deleteSkill = (id) => api.delete(`/hr/learning/skills/${id}`);
+
+export const getProgramParticipants = (programId) => api.get(`/hr/learning/programs/${programId}/assignments`);
+export const addProgramParticipant = (programId, employeeId) =>
+  api.post(`/hr/learning/programs/${programId}/assignments`, { employee_id: employeeId });
+export const removeProgramParticipant = (programId, assignmentId) =>
+  api.delete(`/hr/learning/programs/${programId}/assignments/${assignmentId}`);
+
+/** People of the organization matching a name, email or code, for the Learning pickers (any role). */
+export const searchLearningPeople = (search, perPage = 20) =>
+  api.get("/hr/employees", { params: { search: search || undefined, per_page: perPage, include_all_roles: true } });
+
 
 
 // ── TRAINING PROGRAMS ──────────────────────────────────────────────────────
@@ -422,31 +453,73 @@ export const startQuiz = (assessmentId, employeeId) => api.post("/hr/learning/as
 export const submitQuiz = (assessmentId, attemptId, answers) =>
   api.post(`/hr/learning/assessments/${assessmentId}/attempts/${attemptId}/submit`, { answers: JSON.stringify(answers) });
 
+/** Attempts waiting for their essays to be marked (admin only), and marking one: { [questionId]: points }. */
+export const getQuizReviewQueue = (assessmentId) =>
+  api.get("/hr/learning/assessments/review-queue", { params: { assessment_id: assessmentId || undefined } });
+export const gradeQuizAttempt = (attemptId, essayPoints) =>
+  api.post(`/hr/learning/assessments/attempts/${attemptId}/grade`, { essay_points: essayPoints });
+
 // ── LEARNING REPORTS ───────────────────────────────────────────────────────
-export const getCourseCompletionReport = () => api.get("/hr/learning/reports/course-completion");
+/** params: { start_date, end_date } (YYYY-MM-DD) count only enrollments made in that period (audit L12). */
+export const getCourseCompletionReport = (params = {}) => api.get("/hr/learning/reports/course-completion", { params });
+
+/** "?start_date=..&end_date=.." for a report download, leaving out empty values. */
+export function learningReportQuery(params = {}) {
+  const q = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  return q ? `?${q}` : "";
+}
 export const getCertificationReport = () => api.get("/hr/learning/reports/certifications");
 export const getSkillGapAnalysis = () => api.get("/hr/learning/reports/skill-gap");
 
-async function downloadLearningReport(endpoint, filename) {
-  const token = getAccessToken();
-  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-    headers: { Authorization: `Bearer ${token}` },
+import { refreshSession } from "./api";     // kept beside its only user so this section stays self-contained
+
+/**
+ * Downloads a Learning report file (audit L11). The shared JSON client reads non-JSON bodies as text, which would corrupt
+ * an .xlsx, so the file is fetched here as a blob but with the shared client's session rules: the current token, one
+ * silent refresh and retry on a 401, and a readable error (the server's own message when it sent one) that the page shows.
+ */
+export async function downloadLearningReport(endpoint, filename) {
+  const request = () => fetch(`${API_BASE_URL}${endpoint}`, {
+    headers: getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {},
   });
-  if (!res.ok) throw new Error("Failed to export learning report");
+  let res;
+  try {
+    res = await request();
+    if (res.status === 401 && (await refreshSession())) res = await request();
+  } catch {
+    throw new Error("The report could not be downloaded. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    let message = "";
+    try {
+      const body = await res.json();
+      const detail = body?.detail ?? body?.message;
+      message = typeof detail === "string" ? detail : detail?.message || "";
+    } catch { /* not JSON */ }
+    if (res.status === 401) message = "Your session has expired. Please sign in again.";
+    if (res.status === 403) message = message || "You do not have permission to export this report.";
+    throw Object.assign(new Error(message || `The report could not be downloaded (error ${res.status}).`), { status: res.status });
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  return true;
 }
 
-export const exportCourseCompletionReportCsv = () =>
-  downloadLearningReport("/hr/learning/reports/course-completion/csv", `course_completion_${new Date().toISOString().split("T")[0]}.csv`);
 
-export const exportCourseCompletionReportExcel = () =>
-  downloadLearningReport("/hr/learning/reports/course-completion/excel", `course_completion_${new Date().toISOString().split("T")[0]}.xlsx`);
+
+export const exportCourseCompletionReportCsv = (params = {}) =>
+  downloadLearningReport(`/hr/learning/reports/course-completion/csv${learningReportQuery(params)}`, `course_completion_${new Date().toISOString().split("T")[0]}.csv`);
+
+export const exportCourseCompletionReportExcel = (params = {}) =>
+  downloadLearningReport(`/hr/learning/reports/course-completion/excel${learningReportQuery(params)}`, `course_completion_${new Date().toISOString().split("T")[0]}.xlsx`);
 
 export const exportCertificationReportCsv = () =>
   downloadLearningReport("/hr/learning/reports/certifications/csv", `certifications_${new Date().toISOString().split("T")[0]}.csv`);

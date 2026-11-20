@@ -18,3 +18,10 @@ export function indexById(list) {
   for (const e of Array.isArray(list) ? list : []) if (e && e.id != null) out[e.id] = e;
   return out;
 }
+
+/** A list answer from the server as one page: the paged form {items, total, page, per_page} or a plain list. */
+export function asPage(res, page = 1, perPage = 25) {
+  if (Array.isArray(res)) return { items: res, total: res.length, page, per_page: perPage };
+  const items = Array.isArray(res?.items) ? res.items : [];
+  return { ...res, items, total: Number.isFinite(res?.total) ? res.total : items.length, page: res?.page || page, per_page: res?.per_page || perPage };
+}

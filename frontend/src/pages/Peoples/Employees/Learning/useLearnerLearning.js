@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCourses, getTrainingPrograms, getAssessments, getQuizAttempts, getMyProfile } from "../../../../service/employee";
 import { departmentName, forMyDepartment, groupAssessmentsByCourse } from "../../../../utils/employeeLearning";
+import { fetchAllPages } from "../../../../utils/learningPaging";
+import { getEnrollments, createEnrollment } from "../../../../service/hrService";
 
 const asList = (r) => (Array.isArray(r) ? r : r?.items || r?.data?.items || r?.data || []);
 
@@ -13,6 +15,7 @@ export default function useLearnerLearning() {
   const [programs, setPrograms] = useState([]);
   const [assessmentsByCourse, setAssessmentsByCourse] = useState({});
   const [attemptsByAssessment, setAttemptsByAssessment] = useState({});
+  const [enrollmentsByCourse, setEnrollmentsByCourse] = useState({});        // { [course_id]: my enrollment }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -38,10 +41,11 @@ export default function useLearnerLearning() {
       setProfile(me);
       setDepartment(dept);
 
-      const [coursesRes, programsRes, assessmentsRes] = await Promise.allSettled([
-        getCourses({ per_page: 100 }),
-        getTrainingPrograms({ per_page: 100 }),
+      const [coursesRes, programsRes, assessmentsRes, enrollmentsRes] = await Promise.allSettled([
+        fetchAllPages(getCourses),                 // every page: the catalogue used to stop at the first 100 (audit L9)
+        fetchAllPages(getTrainingPrograms),
         getAssessments(),
+        me.id != null ? fetchAllPages(getEnrollments, { employee_id: me.id }) : Promise.resolve([]),
       ]);
       if (coursesRes.status === "rejected") throw coursesRes.reason;
 
@@ -58,6 +62,11 @@ export default function useLearnerLearning() {
       setPrograms(myPrograms);
       setAssessmentsByCourse(groupAssessmentsByCourse(myAssessments));
       setAttemptsByAssessment(attempts);
+      const mine = {};
+      (enrollmentsRes.status === "fulfilled" ? asList(enrollmentsRes.value) : [])
+        .filter((e) => me.id == null || e.employee_id === me.id)
+        .forEach((e) => { mine[e.course_id] = e; });
+      setEnrollmentsByCourse(mine);
       if (programsRes.status === "rejected" || assessmentsRes.status === "rejected") {
         setNotice("Some learning details could not be loaded. Refresh to try again.");
       }
@@ -80,8 +89,18 @@ export default function useLearnerLearning() {
     if (mounted.current) setAttemptsByAssessment(fresh);
   }, [assessmentsByCourse, profile, loadAttempts]);
 
+  /** Enroll the signed-in person in a course from the catalogue (the API enrolls a learner only themselves, only in an
+   * active course, and only once). Throws with the server's message so the course card can show it. */
+  const enroll = useCallback(async (course) => {
+    const created = await createEnrollment(course.id, profile?.id ?? null);
+    if (mounted.current) setEnrollmentsByCourse((prev) => ({ ...prev, [course.id]: created || { course_id: course.id, status: "enrolled" } }));
+    return created;
+  }, [profile]);
+
   return {
     profile,
+    enrollmentsByCourse,
+    enroll,
     employeeId: profile?.id ?? null,
     department,
     courses,

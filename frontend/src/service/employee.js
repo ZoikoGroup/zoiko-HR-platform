@@ -130,13 +130,13 @@ export const getDesignations = (opts) => api.get("/hr/designations", opts);
 // EMPLOYEE SELF-SERVICE — TRAVEL
 // ════════════════════════════════════════════════════════════════════════════
 
-export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);
 export const deleteTravel = (id) => api.delete(`/hr/travel/${id}`);
 
-export const getTravelExpenses = (employeeId) => api.get(`/hr/travel-expenses?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
+export const getTravelExpenses = (employeeId) => api.get(`/hr/travel-expenses${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const createTravelExpense = (payload) => api.post("/hr/travel/expenses", payload);
 
 // ════════════════════════════════════════════════════════════════════════════

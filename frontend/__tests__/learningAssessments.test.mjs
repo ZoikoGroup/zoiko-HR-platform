@@ -79,6 +79,7 @@ async function load(t, over = {}) {
     ],
   };
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+  Object.assign(svc, { getQuizReviewQueue: async () => [], gradeQuizAttempt: async () => ({}) });   // the Awaiting Review tab (batch 3)
   t.mock.module("../src/service/hrService.js", { exports: svc });
   const { default: Page } = await import(`../src/modules/zoiko-hr/learning/assessments.jsx?t=${Math.random()}`);
   render(React.createElement(Page));

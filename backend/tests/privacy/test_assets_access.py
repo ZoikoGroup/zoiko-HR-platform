@@ -64,7 +64,7 @@ def test_an_asset_cannot_be_assigned_to_someone_who_has_left(world):
     leaver.status = EmployeeStatus.TERMINATED
     world.db.commit()
     asset = _asset(world).json()
-    assert world.put("a_admin", f"/hr/assets/{asset['id']}/assign", json={"employee_id": leaver.id}).status_code == 404
+    assert world.put("a_admin", f"/hr/assets/{asset['id']}/assign", json={"employee_id": leaver.id}).status_code == 409   # batch 2 (A6): a clear 409
     ok = world.put("a_admin", f"/hr/assets/{asset['id']}/assign", json={"employee_id": world.u["a_emp1"].id})
     assert ok.status_code == 200 and ok.json()["employee_id"] == world.u["a_emp1"].id
 

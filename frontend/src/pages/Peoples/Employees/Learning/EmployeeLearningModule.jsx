@@ -76,7 +76,7 @@ export default function EmployeeLearningModule() {
             />
           )}
           {active === "courses" && (
-<LearnerCourses courses={learning.courses} department={learning.department} />
+<LearnerCourses courses={learning.courses} department={learning.department} enrollments={learning.enrollmentsByCourse} onEnroll={learning.enroll} />
           )}
           {active === "training-programs" && <LearnerTrainingPrograms programs={learning.programs} />}
           {active === "assessments" && (
