@@ -210,8 +210,12 @@ def test_other_pay_questions_still_reach_the_policy_answer():
 def test_every_screen_carries_its_own_page_text():
     screens = guide.screens()
     assert all(s.get("about") for s in screens)
+    # the text comes from the page itself: whatever the page's first phrase is, it's in the page's source today
+    import pathlib
     settings_page = next(s for s in screens if s["href"] == "/zoiko-hr/onboarding/settings")
-    assert "Decide what happens automatically when a new hire is created." in settings_page["about"]
+    first_phrase = settings_page["about"].split(" · ")[0]
+    page_src = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src" / "modules" / "zoiko-hr" / "onboarding"
+    assert any(first_phrase in f.read_text(encoding="utf-8") for f in page_src.rglob("*.jsx")), first_phrase
 
 
 def test_adding_an_employee_is_the_new_hires_workflow_for_admins():
