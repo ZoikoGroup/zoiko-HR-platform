@@ -120,6 +120,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/hr-admin/recruitment",
     "/hr-admin/performance",
     "/hr-admin/assets",
+    // the Assets admin pages (the API gives HR admins the same asset rights as org admins; audit A14)
+    "/organization-admin/assets",
     "/hr-admin/learning",
     "/hr-admin/documents",
     "/hr-admin/reports",
