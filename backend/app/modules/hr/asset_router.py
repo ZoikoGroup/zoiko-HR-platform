@@ -58,7 +58,7 @@ from app.core.rate_limiter import limiter
 from app.modules.hr import asset_service
 from app.modules.employee.ownership import is_admin
 from app.core.exceptions import BadRequestException, NotFoundException
-from app.modules.hr.models import AssetStatus, AssetRequestStatus, RequestPriority
+from app.modules.hr.models import AssetCondition, AssetStatus, AssetRequestStatus, RequestPriority
 from app.modules.hr.schemas import (
     AssetCreate, AssetUpdate, AssetResponse, AssetDashboardResponse, AssetListResponse,
     MaintenanceCreate, MaintenanceUpdate, MaintenanceResolve, MaintenanceResponse,
@@ -587,7 +587,7 @@ def assign_asset_to_employee(
 def return_asset_from_employee(
     asset_id: int,
     reason: str = Body(..., embed=True, description="Reason for return"),
-    condition: Optional[str] = Body(None, embed=True, description="Asset condition after return"),
+    condition: Optional[AssetCondition] = Body(None, embed=True, description="Asset condition after return"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):

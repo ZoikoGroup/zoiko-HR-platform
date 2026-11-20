@@ -28,6 +28,7 @@ const asset = (id, extra = {}) => ({ id, name: `Laptop ${id}`, asset_tag: `LT-${
 let current;
 const proxyApi = {
   get: (...a) => current.get(...a), post: (...a) => current.post(...a), put: (...a) => current.put(...a),
+  delete: (...a) => current.delete(...a),
 };
 const hr = {
   getAssets: (params = {}) => proxyApi.get("/hr/assets", { params }),
@@ -40,6 +41,13 @@ const hr = {
   approveAssetRequest: (id) => proxyApi.put(`/hr/assets/requests/${id}/approve`),
   rejectAssetRequest: (id) => proxyApi.put(`/hr/assets/requests/${id}/reject`),
   fulfillAssetRequest: (id, payload) => proxyApi.put(`/hr/assets/requests/${id}/fulfill`, payload),
+  updateAsset: (id, payload) => proxyApi.put(`/hr/assets/${id}`, payload),
+  deleteAsset: (id) => proxyApi.delete(`/hr/assets/${id}`),
+  returnAsset: (id, payload) => proxyApi.put(`/hr/assets/${id}/return`, payload),
+  transferAsset: (id, payload) => proxyApi.put(`/hr/assets/${id}/transfer`, payload),
+  createAssetCategory: (payload) => proxyApi.post("/hr/assets/categories", payload),
+  updateAssetCategory: (id, payload) => proxyApi.put(`/hr/assets/categories/${id}`, payload),
+  deleteAssetCategory: (id) => proxyApi.delete(`/hr/assets/categories/${id}`),
 };
 
 async function loadPage(t, path, routes) {

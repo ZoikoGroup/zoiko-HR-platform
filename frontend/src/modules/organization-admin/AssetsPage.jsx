@@ -6,7 +6,11 @@ import {
 } from "../../service/hrService";
 import { PAGE_SIZE, Pager, useDebounced, useEmployeeOptions } from "./assetPickers";
 import {
+  EditAssetDialog, DeleteAssetDialog, ReturnAssetDialog, TransferAssetDialog, CategoryManagerDialog,
+} from "./AssetActionDialogs";
+import {
   Package, Search, Plus, X, Loader2, CheckCircle, AlertCircle, User, ChevronDown,
+  Pencil, Trash2, Undo2, ArrowLeftRight, Tags,
 } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -33,7 +37,9 @@ export default function OrgAdminAssetsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [counts, setCounts] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState([]);          // names, for the selects
+  const [categoryRows, setCategoryRows] = useState([]);      // {id, name, ...}, for the category manager
+  const [action, setAction] = useState(null);                // { kind: "edit" | "delete" | "return" | "transfer", asset } | { kind: "categories" }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -83,14 +89,17 @@ export default function OrgAdminAssetsPage() {
 
   useEffect(() => { fetchAssets(); }, [fetchAssets]);
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
-  useEffect(() => {
-    getAssetCategories()
-      .then((catData) => {
-        const cats = Array.isArray(catData) ? catData : catData?.items || catData?.data || [];
-        setCategories(cats.map((c) => c.name));
-      })
-      .catch((e) => setError(`Categories: ${e.message}`));
+  const loadCategories = useCallback(async () => {
+    try {
+      const catData = await getAssetCategories();
+      const cats = Array.isArray(catData) ? catData : catData?.items || catData?.data || [];
+      setCategoryRows(cats);
+      setCategories(cats.map((c) => c.name));
+    } catch (e) {
+      setError(`Categories: ${e.message}`);
+    }
   }, []);
+  useEffect(() => { loadCategories(); }, [loadCategories]);
   useEffect(() => { setPage(1); }, [settledSearch, statusFilter, employeeId]);
 
   const refresh = async () => { await Promise.all([fetchAssets(), fetchCounts()]); };
@@ -138,14 +147,19 @@ export default function OrgAdminAssetsPage() {
     }
   };
 
+  // Resolves to null on success, or the server's message (shown inside the Assign dropdown).
   const handleAssign = async (assetId, employeeId) => {
     try {
       await assignAsset(assetId, { employee_id: parseInt(employeeId, 10) });
-      await refresh();
     } catch (err) {
-      setError(err.message || "Failed to assign asset");
+      return err.message || "Failed to assign asset";
     }
+    await refresh();
+    return null;
   };
+
+  const closeAction = () => setAction(null);
+  const afterAction = async () => { setAction(null); await refresh(); };
 
   const filtering = Boolean(settledSearch.trim() || statusFilter || employeeId);
   const cardValue = (v) => (v === undefined || v === null ? "..." : v);
@@ -200,7 +214,11 @@ export default function OrgAdminAssetsPage() {
             Clear filter
           </button>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setAction({ kind: "categories" })}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-semibold transition">
+            <Tags size={16} /> Categories
+          </button>
           <button onClick={openCreate}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition shadow-sm">
             <Plus size={16} /> Add Asset
@@ -264,14 +282,23 @@ export default function OrgAdminAssetsPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        {status === "available" && (
-                          <AssignDropdown asset={a} onAssign={handleAssign} />
-                        )}
-                        {status === "assigned" && (
-                          <span className="text-xs text-slate-400 flex items-center justify-end gap-1">
-                            <CheckCircle size={12} className="text-blue-500" /> Assigned
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {status === "available" && (
+                            <AssignDropdown asset={a} onAssign={handleAssign} />
+                          )}
+                          {status === "assigned" && (
+                            <>
+                              <IconButton label={`Transfer ${a.asset_tag}`} title="Transfer" onClick={() => setAction({ kind: "transfer", asset: a })}
+                                className="text-blue-600 hover:bg-blue-50"><ArrowLeftRight size={14} /></IconButton>
+                              <IconButton label={`Return ${a.asset_tag}`} title="Return (unassign)" onClick={() => setAction({ kind: "return", asset: a })}
+                                className="text-amber-600 hover:bg-amber-50"><Undo2 size={14} /></IconButton>
+                            </>
+                          )}
+                          <IconButton label={`Edit ${a.asset_tag}`} title="Edit" onClick={() => setAction({ kind: "edit", asset: a })}
+                            className="text-slate-500 hover:bg-slate-100"><Pencil size={14} /></IconButton>
+                          <IconButton label={`Delete ${a.asset_tag}`} title="Delete" onClick={() => setAction({ kind: "delete", asset: a })}
+                            className="text-red-500 hover:bg-red-50"><Trash2 size={14} /></IconButton>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -281,6 +308,23 @@ export default function OrgAdminAssetsPage() {
           </div>
           <Pager page={page} total={total} onPage={setPage} label="assets" />
         </div>
+      )}
+
+      {action?.kind === "edit" && (
+        <EditAssetDialog asset={action.asset} categories={categories} onClose={closeAction} onSaved={afterAction} />
+      )}
+      {action?.kind === "delete" && (
+        <DeleteAssetDialog asset={action.asset} onClose={closeAction} onDeleted={afterAction} />
+      )}
+      {action?.kind === "return" && (
+        <ReturnAssetDialog asset={action.asset} onClose={closeAction} onReturned={afterAction} />
+      )}
+      {action?.kind === "transfer" && (
+        <TransferAssetDialog asset={action.asset} onClose={closeAction} onTransferred={afterAction} />
+      )}
+      {action?.kind === "categories" && (
+        <CategoryManagerDialog categories={categoryRows} onClose={closeAction}
+          onChanged={async () => { await loadCategories(); await fetchAssets(); }} />
       )}
 
       {showModal && (
@@ -388,6 +432,15 @@ export default function OrgAdminAssetsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function IconButton({ label, title, onClick, className = "", children }) {
+  return (
+    <button type="button" aria-label={label} title={title} onClick={onClick}
+      className={`p-1.5 rounded-lg transition ${className}`}>
+      {children}
+    </button>
   );
 }
 
@@ -532,6 +585,7 @@ function AssignDropdown({ asset, onAssign }) {
   const [selected, setSelected] = useState("");
   const [assignInput, setAssignInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [assignError, setAssignError] = useState(null);
   const ref = useRef(null);
   const close = useCallback(() => setOpen(false), []);
   useOutsideClose(ref, close);
@@ -539,7 +593,7 @@ function AssignDropdown({ asset, onAssign }) {
 
   return (
     <div ref={ref} className="relative inline-block text-left">
-      <button onClick={() => { setOpen(!open); setAssignInput(""); setSelected(""); }}
+      <button onClick={() => { setOpen(!open); setAssignInput(""); setSelected(""); setAssignError(null); }}
         className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition">
         Assign
       </button>
@@ -575,14 +629,17 @@ function AssignDropdown({ asset, onAssign }) {
               })
             )}
           </div>
+          {assignError && <p role="alert" className="text-xs text-red-600 mt-2">{assignError}</p>}
           <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100">
-            <button onClick={() => setOpen(false)}
+            <button onClick={() => setOpen(false)} disabled={saving}
               className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 font-medium">Cancel</button>
             <button disabled={!selected || saving} onClick={async () => {
               setSaving(true);
-              await onAssign(asset.id, selected);
+              setAssignError(null);
+              const problem = await onAssign(asset.id, selected);
               setSaving(false);
-              setOpen(false);
+              if (problem) setAssignError(problem);
+              else setOpen(false);
             }}
               className="flex-1 px-2 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium">
               {saving ? "Assigning..." : "Assign"}

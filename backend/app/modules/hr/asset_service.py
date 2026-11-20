@@ -361,6 +361,9 @@ def update_asset(db: Session, asset_id: int, data: AssetUpdate, updated_by: int 
 
 def delete_asset(db: Session, asset_id: int, organization_id: Optional[int] = None) -> None:
     asset = get_asset_by_id(db, asset_id, organization_id)
+    if asset.status == AssetStatus.ASSIGNED:          # A12: an asset someone holds is returned first, never deleted from under them
+        holder = asset.employee.full_name if asset.employee else 'an employee'
+        raise AssetConflict(f'Asset {asset.asset_tag} is assigned to {holder}. Return it before deleting it.')
     asset.deleted_at = datetime.utcnow()
     db.commit()
 
