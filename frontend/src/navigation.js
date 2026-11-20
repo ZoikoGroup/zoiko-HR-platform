@@ -233,12 +233,13 @@ const products = {
           { label: "Assets",             href: "/organization-admin/assets",          icon: Package },
           { label: "Asset Requests",     href: "/organization-admin/assets/requests", icon: ClipboardList },
         ]},
+        // Learning and Travel dashboards and Learning reports are organization-wide: the API allows only admins (managers get 403).
         { label: "Learning",           icon: BookOpen, children: [
-          { label: "Dashboard",          href: "/zoiko-hr/learning",               icon: LayoutDashboard },
+          { label: "Dashboard",          href: "/zoiko-hr/learning",               icon: LayoutDashboard, excludeRoles: [ROLES.MANAGER] },
           { label: "Courses",            href: "/zoiko-hr/learning/courses",        icon: BookOpen },
           { label: "Training Programs",  href: "/zoiko-hr/learning/training-programs", icon: GraduationCap },
           { label: "Assessments",        href: "/zoiko-hr/learning/assessments",    icon: ClipboardCheck },
-          { label: "Reports",            href: "/zoiko-hr/learning/reports",        icon: FileText },
+          { label: "Reports",            href: "/zoiko-hr/learning/reports",        icon: FileText, excludeRoles: [ROLES.MANAGER] },
         ]},
         // Temporarily hidden for Org Admin and HR Admin; remove excludeRoles to restore.
         { label: "Compensation",       icon: CircleDollarSign, excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN], children: [
@@ -272,7 +273,7 @@ const products = {
         // tab strip, so removing the route would 404 from within that
         // self-contained mini nav. See PR description.
         { label: "Travel",             icon: Plane, children: [
-          { label: "Dashboard",          href: "/zoiko-hr/travel",                icon: LayoutDashboard },
+          { label: "Dashboard",          href: "/zoiko-hr/travel",                icon: LayoutDashboard, excludeRoles: [ROLES.MANAGER] },
           { label: "Travel Requests",    href: "/zoiko-hr/travel/requests",       icon: Plane },
           { label: "Approvals",          href: "/zoiko-hr/travel/approvals",      icon: ClipboardCheck },
           { label: "Expenses",           href: "/zoiko-hr/travel/expenses",       icon: Receipt },

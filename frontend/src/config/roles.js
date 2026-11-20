@@ -234,6 +234,7 @@ export const ROLE_DISALLOWED_PREFIXES = {
     "/zoiko-hr/workforce-planning/job-descriptions",
     "/zoiko-hr/compensation/approvals",
     "/zoiko-hr/employee-management/reports",
+    "/zoiko-hr/learning/reports",
   ],
 };
 
