@@ -2,6 +2,10 @@ import { useState, useEffect, Component } from "react";
 import { Check, X, ShieldCheck, CircleAlert, Calendar, MapPin, User, Building, RefreshCw } from "lucide-react";
 import TravelLayout from "./TravelLayout";
 import { api } from "../../../service/api";
+import { staffName, asPage } from "../../../utils/travelDisplay";
+import TravelPager from "./TravelPager";
+
+const PER_PAGE = 25;
 
 const STATUS_COLORS = {
   approved: "bg-green-100 text-green-800",
@@ -28,15 +32,6 @@ function getNested(obj, path, fallback = "—") {
   return current != null ? String(current) : fallback;
 }
 
-function getEmployeeDisplay(emp) {
-  if (!emp) return "Unknown";
-  if (typeof emp === "string") return emp;
-  if (typeof emp === "object") {
-    const fullName = `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
-    return fullName || emp.full_name || emp.name || emp.email || "Unknown";
-  }
-  return "Unknown";
-}
 
 function getDepartmentName(emp) {
   if (!emp) return "—";
@@ -89,24 +84,32 @@ class ApprovalsErrorBoundary extends Component {
 
 function ApprovalsContent() {
   const [approvals, setApprovals] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [actionError, setActionError] = useState("");
   const [employees, setEmployees] = useState({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
-  const loadData = async () => {
+  // one page of trips from the server, with the total (audit T6). Names come from the server's employee_name on each
+  // row (audit T8); the staff list (every role) is only used for the department column.
+  const loadData = async (nextPage = page) => {
     try {
       setLoading(true);
       setFetchError(null);
       const [travelRes, empRes] = await Promise.all([
-        api.get("/hr/travel?page=1&per_page=100&search="),
-        api.get("/hr/employees?page=1&per_page=100")
+        api.get(`/hr/travel?page=${nextPage}&per_page=${PER_PAGE}`),
+        api.get("/hr/employees?page=1&per_page=100&include_all_roles=true").catch(() => [])
       ]);
       const empMap = {};
       const empList = safeArray(empRes?.items || empRes);
       empList.forEach(emp => { if (emp?.id != null) empMap[emp.id] = emp; });
       setEmployees(empMap);
-      setApprovals(safeArray(travelRes?.items || travelRes));
+      const res = asPage(travelRes, nextPage, PER_PAGE);
+      setApprovals(safeArray(res.items));
+      setTotal(res.total);
+      setPage(nextPage);
     } catch (e) {
       console.error("Authorization fetch failed:", e);
       setFetchError(e);
@@ -116,27 +119,25 @@ function ApprovalsContent() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleAction = async (id, status) => {
     if (id == null) return;
     setActionLoading(id);
+    setActionError("");
     try {
-      await api.put(`/hr/travel/${id}`, { status });
-      setApprovals(prev => prev.map(a => a?.id === id ? { ...a, status } : a));
+      const updated = await api.put(`/hr/travel/${id}`, { status });
+      setApprovals(prev => prev.map(a => a?.id === id ? { ...a, ...(updated && typeof updated === "object" ? updated : {}), status } : a));
     } catch (err) {
-      alert("Action execution failed. Verify authorization states.");
+      setActionError(err?.message || "The request could not be updated. Please try again.");
     } finally {
       setActionLoading(null);
     }
   };
 
-  const getEmployeeName = (empId) => {
-    if (empId == null) return "Unknown";
-    const emp = employees[empId];
-    return getEmployeeDisplay(emp) || `ID: ${empId}`;
-  };
+  const getEmployeeName = (row) => staffName(row, employees);
 
   const getDepartment = (empId) => {
     if (empId == null) return "—";
@@ -168,7 +169,7 @@ function ApprovalsContent() {
         <CircleAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
         <h3 className="text-md font-bold text-gray-800">Unable to load approvals</h3>
         <p className="text-sm text-gray-600 mt-1">The server could not be reached. Please try again.</p>
-        <button onClick={loadData} className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors">
+        <button onClick={() => loadData(page)} className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors">
           <RefreshCw className="w-4 h-4" /> Retry
         </button>
       </div>
@@ -185,6 +186,8 @@ function ApprovalsContent() {
   }
 
   return (
+    <div className="space-y-3">
+    {actionError && <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{actionError}</div>}
     <div className="overflow-x-auto border border-gray-200 bg-white rounded-xl shadow-sm">
       <table className="w-full text-left border-collapse text-sm">
         <thead>
@@ -200,7 +203,7 @@ function ApprovalsContent() {
         <tbody className="divide-y divide-gray-100 text-gray-700 font-medium">
           {approvals.map((row, idx) => (
             <tr key={row?.id || idx} className="hover:bg-gray-50/30 transition-colors">
-              <td className="p-4 font-semibold text-gray-900">{safeRender(getEmployeeName(row?.employee_id))}</td>
+              <td className="p-4 font-semibold text-gray-900">{safeRender(getEmployeeName(row))}</td>
               <td className="p-4 text-gray-500">{safeRender(getDepartment(row?.employee_id))}</td>
               <td className="p-4 text-gray-600">{safeRender(getDestinationDisplay(row?.destination))}</td>
               <td className="p-4 text-gray-600">{safeRender(safeStr(row?.start_date, "—"))} — {safeRender(safeStr(row?.end_date, "—"))}</td>
@@ -235,6 +238,8 @@ function ApprovalsContent() {
           ))}
         </tbody>
       </table>
+    </div>
+    <TravelPager page={page} perPage={PER_PAGE} total={total} onPage={(p) => loadData(p)} label="requests" />
     </div>
   );
 }

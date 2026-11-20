@@ -101,7 +101,7 @@ from app.modules.hr.schemas import (
     TravelRequestCreate, TravelRequestUpdate, TravelRequestResponse,
     TravelExpenseCreate, TravelExpenseCreateSimple, TravelExpenseUpdate, TravelExpenseResponse,
     TravelSettingUpdate, TravelSettingResponse,
-    TravelDashboardStats,
+    TravelDashboardStats, TravelExpensePage,
     WorkforcePlanCreate, WorkforcePlanResponse,
     WorkforceSummaryResponse,
     DesignationCreate,
@@ -2487,25 +2487,25 @@ def delete_performance_review(
 
 @hr_router.get(
     "/travel",
-    response_model=list[TravelRequestResponse],
+    response_model=list[TravelRequestResponse] | Page[TravelRequestResponse],
     summary="List travel requests",
 )
 def list_travel_requests(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=200),
-    search: Optional[str] = Query(None),
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit page and per_page for the plain list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
+    search: Optional[str] = Query(None, max_length=100, description="Destination, purpose or the traveller's name"),
     status: Optional[RequestStatus] = Query(None),
 ):
-    # admins: everyone in the organization; a manager: their own trips and their direct reports'; anyone else: their own
-    result = service.get_travel_requests(
+    # admins: everyone in the organization; a manager: their own trips and their direct reports'; anyone else: their own.
+    # With page / per_page: {items, total, page, per_page}; without: the plain list, as before (audit T6).
+    return service.get_travel_requests(
         db, organization_id=current_user.organization_id,
         employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id), page=page, per_page=per_page,
         search=search, status=status,
     )
-    return result["items"]
 
 
 @hr_router.get(
@@ -2656,7 +2656,7 @@ def delete_travel_request(
 
 @hr_router.get(
     "/travel-expenses",
-    response_model=list[TravelExpenseResponse],
+    response_model=list[TravelExpenseResponse] | TravelExpensePage,
     summary="List travel expenses",
 )
 def list_travel_expenses(
@@ -2665,17 +2665,18 @@ def list_travel_expenses(
     request_id: Optional[int] = Query(None),
     employee_id: Optional[int] = Query(None),
     status: Optional[RequestStatus] = Query(None),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=200),
-    search: Optional[str] = Query(None),
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit page and per_page for the plain list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
+    search: Optional[str] = Query(None, max_length=100),
 ):
-    # admins: everyone in the organization; a manager: their own claims and their direct reports'; anyone else: their own
-    result = service.get_travel_expenses(
+    # admins: everyone in the organization; a manager: their own claims and their direct reports'; anyone else: their own.
+    # With page / per_page: {items, total, page, per_page, totals} where totals cover every matching claim, per currency;
+    # without: the plain list, as before (audit T6).
+    return service.get_travel_expenses(
         db, organization_id=current_user.organization_id,
         request_id=request_id, employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id),
         status=status, page=page, per_page=per_page, search=search,
     )
-    return result["items"]
 
 
 @hr_router.put(

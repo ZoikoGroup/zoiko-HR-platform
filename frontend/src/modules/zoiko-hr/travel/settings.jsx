@@ -6,7 +6,12 @@ import { WORKFLOWS, DEFAULT_SETTINGS, settingsToForm, validateSettings, settings
 
 const inputBase = "w-full border px-4 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500";
 
-const Toggle = ({ id, checked, onChange }) => (
+// What each setting does today (audit T5), shown under its box so nobody relies on a rule that is not applied.
+const Hint = ({ id, children, tone = "info" }) => (
+  <p id={id} className={`text-xs mt-1 ${tone === "enforced" ? "text-green-700" : "text-gray-500"}`}>{children}</p>
+);
+
+const Toggle =  ({ id, checked, onChange }) => (
   <label className="relative inline-flex items-center cursor-pointer">
     <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="sr-only peer" />
     <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
@@ -111,30 +116,35 @@ export default function TravelSettings() {
               <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5 shadow-sm">
                 <div>
                   <label htmlFor="ts-workflow" className={label}><Layers className="w-3.5 h-3.5" /> Approval Workflow</label>
-                  <select id="ts-workflow" value={settings.approval_workflow} aria-invalid={!!errors.approval_workflow} onChange={(e) => update("approval_workflow", e.target.value)} className={`${box("approval_workflow")} bg-white`}>
+                  <select id="ts-workflow" aria-describedby="ts-workflow-hint" value={settings.approval_workflow} aria-invalid={!!errors.approval_workflow} onChange={(e) => update("approval_workflow", e.target.value)} className={`${box("approval_workflow")} bg-white`}>
                     {WORKFLOWS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
                   </select>
                   {err("approval_workflow")}
+                  <Hint id="ts-workflow-hint">For reference only, not applied automatically: a trip is approved by the traveller's manager or an HR admin in one step, and an expense claim by HR (with a second approver above the compensation threshold).</Hint>
                 </div>
                 <div>
-                  <label htmlFor="ts-limit" className={label}><DollarSign className="w-3.5 h-3.5" /> Daily Expense Limit ($)</label>
-                  <input id="ts-limit" type="number" min="0" step="0.01" value={settings.expense_limit_per_day} aria-invalid={!!errors.expense_limit_per_day} onChange={(e) => update("expense_limit_per_day", e.target.value)} className={box("expense_limit_per_day")} />
+                  <label htmlFor="ts-limit" className={label}><DollarSign className="w-3.5 h-3.5" /> Daily Expense Limit</label>
+                  <input id="ts-limit" aria-describedby="ts-limit-hint" type="number" min="0" step="0.01" value={settings.expense_limit_per_day} aria-invalid={!!errors.expense_limit_per_day} onChange={(e) => update("expense_limit_per_day", e.target.value)} className={box("expense_limit_per_day")} />
                   {err("expense_limit_per_day")}
+                  <Hint id="ts-limit-hint">A claim above this amount is marked "Over daily limit" for the reviewer. It is not blocked.</Hint>
                 </div>
                 <div>
                   <label htmlFor="ts-duration" className={label}><Calendar className="w-3.5 h-3.5" /> Max Trip Duration (days)</label>
-                  <input id="ts-duration" type="number" min="1" max="365" step="1" value={settings.max_trip_duration} aria-invalid={!!errors.max_trip_duration} onChange={(e) => update("max_trip_duration", e.target.value)} className={box("max_trip_duration")} />
+                  <input id="ts-duration" aria-describedby="ts-duration-hint" type="number" min="1" max="365" step="1" value={settings.max_trip_duration} aria-invalid={!!errors.max_trip_duration} onChange={(e) => update("max_trip_duration", e.target.value)} className={box("max_trip_duration")} />
                   {err("max_trip_duration")}
+                  <Hint id="ts-duration-hint" tone="enforced">Enforced: a trip longer than this (first and last day included) cannot be requested or edited.</Hint>
                 </div>
                 <div>
-                  <label htmlFor="ts-auto" className={label}><DollarSign className="w-3.5 h-3.5" /> Auto-Approve Threshold ($)</label>
-                  <input id="ts-auto" type="number" min="0" step="1" value={settings.auto_approve_threshold} aria-invalid={!!errors.auto_approve_threshold} onChange={(e) => update("auto_approve_threshold", e.target.value)} className={box("auto_approve_threshold")} />
+                  <label htmlFor="ts-auto" className={label}><DollarSign className="w-3.5 h-3.5" /> Auto-Approve Threshold</label>
+                  <input id="ts-auto" aria-describedby="ts-auto-hint" type="number" min="0" step="1" value={settings.auto_approve_threshold} aria-invalid={!!errors.auto_approve_threshold} onChange={(e) => update("auto_approve_threshold", e.target.value)} className={box("auto_approve_threshold")} />
                   {err("auto_approve_threshold")}
+                  <Hint id="ts-auto-hint">For reference only, not applied automatically: every trip and claim is decided by a person, so each decision is recorded.</Hint>
                 </div>
                 <div>
                   <label htmlFor="ts-deadline" className={label}><Calendar className="w-3.5 h-3.5" /> Reimbursement Deadline (days)</label>
-                  <input id="ts-deadline" type="number" min="1" max="365" step="1" value={settings.reimbursement_deadline} aria-invalid={!!errors.reimbursement_deadline} onChange={(e) => update("reimbursement_deadline", e.target.value)} className={box("reimbursement_deadline")} />
+                  <input id="ts-deadline" aria-describedby="ts-deadline-hint" type="number" min="1" max="365" step="1" value={settings.reimbursement_deadline} aria-invalid={!!errors.reimbursement_deadline} onChange={(e) => update("reimbursement_deadline", e.target.value)} className={box("reimbursement_deadline")} />
                   {err("reimbursement_deadline")}
+                  <Hint id="ts-deadline-hint">For reference only, not applied automatically.</Hint>
                 </div>
               </div>
             )}

@@ -1,22 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
-import { Plus, Search, Calendar, MapPin, DollarSign, Briefcase, User, X } from "lucide-react";
+import { Plus, Search, Calendar, MapPin, User, X } from "lucide-react";
 import TravelLayout from "./TravelLayout";
-import { staffName, indexById } from "../../../utils/travelDisplay";
+import { staffName, indexById, asPage } from "../../../utils/travelDisplay";
+import TravelPager from "./TravelPager";
 import { api } from "../../../service/api";
 
-const formatCurrency = (amount) => 
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
+const PER_PAGE = 25;
 
-function getEmployeeDisplay(emp) {
-  if (!emp) return "Unknown";
-  if (typeof emp === "string") return emp;
-  if (typeof emp === "object") {
-    const fullName = `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
-    return fullName || emp.full_name || emp.name || emp.email || "Unknown";
-  }
-  return "Unknown";
-}
+// The staff picker lists every active person in the organization, whatever their role (audit T7: a trip can be raised
+// for a manager, HR or the admin too), and searches the server, so nobody is missing past the first page.
+const staffPickerPath = (term = "") =>
+  `/hr/employees?page=1&per_page=100&include_all_roles=true&status=active${term ? `&search=${encodeURIComponent(term)}` : ""}`;
 
 function getDestinationDisplay(dest) {
   if (!dest) return "—";
@@ -29,7 +24,13 @@ function getDestinationDisplay(dest) {
 
 export default function TravelRequests() {
   const [requests, setRequests] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loadedTerm, setLoadedTerm] = useState("");      // the search the rows on screen came from
   const [employees, setEmployees] = useState([]);
+  const [staffSearch, setStaffSearch] = useState("");
+  const searchTimer = useRef(null);
+  const staffTimer = useRef(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -38,26 +39,53 @@ export default function TravelRequests() {
   const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState({ employee_id: "", destination: "", purpose: "", start_date: "", end_date: "" });
 
-  useEffect(() => {
-    async function loadInitialData() {
-      try {
-        setLoading(true);
-        const [travelRes, empRes] = await Promise.all([
-          api.get("/hr/travel?page=1&per_page=100&search="),
-          api.get("/hr/employees?page=1&per_page=100")
-        ]);
-        
-        setRequests(travelRes?.items || travelRes || []);
-        setEmployees(empRes?.items || empRes || []);
-      } catch (err) {
-        console.error("Failed to load initial modules:", err);
-        setLoadError(err?.message || "The travel requests could not be loaded.");
-      } finally {
-        setLoading(false);
-      }
+  // one page of requests from the server, with the total (audit T6)
+  const loadPage = async (nextPage = page, term = search) => {
+    try {
+      setLoading(true);
+      setLoadError("");
+      const q = term.trim() ? `&search=${encodeURIComponent(term.trim())}` : "";
+      const res = asPage(await api.get(`/hr/travel?page=${nextPage}&per_page=${PER_PAGE}${q}`), nextPage, PER_PAGE);
+      setRequests(res.items);
+      setTotal(res.total);
+      setPage(nextPage);
+      setLoadedTerm(term.trim());
+    } catch (err) {
+      console.error("Failed to load travel requests:", err);
+      setLoadError(err?.message || "The travel requests could not be loaded.");
+    } finally {
+      setLoading(false);
     }
-    loadInitialData();
+  };
+
+  const loadStaff = async (term = "") => {
+    try {
+      const empRes = await api.get(staffPickerPath(term));
+      setEmployees(empRes?.items || empRes || []);
+    } catch (err) {
+      console.error("Failed to load staff:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadPage(1, "");
+    loadStaff("");
+    return () => { clearTimeout(searchTimer.current); clearTimeout(staffTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // the box filters the rows on screen at once, then asks the server (destination, purpose or name) shortly after
+  const onSearch = (value) => {
+    setSearch(value);
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => loadPage(1, value), 350);
+  };
+
+  const onStaffSearch = (value) => {
+    setStaffSearch(value);
+    clearTimeout(staffTimer.current);
+    staffTimer.current = setTimeout(() => loadStaff(value.trim()), 300);
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -84,6 +112,7 @@ export default function TravelRequests() {
       const addedItem = newRecordResponse?.data || newRecordResponse;
       
       setRequests(prev => [addedItem, ...prev]);
+      setTotal(t => t + 1);
       setShowModal(false);
       setForm({ employee_id: "", destination: "", purpose: "", start_date: "", end_date: "" });
     } catch (err) {
@@ -94,7 +123,8 @@ export default function TravelRequests() {
   };
 
   const employeesById = indexById(employees);
-  const filtered = requests.filter(r => 
+  // once the server has answered for this search, its rows are the result; until then the rows on screen are narrowed
+  const filtered = loadedTerm === search.trim() ? requests : requests.filter(r =>
     staffName(r, employeesById).toLowerCase().includes(search.toLowerCase()) ||
     (r.destination || "").toLowerCase().includes(search.toLowerCase())
   );
@@ -109,7 +139,7 @@ export default function TravelRequests() {
               type="text" 
               placeholder="Filter workflows..." 
               value={search} 
-              onChange={e => setSearch(e.target.value)} 
+              onChange={e => onSearch(e.target.value)} 
               className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
             />
           </div>
@@ -150,7 +180,10 @@ export default function TravelRequests() {
                     <td className="p-4 text-gray-600">{row.end_date || "—"}</td>
                     <td className="p-4">
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold tracking-wide capitalize ${
-                        row.status?.toLowerCase() === "approved" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
+                        row.status?.toLowerCase() === "approved" ? "bg-green-100 text-green-800"
+                          : row.status?.toLowerCase() === "rejected" ? "bg-red-100 text-red-800"
+                          : ["cancelled", "completed"].includes(row.status?.toLowerCase()) ? "bg-gray-100 text-gray-700"
+                          : "bg-yellow-100 text-yellow-800"
                       }`}>{row.status || "Pending"}</span>
                     </td>
                   </tr>
@@ -159,6 +192,7 @@ export default function TravelRequests() {
             </table>
           </div>
         )}
+        <TravelPager page={page} perPage={PER_PAGE} total={total} onPage={(p) => loadPage(p)} label="requests" />
         
         {showModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
@@ -170,7 +204,15 @@ export default function TravelRequests() {
               <form onSubmit={handleCreate} className="p-6 space-y-4">
                 {formError && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{formError}</div>}
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Select Active Employee</label>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Select Staff Member</label>
+                  <input
+                    type="search"
+                    aria-label="Search staff"
+                    placeholder="Search by name or email..."
+                    value={staffSearch}
+                    onChange={e => onStaffSearch(e.target.value)}
+                    className="w-full mb-2 border border-gray-200 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
                   <div className="relative">
                     <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                     <select 
@@ -179,7 +221,7 @@ export default function TravelRequests() {
                       onChange={e => setForm({...form, employee_id: e.target.value})}
                       required
                     >
-                      <option value="">Choose employee...</option>
+                      <option value="">Choose staff member...</option>
                       {employees.map(emp => (
                         <option key={emp.id} value={emp.id}>
                           {emp.first_name} {emp.last_name} ({emp.email || emp.id})

@@ -1,23 +1,16 @@
 import { useState, useEffect } from "react";
 import { Building2, FileText, CheckCircle, Clock, AlertTriangle, PieChart, Landmark } from "lucide-react";
 import TravelLayout from "./TravelLayout";
-import { staffName, indexById } from "../../../utils/travelDisplay";
+import { staffName } from "../../../utils/travelDisplay";
+import { formatMoney } from "../../../utils/travelExpenseAdmin";
 import {api} from "../../../service/api";
 
-const formatCurrency = (amount) => {
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
-  } catch { return "$0"; }
-};
+// Money is shown per currency, never added across currencies (audit T9).
+const moneyLines = (list) => (Array.isArray(list) ? list : []).map((l) => ({ currency: l.currency || "INR", amount: Number(l.amount) || 0 }));
 
-function getEmployeeDisplay(emp) {
-  if (!emp) return "Unknown";
-  if (typeof emp === "string") return emp;
-  if (typeof emp === "object") {
-    const fullName = `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
-    return fullName || emp.full_name || emp.name || emp.email || "Unknown";
-  }
-  return "Unknown";
+function MoneyLines({ lines, className = "" }) {
+  if (!lines.length) return <p className={className}>{formatMoney(0)}</p>;
+  return lines.map((l) => <p key={l.currency} className={className}>{formatMoney(l.amount, l.currency)}</p>);
 }
 
 function getDestinationDisplay(dest) {
@@ -53,9 +46,10 @@ export default function TravelDashboard() {
           totalRequests: dashboardData.total_requests || 0,
           pendingApprovals: dashboardData.pending_requests || 0,
           approvedRequests: dashboardData.approved_requests || 0,
-          totalExpenses: dashboardData.total_expenses || 0,
+          approvedExpenses: moneyLines(dashboardData.approved_expenses_by_currency),
+          reimbursedExpenses: moneyLines(dashboardData.reimbursed_expenses_by_currency),
           recentRequests: requests,
-          expenseSummary: { total: dashboardData.total_expenses || 0, byCategory: {} },
+          categories: (Array.isArray(dashboardData.expenses_by_category) ? dashboardData.expenses_by_category : []),
           upcomingItineraries: requests.filter(r => r.status?.toLowerCase() === "approved").slice(0, 3)
         });
       } catch (err) {
@@ -117,8 +111,11 @@ export default function TravelDashboard() {
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Disbursed Expenses</p>
-                  <p className="text-3xl font-black text-blue-600 mt-2">{formatCurrency(data.totalExpenses)}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Approved Expenses</p>
+                  <MoneyLines lines={data.approvedExpenses} className="text-2xl font-black text-blue-600 mt-2" />
+                  {data.reimbursedExpenses.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">Reimbursed: {data.reimbursedExpenses.map((l) => formatMoney(l.amount, l.currency)).join(" · ")}</p>
+                  )}
                 </div>
                 <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Landmark className="w-5 h-5" /></div>
               </div>
@@ -134,7 +131,7 @@ export default function TravelDashboard() {
                     <tr className="border-b border-gray-100 text-gray-400 font-semibold bg-gray-50/50">
                       <th className="py-3 px-4 rounded-l-lg">Employee</th>
                       <th className="py-3 px-4">Destination</th>
-                      <th className="py-3 px-4">Estimated Outlay</th>
+                      <th className="py-3 px-4">Dates</th>
                       <th className="py-3 px-4 rounded-r-lg">Status</th>
                     </tr>
                   </thead>
@@ -143,7 +140,7 @@ export default function TravelDashboard() {
                       <tr key={r.id || i} className="hover:bg-gray-50/50 transition-colors">
                         <td className="py-3.5 px-4 text-gray-900">{staffName(r)}</td>
                         <td className="py-3.5 px-4 text-gray-600">{getDestinationDisplay(r.destination)}</td>
-                        <td className="py-3.5 px-4 text-gray-900">{formatCurrency(r.amount)}</td>
+                        <td className="py-3.5 px-4 text-gray-600">{r.start_date || "—"} — {r.end_date || "—"}</td>
                         <td className="py-3.5 px-4">
                           <span className={`px-2.5 py-1 text-xs font-bold rounded-full capitalize ${
                             r.status?.toLowerCase() === 'approved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
@@ -159,13 +156,13 @@ export default function TravelDashboard() {
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <h3 className="text-md font-bold text-gray-900 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4 text-blue-500" /> Expense Aggregations</h3>
               <div className="space-y-4">
-                {Object.keys(data.expenseSummary.byCategory).length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-10">No structured classifications found.</p>
+                {data.categories.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-10">No expense claims yet.</p>
                 ) : (
-                  Object.entries(data.expenseSummary.byCategory).map(([category, amount]) => (
-                    <div key={category} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="text-sm font-semibold text-gray-600 capitalize">{category}</span>
-                      <span className="text-sm font-bold text-gray-900">{formatCurrency(amount)}</span>
+                  data.categories.map((c) => (
+                    <div key={`${c.label}-${c.currency}`} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="text-sm font-semibold text-gray-600 capitalize">{c.label}</span>
+                      <span className="text-sm font-bold text-gray-900">{formatMoney(c.amount, c.currency)}</span>
                     </div>
                   ))
                 )}

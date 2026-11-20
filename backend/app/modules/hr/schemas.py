@@ -3192,6 +3192,26 @@ class PerformanceReviewResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _travel_destination(v) -> str:
+    text = " ".join(str(v or "").split())
+    if not text:
+        raise ValueError("Destination is required.")
+    if len(text) < 2 or len(text) > 200:
+        raise ValueError("Destination must be between 2 and 200 characters.")
+    if not any(ch.isalpha() for ch in text):
+        raise ValueError("Enter a real place name for the destination.")
+    return text
+
+
+def _travel_purpose(v) -> Optional[str]:
+    text = " ".join(str(v or "").split())
+    if not text:
+        return None
+    if len(text) > 500:
+        raise ValueError("Purpose can be at most 500 characters.")
+    return text
+
+
 class TravelRequestCreate(BaseModel):
     employee_id: Optional[int] = None
     destination: str
@@ -3202,24 +3222,12 @@ class TravelRequestCreate(BaseModel):
     @field_validator("destination", mode="before")
     @classmethod
     def _v_destination(cls, v):
-        text = " ".join(str(v or "").split())
-        if not text:
-            raise ValueError("Destination is required.")
-        if len(text) < 2 or len(text) > 200:
-            raise ValueError("Destination must be between 2 and 200 characters.")
-        if not any(ch.isalpha() for ch in text):
-            raise ValueError("Enter a real place name for the destination.")
-        return text
+        return _travel_destination(v)
 
     @field_validator("purpose", mode="before")
     @classmethod
     def _v_purpose(cls, v):
-        text = " ".join(str(v or "").split())
-        if not text:
-            return None
-        if len(text) > 500:
-            raise ValueError("Purpose can be at most 500 characters.")
-        return text
+        return _travel_purpose(v)
 
     @field_validator("start_date", "end_date", mode="before")
     @classmethod
@@ -3256,11 +3264,30 @@ class TravelRequestResponse(BaseModel):
 
 
 class TravelRequestUpdate(BaseModel):
-    destination: Optional[str] = Field(None, max_length=200)
+    """What is sent is checked; what is left out stays as it is. A destination, when sent, follows the same rules as on
+    create (audit T3: an edit could blank it); dates and status cannot be cleared."""
+    destination: Optional[str] = None
     purpose: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     status: Optional[RequestStatus] = None
+
+    @field_validator("destination", mode="before")
+    @classmethod
+    def _v_destination(cls, v):
+        return _travel_destination(v)          # None / blank / spaces -> "Destination is required."
+
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def _v_purpose(cls, v):
+        return _travel_purpose(v)
+
+    @field_validator("start_date", "end_date", "status", mode="before")
+    @classmethod
+    def _v_not_null(cls, v, info):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError(f"{info.field_name.replace('_', ' ').capitalize()} cannot be empty.")
+        return v
 
 
 class TravelApprovalCreate(BaseModel):
@@ -3385,8 +3412,39 @@ class TravelExpenseResponse(BaseModel):
     approved_at: Optional[datetime]
     reimbursed_at: Optional[datetime]
     created_at: Optional[datetime]
+    within_policy: Optional[bool] = None      # False: above the daily expense limit (flagged for the reviewer, not blocked)
 
     model_config = {"from_attributes": True}
+
+
+class CurrencyAmount(BaseModel):
+    currency: str
+    amount: Decimal
+
+
+class CategoryAmount(BaseModel):
+    label: str
+    currency: str
+    amount: Decimal
+
+
+class TravelExpenseTotals(BaseModel):
+    """Totals over every claim that matches the filters (not just the page), one line per currency, never added across
+    currencies."""
+    total_claimed: list[CurrencyAmount] = []     # pending + approved + reimbursed
+    approved: list[CurrencyAmount] = []          # approved + reimbursed
+    pending: list[CurrencyAmount] = []
+    rejected: list[CurrencyAmount] = []
+    reimbursed: list[CurrencyAmount] = []
+    categories: list[CategoryAmount] = []        # per category and currency, rejected / cancelled claims left out
+
+
+class TravelExpensePage(BaseModel):
+    items: list[TravelExpenseResponse]
+    total: int
+    page: int
+    per_page: int
+    totals: TravelExpenseTotals
 
 
 class TravelReceiptCreate(BaseModel):
@@ -3536,7 +3594,10 @@ class TravelDashboardStats(BaseModel):
     total_requests: int = 0
     pending_requests: int = 0
     approved_requests: int = 0
-    total_expenses: Decimal = 0
+    total_expenses: Decimal = 0                          # legacy single number; only meaningful with one currency
+    approved_expenses_by_currency: list[CurrencyAmount] = []     # approved + reimbursed claims (audit T9)
+    reimbursed_expenses_by_currency: list[CurrencyAmount] = []
+    expenses_by_category: list[CategoryAmount] = []
 
 
 class WorkforcePlanCreate(BaseModel):

@@ -167,7 +167,7 @@ export const getHrEmployees = async (params = {}) => {
     }
   }
 };
-export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);

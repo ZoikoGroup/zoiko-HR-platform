@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Landmark, TrendingUp, Clock, AlertOctagon, BarChart3, Receipt, AlertTriangle, RefreshCw } from "lucide-react";
 import TravelLayout from "./TravelLayout";
-import { staffName, indexById } from "../../../utils/travelDisplay";
+import { staffName, asPage } from "../../../utils/travelDisplay";
+import TravelPager from "./TravelPager";
 import { api } from "../../../service/api";
 import { formatMoney, claimState, totalsByCurrency, categoryTotals } from "../../../utils/travelExpenseAdmin";
 import { formatDate } from "../../../utils/dateTime";
@@ -11,28 +12,13 @@ function MoneyLines({ lines, className = "" }) {
   return lines.map((l) => <p key={l.currency} className={className}>{formatMoney(l.amount, l.currency)}</p>);
 }
 
+const PER_PAGE = 25;
+
 function safeArray(arr) {
   return Array.isArray(arr) ? arr : [];
 }
 
-function getEmployeeDisplay(emp) {
-  if (!emp) return "Unknown";
-  if (typeof emp === "string") return emp;
-  if (typeof emp === "object") {
-    const fullName = `${emp.first_name || ""} ${emp.last_name || ""}`.trim();
-    return fullName || emp.full_name || emp.name || emp.email || "Unknown";
-  }
-  return "Unknown";
-}
-
-function getDestinationDisplay(dest) {
-  if (!dest) return "—";
-  if (typeof dest === "string") return dest;
-  if (typeof dest === "object") {
-    return dest.city || dest.name || dest.location || JSON.stringify(dest);
-  }
-  return "—";
-}
+const lines = (list) => safeArray(list).map((l) => ({ currency: l.currency, amount: Number(l.amount) || 0 }));
 
 function ErrorFallback({ error, onRetry }) {
   return (
@@ -55,13 +41,16 @@ export default function TravelExpenses() {
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
   const [message, setMessage] = useState(null);
+  const [page, setPage] = useState(1);
 
-  const fetchExpenses = async ({ silent = false } = {}) => {
+  // one page of claims, plus totals the server works out over every claim (audit T6)
+  const fetchExpenses = async ({ silent = false, nextPage = page } = {}) => {
     try {
       if (!silent) setLoading(true);
       setError(null);
-      const response = await api.get("/hr/travel-expenses?page=1&per_page=100&search=");
+      const response = await api.get(`/hr/travel-expenses?page=${nextPage}&per_page=${PER_PAGE}`);
       setRaw(response);
+      setPage(nextPage);
     } catch (err) {
       console.error("Error connecting with expenses catalog schema:", err);
       setError(err);
@@ -74,13 +63,18 @@ export default function TravelExpenses() {
     fetchExpenses();
   }, []);
 
-  const expenses = safeArray(raw?.items || raw);
+  const pageData = asPage(raw || [], page, PER_PAGE);
+  const expenses = safeArray(pageData.items);
+  const serverTotals = raw && !Array.isArray(raw) ? raw.totals : null;
 
-  const totalClaimed = totalsByCurrency(expenses, ["pending", "approved", "reimbursed"]);
-  const approvedValue = totalsByCurrency(expenses, ["approved", "reimbursed"]);
-  const pendingValue = totalsByCurrency(expenses, ["pending"]);
-  const rejectedValue = totalsByCurrency(expenses, ["rejected"]);
-  const categories = categoryTotals(expenses.filter((e) => claimState(e?.status) !== "rejected"));
+  // the server's totals cover every claim; a plain list (older server) is summed here
+  const totalClaimed = serverTotals ? lines(serverTotals.total_claimed) : totalsByCurrency(expenses, ["pending", "approved", "reimbursed"]);
+  const approvedValue = serverTotals ? lines(serverTotals.approved) : totalsByCurrency(expenses, ["approved", "reimbursed"]);
+  const pendingValue = serverTotals ? lines(serverTotals.pending) : totalsByCurrency(expenses, ["pending"]);
+  const rejectedValue = serverTotals ? lines(serverTotals.rejected) : totalsByCurrency(expenses, ["rejected"]);
+  const categories = serverTotals
+    ? safeArray(serverTotals.categories).map((c) => ({ ...c, amount: Number(c.amount) || 0, label: new Set(safeArray(serverTotals.categories).map((x) => x.currency)).size > 1 ? `${c.label} (${c.currency})` : c.label }))
+    : categoryTotals(expenses.filter((e) => claimState(e?.status) !== "rejected"));
   const categoryMax = categories.reduce((m, c) => Math.max(m, c.amount), 0);
 
   const handleExpenseAction = async (id, status) => {
@@ -102,7 +96,7 @@ export default function TravelExpenses() {
   return (
         <TravelLayout title="Travel" subtitle="Manage travel expenses and reimbursements">
           {error ? (
-            <ErrorFallback error={error} onRetry={fetchExpenses} />
+            <ErrorFallback error={error} onRetry={() => fetchExpenses()} />
           ) : (
             <div className="space-y-6">
               <div>
@@ -171,7 +165,12 @@ export default function TravelExpenses() {
                                 {row?.description ? <span className="block text-xs font-normal text-gray-500 max-w-xs truncate" title={row.description}>{row.description}</span> : null}
                               </td>
                               <td className="p-3 text-xs text-gray-500">{row?.created_at || row?.submitted_at ? formatDate(row.created_at || row.submitted_at) : "—"}</td>
-                              <td className="p-3 font-semibold text-gray-900">{formatMoney(row?.amount, row?.currency)}</td>
+                              <td className="p-3 font-semibold text-gray-900">
+                                {formatMoney(row?.amount, row?.currency)}
+                                {row?.within_policy === false ? (
+                                  <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700" title="Above the daily expense limit in Travel settings. The claim can still be approved.">Over daily limit</span>
+                                ) : null}
+                              </td>
                               <td className="p-3">
                                 {(() => {
                                   const state = claimState(row?.status);
@@ -215,6 +214,7 @@ export default function TravelExpenses() {
                       </table>
                     </div>
                   )}
+                  <TravelPager page={page} perPage={PER_PAGE} total={pageData.total} onPage={(p) => fetchExpenses({ nextPage: p })} label="claims" />
                 </div>
 
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
