@@ -489,12 +489,9 @@ def get_skills(db: Session, employee_id: Optional[int] = None, organization_id: 
     result = list_or_page(query.order_by(LearningSkill.skill_name, LearningSkill.id), page, per_page, label="/skills")
     rows = result["items"] if isinstance(result, dict) else result
     names = _employee_names(db, (r.employee_id for r in rows))
-    columns = [col.name for col in LearningSkill.__table__.columns]
-    serialized = [{**{name: getattr(r, name) for name in columns}, "employee_name": names.get(r.employee_id)} for r in rows]
-    if isinstance(result, dict):
-        result["items"] = serialized
-        return result
-    return serialized
+    for r in rows:                                    # the rows stay LearningSkill objects; the holder's name rides along
+        r.employee_name = names.get(r.employee_id)    # (a plain attribute, not a column: SkillResponse reads it)
+    return result
 
 
 def get_skill_by_id(db: Session, skill_id: int, organization_id: Optional[int] = None) -> LearningSkill:

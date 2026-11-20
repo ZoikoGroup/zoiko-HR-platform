@@ -66,6 +66,16 @@ def test_a_purchase_date_after_today_is_refused_on_create_and_update(world):
 
 # ── A16: names in one query ──────────────────────────────────────────────────────────────────────────────────────────
 
+def _drop_cached_responses():
+    """Rows written straight to the database skip the cache invalidation an API write triggers: with Redis on (CI) the
+    response cache would keep serving the list as it was. Drop the cached responses so the next GET reads the database."""
+    from app.core.redis_client import get_redis
+    client = get_redis()
+    if client is not None:
+        for key in client.scan_iter(match="resp:*", count=500):
+            client.delete(key)
+
+
 def _seed_requests(w, n):
     people = [w.u["a_emp1"], w.u["a_emp2"], w.u["a_manager"]]
     for i in range(n):
@@ -74,9 +84,11 @@ def _seed_requests(w, n):
                               requested_on=date.today(), organization_id=1, status=AssetRequestStatus.APPROVED,
                               approved_by=w.u["a_hr"].id if i % 2 else w.u["a_admin"].id))
     w.db.commit()
+    _drop_cached_responses()
 
 
 def _count_queries(w, url):
+    _drop_cached_responses()                       # each measured call reads the database, never a cached answer
     engine = w.db.get_bind()
     seen = []
     listener = lambda *args, **kw: seen.append(1)
@@ -111,5 +123,6 @@ def test_the_request_list_still_names_requesters_and_approvers(world):
     world.db.add(AssetRequest(employee_id=None, employee_name="Former Person", asset_type="Mouse", requested_on=date.today(),
                               organization_id=1, approved_by=None))
     world.db.commit()
+    _drop_cached_responses()
     row = next(i for i in world.get("a_admin", "/hr/assets/requests").json()["items"] if i["asset_type"] == "Mouse")
     assert (row["employee_name"], row["approved_by_name"]) == ("Former Person", None)
