@@ -199,15 +199,16 @@ def test_requisition_to_employee(world, monkeypatch):
     # ── HR reviews and completes ──
     # approving a submitted bank-details form goes through the same finance-permission gate as the form itself
     _ok(world.put("a_admin", "/hr/onboarding/finance-viewers", json={"employee_ids": [world.u["a_admin"].id]}))
-    rows = {d.category: d for d in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=hire.id, is_deleted=False)}
-    assert rows["job_application"].status == "pending"
-    for d in rows.values():
+    # a list, not a dict by category: the uploaded bank file and the structured bank form are two rows with the same
+    # category (an uploaded file is never replaced by the form), and HR approves both
+    all_rows = world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=hire.id, is_deleted=False).all()
+    assert next(d for d in all_rows if d.category == "job_application").status == "pending"
+    for d in all_rows:
         if d.status == "pending":
             _ok(world.put("a_admin", f"/hr/onboarding/documents/{d.id}", json={"status": "approved"}))
     prog = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{hire.id}/progress"))
     doc_blockers = [b for b in prog["blockers"] if "document" in b]
     allrows = [(d.id, d.category, d.status, d.document_id) for d in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=hire.id, is_deleted=False)]
-    print("DEBUG ROWS", allrows, "BLOCKERS", prog["blockers"])
     assert not doc_blockers, (prog, "; ".join(str(r) for r in allrows))
     checklists = _ok(world.get("a_admin", "/hr/onboarding/checklist-assignments", params={"onboarding_record_id": hire.id}))
     checklists = checklists["items"] if isinstance(checklists, dict) else checklists
