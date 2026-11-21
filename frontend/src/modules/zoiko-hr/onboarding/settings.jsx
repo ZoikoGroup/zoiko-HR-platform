@@ -23,6 +23,7 @@ import OnboardingProfilesSettings from "./OnboardingProfilesSettings";
 import { PrimaryButton, SecondaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 import { SettingsCard, SettingsSaveContext } from "./settingsUi";
+import WelcomeMessageEditor, { DEFAULT_PLACEHOLDERS, SIGNATURE_MAX, WELCOME_MAX, unknownPlaceholders } from "./WelcomeMessageEditor";
 
 // Uploads requested automatically: the organisation's own upload categories (Settings › Documents requested from new hires).
 // This list is only the fallback while they load. The offer-package documents are issued from the package instead.
@@ -35,8 +36,6 @@ const DEFAULT_CATEGORIES = [
 ];
 export const DOCS_SETUP_PATH = "/zoiko-hr/onboarding/settings/docs-setup";
 
-const WELCOME_MAX = 2000;
-
 const EMPTY = {
   auto_template_ids: [],
   required_document_categories: [],
@@ -46,6 +45,7 @@ const EMPTY = {
   require_checklists_complete: false,
   require_documents_approved: false,
   welcome_message: "",
+  welcome_signature: "",
 };
 
 function fromServer(s) {
@@ -59,6 +59,7 @@ function fromServer(s) {
     require_checklists_complete: !!d.require_checklists_complete,
     require_documents_approved: !!d.require_documents_approved,
     welcome_message: d.welcome_message || "",
+    welcome_signature: d.welcome_signature || "",
   };
 }
 
@@ -75,6 +76,11 @@ function validateOnboardingSettings(f) {
   }
   if (String(f.welcome_message || "").length > WELCOME_MAX) {
     errors.welcome_message = `The welcome message can be at most ${WELCOME_MAX} characters.`;
+  }
+  const bad = unknownPlaceholders(f.welcome_message);
+  if (bad.length) errors.welcome_message = `Unknown placeholder ${bad.map((b) => `{{${b}}}`).join(", ")}.`;
+  if (String(f.welcome_signature || "").length > SIGNATURE_MAX) {
+    errors.welcome_signature = `The signature can be at most ${SIGNATURE_MAX} characters.`;
   }
   return errors;
 }
@@ -168,6 +174,7 @@ export default function OnboardingSettings() {
   const [managingCategories, setManagingCategories] = useState(false);
   const [setupStatus, setSetupStatus] = useState(null);
   const [profileComplete, setProfileComplete] = useState(true);
+  const [welcomeDefaults, setWelcomeDefaults] = useState({ message: "", signature: "", placeholders: DEFAULT_PLACEHOLDERS });
 
   useEffect(() => {
     let live = true;
@@ -216,6 +223,12 @@ export default function OnboardingSettings() {
         const [settings, tpl] = await Promise.all([getOnboardingSettings(), getOnboardingChecklistTemplates()]);
         if (!mounted) return;
         const loaded = fromServer(settings);
+        setWelcomeDefaults({
+          message: settings?.default_welcome_message || "",
+          signature: settings?.default_welcome_signature || "",
+          placeholders: Array.isArray(settings?.welcome_placeholders) && settings.welcome_placeholders.length
+            ? settings.welcome_placeholders : DEFAULT_PLACEHOLDERS,
+        });
         setForm(loaded);
         setSaved(loaded);
         const list = Array.isArray(tpl) ? tpl : Array.isArray(tpl?.items) ? tpl.items : [];
@@ -267,6 +280,7 @@ export default function OnboardingSettings() {
         require_checklists_complete: form.require_checklists_complete,
         require_documents_approved: form.require_documents_approved,
         welcome_message: form.welcome_message.trim() === "" ? null : form.welcome_message,
+        welcome_signature: form.welcome_signature.trim() === "" ? null : form.welcome_signature.trim(),
       };
       const result = await saveOnboardingSettings(payload);
       const next = result ? fromServer(result) : form;
@@ -275,6 +289,11 @@ export default function OnboardingSettings() {
       return true;
     } catch (err) {
       const fields = {};
+      if (err?.status === 422 && typeof err?.message === "string" && /placeholder|welcome message/i.test(err.message)) {
+        fields.welcome_message = err.message;
+      } else if (err?.status === 422 && typeof err?.message === "string" && /signature/i.test(err.message)) {
+        fields.welcome_signature = err.message;
+      }
       if (Array.isArray(err?.validation)) {
         for (const item of err.validation) {
           const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
@@ -345,7 +364,6 @@ export default function OnboardingSettings() {
   }
 
   const reminders = Number(form.reminder_days) || 0;
-  const welcomeLen = form.welcome_message.length;
   const completionRule = saved.require_checklists_complete && saved.require_documents_approved ? "Checklists & documents"
     : saved.require_checklists_complete ? "Checklist-based" : saved.require_documents_approved ? "Document-based" : "None";
 
@@ -422,17 +440,11 @@ export default function OnboardingSettings() {
               <p className="mt-1 text-xs text-gray-500">After this the link stops working; sending a new link replaces the old one.</p>
               <FieldError msg={errors.portal_link_days} />
             </div>
-            <div>
-              <label htmlFor="os-welcome" className="block text-sm font-medium text-gray-800">Welcome message</label>
-              <p className="mb-1 text-xs text-gray-500">Shown in the welcome email and on the new hire's pre-onboarding page.</p>
-              <textarea id="os-welcome" rows={4} value={form.welcome_message} maxLength={WELCOME_MAX} aria-invalid={!!errors.welcome_message}
-                onChange={(e) => set("welcome_message", e.target.value)} placeholder="e.g. We're excited to have you join us! Please complete the steps below before your first day."
-                className={`w-full rounded-xl border ${errors.welcome_message ? "border-rose-300" : "border-gray-200"} px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100`} />
-              <div className="flex flex-wrap justify-between gap-x-3">
-                <FieldError msg={errors.welcome_message} />
-                <span className={`ml-auto text-xs ${welcomeLen > WELCOME_MAX ? "text-rose-600" : "text-gray-400"}`}>{welcomeLen}/{WELCOME_MAX}</span>
-              </div>
-            </div>
+            <WelcomeMessageEditor message={form.welcome_message} signature={form.welcome_signature}
+              autoInvite={form.auto_send_portal_invite} errors={errors}
+              onMessage={(v) => set("welcome_message", v)} onSignature={(v) => set("welcome_signature", v)}
+              defaultMessage={welcomeDefaults.message} defaultSignature={welcomeDefaults.signature}
+              placeholders={welcomeDefaults.placeholders} />
           </SettingsCard>
 
           <SettingsCard id="os-step-4" icon={BellRing} title="Reminders" help="Nudges new hires who still have documents to upload.">

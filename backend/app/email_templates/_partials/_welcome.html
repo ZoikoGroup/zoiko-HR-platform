@@ -1,0 +1,69 @@
+{#-
+  Sections shared by the offer-accepted welcome e-mail and the pre-onboarding invite (resend):
+  the organization's welcome message, the next steps, the pre-onboarding link, the privacy note, support and sign-off.
+  Import "with context": {% import "_partials/_welcome.html" as welcome with context %}
+
+  welcome_blocks come from app/modules/hr/welcome_message.py: plain strings (escaped here by autoescape), never HTML.
+-#}
+{% import "_layouts/_components.html" as ui with context %}
+
+{% macro message(blocks) -%}
+{% for b in blocks %}
+{% if b.type == "heading" %}
+<h2 class="dm-text-strong" style="{{ S.h2 }}">{{ b.text }}</h2>
+{% else %}
+<p class="t-body dm-text-body" style="{{ S.p }}">{% for line in b.lines %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+{% endif %}
+{% endfor %}
+{%- endmacro %}
+
+{% macro steps(items) -%}
+{% if items %}
+<h2 class="dm-text-strong" style="{{ S.h2 }}">Your next steps</h2>
+<ol class="dm-text-body" style="margin:0 0 24px 0;padding:0;list-style:none;font-family:{{ FONT_STACK }};">
+{% for s in items %}
+<li class="dm-border" style="margin:0;padding:12px 0;{% if not loop.first %}border-top:1px solid #dfe5ec;{% endif %}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+<tr>
+<td valign="top" width="36" style="vertical-align:top;width:36px;padding:0 12px 0 0;"><span class="dm-bg-panel dm-text-strong" style="display:inline-block;min-width:24px;padding:2px 0;border-radius:12px;border:1px solid {{ BADGE_TONES.info.border }};background-color:{{ BADGE_TONES.info.bg }};color:{{ BADGE_TONES.info.fg }};font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;font-weight:700;text-align:center;">{{ loop.index }}.</span> </td><td valign="top" style="vertical-align:top;font-family:{{ FONT_STACK }};"><strong class="dm-text-strong" style="font-size:16px;line-height:24px;color:#0f172a;">{{ s.title }}</strong>{% if s.detail %}<br><span class="dm-text-muted" style="font-size:14px;line-height:21px;color:#4b5563;">{{ s.detail }}</span>{% endif %}</td>
+</tr>
+</table>
+</li>
+{% endfor %}
+</ol>
+{% endif %}
+{%- endmacro %}
+
+{% macro portal_link(url, expires) -%}
+{% if url %}
+{{ ui.button(url, "Start pre-onboarding") }}
+{{ ui.link_fallback(url) }}
+{% if expires %}<p class="dm-text-muted" style="{{ S.muted }}">Link valid until {{ expires }}. No account or password is needed.</p>{% endif %}
+{% else %}
+{% call ui.notice(None, "info") %}
+<strong class="dm-text-strong" style="{{ S.strong }}">Your pre-onboarding link</strong><br>
+Your HR team will send you a separate email with the link to your secure pre-onboarding portal. You don't need to do anything until it arrives.
+{% endcall %}
+{% endif %}
+{%- endmacro %}
+
+{% macro privacy() -%}
+{% call ui.notice(None, "warning") %}
+<strong class="dm-text-strong" style="{{ S.strong }}">Keep your documents safe</strong><br>
+Never send ID documents by email; upload them only in the secure portal.
+{% endcall %}
+{%- endmacro %}
+
+{% macro support(company, hr_name, hr_email) -%}
+<h2 class="dm-text-strong" style="{{ S.h2 }}">Need help?</h2>
+<p class="t-body dm-text-body" style="{{ S.p }}">
+{% if hr_email %}Contact {% if hr_name %}{{ hr_name }}{% else %}the {{ company }} HR team{% endif %} at <a class="dm-link" href="mailto:{{ hr_email }}" style="{{ S.link }}">{{ hr_email }}</a>{% if hr_name %} ({{ company }} HR){% endif %}, or reply to this email.
+{% else %}Contact {% if hr_name %}{{ hr_name }} in the {{ company }} HR team{% else %}the {{ company }} HR team{% endif %}.
+{% endif %}
+</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">If you need an accessible alternative or any adjustment to complete these steps, let us know and we will arrange it.</p>
+{%- endmacro %}
+
+{% macro signoff(signature, company) -%}
+<p class="t-body dm-text-body" style="{{ S.p }}margin:8px 0 0 0;">Warm regards,<br><strong class="dm-text-strong" style="{{ S.strong }}">{{ signature }}</strong><br>{{ company }}</p>
+{%- endmacro %}

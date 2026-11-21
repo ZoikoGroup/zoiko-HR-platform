@@ -1,22 +1,23 @@
 {% extends "_layouts/base.html" %}
 {% import "_layouts/_components.html" as ui with context %}
+{% import "_partials/_welcome.html" as welcome with context %}
 {% set title = "Welcome to " ~ organization_name %}
-{% set preheader = "Complete your pre-onboarding for the " ~ position ~ " role before your first day." %}
+{% set preheader = "Your next steps before " ~ (joining_date_display or "your start date") ~ "." %}
 {% set badge = "Welcome" %}
 {% set badge_tone = "success" %}
 {% set footer_reason %}You are receiving this because you accepted an offer from {{ organization_name }}.{% endset %}
 {% block content %}
 <h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Welcome aboard, {{ first_name }}</h1>
-<p class="t-body dm-text-body" style="{{ S.p }}">Welcome to {{ organization_name }}! We are excited to have you join us as <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong>. To get you ready for day one, please complete your pre-onboarding using the secure link below. No account or password is needed.</p>
-{% if welcome_message %}<p class="t-body dm-text-body" style="{{ S.p }}">{{ welcome_message }}</p>{% endif %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Here is your link to complete your pre-onboarding with {{ organization_name }} for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role.</p>
 {% call ui.details() %}
 {{ ui.detail_row("Position", position, first=True) }}
 {{ ui.detail_row("Start date", joining_date_display or "To be confirmed") }}
-{% if manager_name %}{{ ui.detail_row("Your manager", manager_name) }}{% endif %}
-{{ ui.detail_row("Documents requested", documents_requested|string) }}
-{{ ui.detail_row("Link valid until", expires_display) }}
+{% if manager_name %}{{ ui.detail_row("Reporting manager", manager_name) }}{% endif %}
 {% endcall %}
-{{ ui.button(portal_url, "Start pre-onboarding") }}
-{{ ui.link_fallback(portal_url) }}
-{{ ui.signoff(organization_name) }}
+{{ welcome.message(welcome_blocks) }}
+{{ welcome.steps(next_steps) }}
+{{ welcome.portal_link(portal_url, expires_display) }}
+{{ welcome.privacy() }}
+{{ welcome.support(organization_name, hr_contact_name, hr_contact_email) }}
+{{ welcome.signoff(welcome_signature, organization_name) }}
 {% endblock %}

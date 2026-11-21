@@ -131,6 +131,7 @@ test("the portal never shows the success page when the server refuses the submis
     acknowledgePortalDocument: async () => view, savePortalOutsideActivities: async () => view, portalPackageFileUrl: () => "",
     submitSignedPackage: async () => { throw refused; }, getPortalPackageForm: async () => ({}), savePortalPackageForm: async () => ({}),
     submitPortalPackageForm: async () => ({}),
+    getPortalMyDocuments: async () => [], getPortalMyDocumentFile: async () => ({}), getPortalMyDocumentsZip: async () => ({}),
   } });
   t.mock.module("../src/service/onboardingPrompt2Service.js", { exports: {
     getPortalForms: async () => ({ items: [] }), savePortalForm: async () => ({}), submitPortalForm: async () => ({}),

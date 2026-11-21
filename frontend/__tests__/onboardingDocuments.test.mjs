@@ -92,6 +92,11 @@ async function load(t, over = {}) {
     startBulkPackageGeneration: async (ids) => ({ job_id: "j1", status: "completed", done: ids.length, total: ids.length, failed: [] }),
     getBulkPackageJob: async () => ({ job_id: "j1", status: "completed", done: 1, total: 1, failed: [] }),
     downloadBulkPackageZip: async () => ({ blob: new Blob(["x"]), filename: "packages.zip" }),
+    getOnboardingSubmissions: async () => CURRENT.over.submissions ?? [],
+    getOnboardingDocumentDetail: async () => ({ document: {}, answers: null, evidence: null, history: [], can_reveal: false }),
+    downloadOnboardingDocumentFile: async () => ({ blob: new Blob(["x"]), filename: "x.pdf" }),
+    reviewOnboardingDocument: async () => ({}),
+    downloadHireDocumentsZip: async () => ({ blob: new Blob(["x"]), filename: "docs.zip" }),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
     Link: ({ children }) => React.createElement("a", null, children) } });
@@ -331,4 +336,17 @@ test("when nothing can be sent the panel says why, and offers to re-send the por
   assert.match(text, /2 of 3 documents are already sent/);
   assert.match(text, /Non-Disclosure Agreement is waiting for Ann Lee to enter their postal address/);
   assert.ok(screen.getByRole("button", { name: /Re-send the portal link to Ann Lee/ }));
+});
+
+test("the All submissions view lists every submission with the hire's name, Needs review first", async (t) => {
+  await load(t, { submissions: [
+    { id: 1, title: "ID proof", status: "approved", onboarding_new_hire_id: 7, hire_name: "Ann Lee", kind: "upload" },
+    { id: 2, title: "Bank details", status: "pending", onboarding_new_hire_id: 7, hire_name: "Ann Lee", kind: "form" },
+  ] });
+  fireEvent.click(screen.getByRole("tab", { name: "All submissions" }));
+  await settle();
+  const rows = [...document.querySelectorAll('[data-testid="submission-row"]')];
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].textContent, /Ann Lee.*Bank details.*Needs review/);
+  assert.equal(document.querySelector('[data-testid="employee-row"]'), null);
 });

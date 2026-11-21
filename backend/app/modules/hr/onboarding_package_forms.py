@@ -21,6 +21,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.modules.doc_templates import storage
 from app.modules.hr import onboarding_package as P
 from app.modules.hr import onboarding_package_content as C
 from app.modules.hr import onboarding_package_render as R
@@ -359,9 +360,6 @@ def submit(db, hire, category: str, raw: dict) -> dict:
 
 def _submit(db, hire, category: str, raw: dict) -> dict:
     """Validate, render the filled document, store it as the returned document and send it to HR for review."""
-    from app.core.privacy.files import tenant_upload_path
-    from app.modules.hr.router import _ONBOARDING_DOC_UPLOAD_DIR
-    from app.modules.hr.service import log_onboarding_activity
     from app.modules.hr import doc_formatting as F
 
     row = _row(db, hire, category)
@@ -384,17 +382,11 @@ def _submit(db, hire, category: str, raw: dict) -> dict:
     sub.status, sub.submitted_at, sub.return_reason = "SUBMITTED", now, None
     db.flush()
     pdf = R.render_pdf(category, filled_context(db, hire, category, sub))
-    os.makedirs(_ONBOARDING_DOC_UPLOAD_DIR, exist_ok=True)
-    path = tenant_upload_path(_ONBOARDING_DOC_UPLOAD_DIR, hire.organization_id, f"{uuid.uuid4().hex}.pdf")
-    with open(path, "wb") as fh:
-        fh.write(pdf)
-    row.file_path, row.status, row.rejection_reason = path, "pending", None
-    if hire.status in ("offer_sent", "offer_accepted"):
-        hire.status = "pre_joining"
-    db.commit()
-    log_onboarding_activity(db, hire.id, "Form Submitted",
-                            f"{hire.candidate_name} filled in and submitted '{row.title}' online for review.", hire.organization_id)
-    P.sync_onboarding_document_checklist(db, hire)
+    # the filled form goes to the document store under the tenant (never a loose file on local disk)
+    row.file_path = storage.get_store().put(hire.organization_id, f"onbfilled-{hire.id}-{P._slug(category)}-{uuid.uuid4().hex[:12]}.pdf", pdf)
+    row.status, row.rejection_reason = "pending", None
+    from app.modules.hr import onboarding_submissions
+    onboarding_submissions.on_submitted(db, hire, "package_form", row)    # activity, HR digest, checklist, one commit
     return _portal_form(db, hire, category)
 
 
