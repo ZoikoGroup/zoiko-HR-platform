@@ -305,7 +305,7 @@ export default function CandidateSignPage() {
       <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex items-center gap-3">
           {v.organization_logo ? (
-            <img src={v.organization_logo} alt={`${v.organization_name || "Organization"} logo`} className="h-10 w-10 shrink-0 rounded-lg object-contain" />
+            <img src={v.organization_logo} alt={`${v.organization_name || "Organization"} logo`} className="h-10 w-auto max-w-[160px] shrink-0 object-contain" />
           ) : (
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700" aria-hidden="true"><FileText size={20} /></span>
           )}

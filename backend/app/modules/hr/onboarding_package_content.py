@@ -172,6 +172,14 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "kpi.role_specific_source": ("Data source for the role-specific KPI", ZHR, False, "To be agreed"),
     "time.hours_logged": ("Hours worked that day, read-only from the configured time-tracking tool", ZTIME, False,
                            "Filled automatically from time records"),
+    # ── blanks an organisation's own templates leave for each hire (Set up docs maps them; HR types them per hire) ──
+    "worker.degree": ("Candidate's degree or highest qualification", ZHR, True, None),
+    "worker.institution": ("Institution that awarded the degree", ZHR, True, None),
+    "worker.place": ("Town or city where the new hire signs (from their address)", ZHR, True, None),
+    "employment.assessment_end_date": ("Last day of the assessment / first phase", ZHR, True, None),
+    "employment.next_stage_title": ("Title of the stage that follows the assessment (e.g. Phase 2)", ZHR, True, None),
+    # the authorised signatory's signature image (Settings › Company Profile); printed only where a template has the token
+    "employer.signature": ("Authorised signatory's signature (image)", ZHR, False, ""),
 }
 
 # Standard wording printed for these clauses until the organisation saves its own (Settings › Offer package). They are

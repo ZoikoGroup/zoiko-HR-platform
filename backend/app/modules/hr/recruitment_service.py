@@ -755,6 +755,29 @@ def _check_interview_links(db: Session, values: dict, organization_id: Optional[
         values["interviewer"] = f"{emp.first_name or ''} {emp.last_name or ''}".strip() or emp.email
 
 
+PAST_INTERVIEW_MESSAGE = "An interview cannot be scheduled in the past. Choose a date and time that has not passed yet."
+
+
+def _check_interview_not_past(db: Session, organization_id: Optional[int], interview_date, start_time, tz_name) -> None:
+    """Rejects (422) a schedule that has already passed. The time is read in the interview's own time zone, else the
+    organization's, else UTC (the attendance clock's resolution). Without a start time only the date is compared."""
+    from app.core.exceptions import ZoikoException
+    from app.modules.hr.attendance import clock
+    from app.modules.hr.models import Organization
+    if interview_date is None:
+        return
+    org = db.get(Organization, organization_id) if organization_id else None
+    tz = clock.zone(tz_name) or clock.tz_for(None, org)
+    local_now = clock.to_local(clock.utcnow(), tz)
+    if start_time:
+        hh, mm = (int(x) for x in str(start_time)[:5].split(":"))
+        past = datetime(interview_date.year, interview_date.month, interview_date.day, hh, mm) <= local_now
+    else:
+        past = interview_date < local_now.date()
+    if past:
+        raise ZoikoException(422, "VALIDATION_ERROR", PAST_INTERVIEW_MESSAGE)
+
+
 def _interview_when(interview) -> str:
     return f"{interview.interview_date:%a, %b %d, %Y}" + (f" {interview.start_time}" if interview.start_time else "")
 
@@ -762,8 +785,7 @@ def _interview_when(interview) -> str:
 def create_interview(db: Session, data: InterviewCreate, organization_id: Optional[int] = None) -> RecruitmentInterview:
     safe = data.model_dump(exclude_unset=True)
     send = safe.pop("notify", True)
-    if safe.get("interview_date") and safe["interview_date"] < date.today():
-        raise BadRequestException("An interview cannot be scheduled in the past.")
+    _check_interview_not_past(db, organization_id, safe.get("interview_date"), safe.get("start_time"), safe.get("timezone"))
     _check_interview_links(db, safe, organization_id)
     interview = RecruitmentInterview(**safe)
     if organization_id:
@@ -871,8 +893,12 @@ def update_interview(db: Session, interview_id: int, data: InterviewUpdate, orga
     if {"interviewer", "interviewer_id"} & set(update_data) and not interview.interviewer_id and not interview.interviewer:
         raise BadRequestException(INTERVIEWER_MESSAGE)
     moved = before != (interview.interview_date, interview.start_time, interview.end_time, interview.timezone)
-    if moved and interview.interview_date < date.today():
-        raise BadRequestException("An interview cannot be moved into the past.")
+    # only a new or changed schedule (or putting a cancelled interview back on the calendar) must be in the future;
+    # editing other fields of an interview whose time has already passed is fine
+    reinstated = previous_status == InterviewStatus.CANCELLED and interview.status == InterviewStatus.SCHEDULED
+    if moved or reinstated:
+        _check_interview_not_past(db, organization_id or interview.organization_id, interview.interview_date,
+                                  interview.start_time, interview.timezone)
     db.commit()
     db.refresh(interview)
     sent = 0

@@ -7474,10 +7474,59 @@ def get_folder_breadcrumb(db: Session, folder_id: int | None, organization_id: i
     return chain
 
 
-def create_document_folder(db: Session, name: str, organization_id: int, parent_id: int | None = None, created_by: int | None = None,
-                           company_category_id: int | None = None) -> dict:
+FOLDER_NAME_MAX = 100
+_FOLDER_BAD_CHARS = set('/\\:*?"<>|')
+
+
+def _clean_folder_name(name: str) -> str:
+    """Trimmed folder name; 1–100 characters, none of / \\ : * ? " < > |."""
+    from app.modules.hr.documents import errors as doc_errors
+    text = " ".join((name or "").split())
+    if not text:
+        raise doc_errors.invalid("Give the folder a name.", field="name")
+    if len(text) > FOLDER_NAME_MAX:
+        raise doc_errors.invalid(f"A folder name can be at most {FOLDER_NAME_MAX} characters.", field="name")
+    if any(c in _FOLDER_BAD_CHARS for c in text):
+        raise doc_errors.invalid('A folder name cannot contain / \\ : * ? " < > |', field="name")
+    return text
+
+
+def _folder_name_taken(db: Session, organization_id: int, name: str, parent_id, company_category_id, exclude_id=None) -> bool:
+    """Another folder with the same name (any letter case) in the same place: same parent, same company category."""
+    from sqlalchemy import func as sa_func
     from app.modules.hr.models import HrDocumentFolder
+    q = db.query(HrDocumentFolder.id).filter(HrDocumentFolder.organization_id == organization_id,
+                                             sa_func.lower(HrDocumentFolder.name) == name.lower())
+    q = q.filter(HrDocumentFolder.parent_id == parent_id) if parent_id else q.filter(HrDocumentFolder.parent_id.is_(None))
+    q = (q.filter(HrDocumentFolder.company_category_id == company_category_id) if company_category_id
+         else q.filter(HrDocumentFolder.company_category_id.is_(None)))
+    if exclude_id:
+        q = q.filter(HrDocumentFolder.id != exclude_id)
+    return q.first() is not None
+
+
+def _folder_audit(db: Session, actor, action: str, folder, before=None, after=None) -> None:
+    if actor is None:
+        return
+    try:
+        from app.modules.hr.documents import audit_service
+        audit_service.record(db, org_id=folder.organization_id, actor=actor, action=action, target_type="folder",
+                             target_id=folder.id, before=before, after=after)
+    except Exception:
+        logger.warning("folder audit entry failed (folder %s)", getattr(folder, "id", "?"))
+
+
+def _folder_out(folder) -> dict:
+    return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id, "company_category_id": folder.company_category_id,
+            "created_at": folder.created_at.isoformat() if folder.created_at else None}
+
+
+def create_document_folder(db: Session, name: str, organization_id: int, parent_id: int | None = None, created_by: int | None = None,
+                           company_category_id: int | None = None, actor=None) -> dict:
+    from app.modules.hr.models import HrDocumentFolder
+    from app.modules.hr.documents import errors as doc_errors
     from app.modules.hr.documents.models import HrCompanyDocumentCategory
+    clean = _clean_folder_name(name)
     if parent_id is not None and company_category_id is None:
         parent = db.query(HrDocumentFolder).filter(HrDocumentFolder.id == parent_id, HrDocumentFolder.organization_id == organization_id).first()
         company_category_id = parent.company_category_id if parent else None
@@ -7487,45 +7536,72 @@ def create_document_folder(db: Session, name: str, organization_id: int, parent_
     if parent_id is not None and not db.query(HrDocumentFolder.id).filter(
             HrDocumentFolder.id == parent_id, HrDocumentFolder.organization_id == organization_id).first():
         raise NotFoundException("HrDocumentFolder", parent_id)
+    if _folder_name_taken(db, organization_id, clean, parent_id, company_category_id):
+        raise doc_errors.DocError(409, "DOC_FOLDER_EXISTS", f"A folder called \u201c{clean}\u201d already exists here.", {"field": "name"})
     folder = HrDocumentFolder(
-        name=name.strip(),
+        name=clean,
         parent_id=parent_id,
         organization_id=organization_id,
         created_by=created_by,
         company_category_id=company_category_id,
     )
     db.add(folder)
+    db.flush()
+    _folder_audit(db, actor, "folder_created", folder, after={"name": clean, "parent_id": parent_id})
     db.commit()
     db.refresh(folder)
-    return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id, "created_at": folder.created_at.isoformat() if folder.created_at else None}
+    return _folder_out(folder)
 
 
-def rename_document_folder(db: Session, folder_id: int, name: str, organization_id: int) -> dict:
+def rename_document_folder(db: Session, folder_id: int, name: str, organization_id: int, actor=None) -> dict:
     from app.modules.hr.models import HrDocumentFolder
+    from app.modules.hr.documents import errors as doc_errors
     folder = db.query(HrDocumentFolder).filter(
         HrDocumentFolder.id == folder_id,
         HrDocumentFolder.organization_id == organization_id,
     ).first()
     if not folder:
         raise NotFoundException("HrDocumentFolder", folder_id)
-    folder.name = name.strip()
+    clean = _clean_folder_name(name)
+    if clean != folder.name and _folder_name_taken(db, organization_id, clean, folder.parent_id, folder.company_category_id,
+                                                   exclude_id=folder.id):
+        raise doc_errors.DocError(409, "DOC_FOLDER_EXISTS", f"A folder called \u201c{clean}\u201d already exists here.", {"field": "name"})
+    before = folder.name
+    folder.name = clean
+    _folder_audit(db, actor, "folder_renamed", folder, before={"name": before}, after={"name": clean})
     db.commit()
     db.refresh(folder)
-    return {"id": folder.id, "name": folder.name}
+    return _folder_out(folder)
 
 
-def delete_document_folder(db: Session, folder_id: int, organization_id: int) -> bool:
+def delete_document_folder(db: Session, folder_id: int, organization_id: int, actor=None) -> bool:
+    """A company-document folder must be empty (no files, no sub-folders) before it can be deleted, so nothing moves
+    without the admin seeing it. Other folders keep the old behaviour: their files and sub-folders move up a level."""
     from app.modules.hr.models import HrDocumentFolder
+    from app.modules.hr.documents import errors as doc_errors
     folder = db.query(HrDocumentFolder).filter(
         HrDocumentFolder.id == folder_id,
         HrDocumentFolder.organization_id == organization_id,
     ).first()
     if not folder:
-        raise ValueError("Folder not found")
-    # Move documents to root (no folder)
-    db.query(HrDocument).filter(HrDocument.folder_id == folder_id).update({"folder_id": None})
-    # Move child folders to root
-    db.query(HrDocumentFolder).filter(HrDocumentFolder.parent_id == folder_id).update({"parent_id": folder.parent_id})
+        raise NotFoundException("HrDocumentFolder", folder_id)
+    if folder.company_category_id is not None:
+        files = db.query(HrDocument.id).filter(HrDocument.folder_id == folder_id, HrDocument.is_deleted.isnot(True)).count()
+        subs = db.query(HrDocumentFolder.id).filter(HrDocumentFolder.parent_id == folder_id).count()
+        if files or subs:
+            parts = [f"{files} file{'s' if files != 1 else ''}" if files else None,
+                     f"{subs} folder{'s' if subs != 1 else ''}" if subs else None]
+            raise doc_errors.DocError(409, "DOC_FOLDER_NOT_EMPTY",
+                                      f"\u201c{folder.name}\u201d still has {' and '.join(p for p in parts if p)}. Move or remove them first.",
+                                      {"files": files, "folders": subs})
+        # removed files keep their history; they simply no longer point at the folder
+        db.query(HrDocument).filter(HrDocument.folder_id == folder_id).update({"folder_id": None})
+    else:
+        # Move documents to root (no folder)
+        db.query(HrDocument).filter(HrDocument.folder_id == folder_id).update({"folder_id": None})
+        # Move child folders to root
+        db.query(HrDocumentFolder).filter(HrDocumentFolder.parent_id == folder_id).update({"parent_id": folder.parent_id})
+    _folder_audit(db, actor, "folder_deleted", folder, before={"name": folder.name, "parent_id": folder.parent_id})
     db.delete(folder)
     db.commit()
     return True

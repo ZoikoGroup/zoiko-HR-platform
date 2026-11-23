@@ -200,3 +200,27 @@ def test_other_tenant_gets_none_of_tenant_a_values(world):
     text = repr(v)
     assert "Tenant A" not in text and "Programme Associate" not in text and "Bengaluru" not in text
     assert v["engagement.party_term"] == "Employee" and v["engagement.assessment_label"] == "Probation"
+
+
+def test_qa_r1_5_package_lists_every_role_profile_and_says_which_one_matches(world):
+    """QA R1-5: the panel's Role profile choice lists every configured role profile ("Match the position" stays the
+    default) and says which profile the position resolves to."""
+    _setup_tenant_a(world)
+    _ok(world.put("a_admin", "/hr/onboarding/profiles/role/qa-engineer", json={"title": "QA Engineer"}))
+    h = _hire(world, "Asha Rao", ROLE["title"], 12000, date(2026, 8, 1), {})
+    pkg = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package"))
+    assert pkg["role_profiles"] == [{"slug": "ai-web-associate", "title": ROLE["title"]}, {"slug": "qa-engineer", "title": "QA Engineer"}]
+    assert pkg["role"] == {"slug": "ai-web-associate", "title": ROLE["title"], "source": "position"}
+    assert (pkg["inputs"].get("role_profile_slug") or "") == "", "nothing is chosen: Match the position is the default"
+
+    pkg = _ok(world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": {"role_profile_slug": "qa-engineer"}}))
+    assert pkg["role"] == {"slug": "qa-engineer", "title": "QA Engineer", "source": "chosen"}
+
+    other = _hire(world, "Ben Cole", "Plumber", 9000, date(2026, 8, 1), {})
+    pkg = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{other.id}/package"))
+    assert pkg["role"]["source"] == "generated" and pkg["role"]["slug"] is None
+    assert len(pkg["role_profiles"]) == 2
+
+    b_hire = _hire(world, "Cara Diaz", ROLE["title"], 9000, date(2026, 8, 1), {}, org=2)
+    b_pkg = _ok(world.get("b_admin", f"/hr/onboarding/new-hires/{b_hire.id}/package"))
+    assert b_pkg["role_profiles"] == [] and b_pkg["role"]["source"] == "generated", "tenant B never sees tenant A's roles"

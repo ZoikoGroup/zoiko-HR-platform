@@ -27,11 +27,21 @@ function useChange(fn) {
 }
 export const useCreateCompanyCategory = () => useChange(svc.createCompanyCategory);
 export const useUpdateCompanyCategory = () => useChange(({ id, data }) => svc.updateCompanyCategory(id, data));
+export const useDeleteCompanyCategory = () => useChange(svc.deleteCompanyCategory);
 export const useUploadCompanyDocument = () => useChange(svc.uploadCompanyDocument);
 export const useUploadCompanyVersion = () => useChange(svc.uploadCompanyVersion);
 export const usePublishCompanyDocument = () => useChange(({ documentId, publishAt }) => svc.publishCompanyDocument(documentId, publishAt));
 export const useUnpublishCompanyDocument = () => useChange(svc.unpublishCompanyDocument);
 export const useDeleteCompanyDocument = () => useChange(svc.deleteCompanyDocument);
 export const useCreateCompanyFolder = () => useChange(svc.createCompanyFolder);
+export const useRenameCompanyFolder = () => useChange(svc.renameCompanyFolder);
+export const useDeleteCompanyFolder = () => useChange(svc.deleteCompanyFolder);
+export const useEmailStatus = (enabled = true) =>
+  useQuery({ queryKey: keys.documents.company.emailStatus(), queryFn: svc.getEmailStatus, enabled, staleTime: 60_000 });
+export const useShares = (params, enabled = true) =>
+  useQuery({ queryKey: keys.documents.company.shares(params), queryFn: () => svc.listShares(params), enabled });
+export const useShareByEmail = () => useChange(svc.shareByEmail);
+export const useRetryShare = () => useChange(svc.retryShare);
 export const usePutAccessRule = () => useChange(({ targetType, targetId, rule }) => svc.putAccessRule(targetType, targetId, rule));
+export const usePutBulkAccessRule = () => useChange(({ documentIds, rule }) => svc.putBulkAccessRule(documentIds, rule));
 export const useRemindAcks = () => useChange(({ documentId, employeeIds }) => svc.remindAcks(documentId, employeeIds));

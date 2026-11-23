@@ -75,8 +75,10 @@ export function detectPreviewKind(filename = "", mimeType = "", blobType = "") {
   const mime = String(mimeType || blobType || "").toLowerCase().split(";")[0].trim();
   const ext = fileExtension(filename);
 
+  // A file the server declares as a PDF is a PDF, whatever its name says (a PDF offer letter whose download name or title
+  // ends in .docx must never be handed to the Word/mammoth reader, which cannot read it).
+  if (mime === "application/pdf" || mime === "application/x-pdf") return PDF;
   if (EXT_KIND[ext]) return EXT_KIND[ext];
-  if (mime === "application/pdf") return PDF;
   if (mime.startsWith("image/")) return IMAGE;
   if (mime.startsWith("text/") || mime === "application/json") return TEXT;
   if (mime === "application/rtf" || mime === "text/rtf") return WORD;

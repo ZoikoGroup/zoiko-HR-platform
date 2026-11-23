@@ -198,7 +198,7 @@ export function KpiCard({ label, icon: Icon, tone = "blue", kpi, format = (v) =>
   const t = TONES[tone] || TONES.blue;
   const value = kpi?.value;
   return (
-    <div className="group relative overflow-hidden flex min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_2px_10px_rgba(10,17,40,0.04)] hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-8px_rgba(10,17,40,0.12)] hover:border-blue-200/70 transition-all duration-300">
+    <div className="group relative overflow-hidden flex h-full min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_2px_10px_rgba(10,17,40,0.04)] hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-8px_rgba(10,17,40,0.12)] hover:border-blue-200/70 transition-all duration-300">
       <div className="absolute inset-x-0 top-0 h-1 transition-all duration-300 group-hover:h-1.5" style={{ background: t.line }} />
       <div className="flex items-start gap-3">
         {Icon && (
@@ -214,7 +214,7 @@ export function KpiCard({ label, icon: Icon, tone = "blue", kpi, format = (v) =>
           {!loading && <Trend kpi={kpi} />}
         </div>
       </div>
-      <div className="mt-2.5"><Sparkline points={kpi?.series} color={t.line} /></div>
+      <div className="mt-auto pt-2.5"><Sparkline points={kpi?.series} color={t.line} /></div>
     </div>
   );
 }

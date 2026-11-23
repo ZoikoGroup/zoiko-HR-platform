@@ -79,13 +79,13 @@ async function load(t, over = {}) {
     requestOnboardingDocuments: async (id, cats) => { calls.request.push([id, cats]); return cats.map((c, i) => ({ id: 100 + i, category: c, status: "requested" })); },
     deleteOnboardingDocument: async () => ({}),
     getOnboardingDocumentFile: async () => ({ blob: new Blob(["x"]), filename: "NDA copy.pdf" }),
-    sendOnboardingPackage: async (id, categories) => { CURRENT.calls.sendPackage.push(id); CURRENT.calls.sendCategories = categories; return CURRENT.over.sendResult ?? { success: true, message: "1 document(s) sent to Ann Lee.", issued: [{ category: "daily_kpi", title: "Daily Key Performance Indicators", mode: "ACKNOWLEDGE" }], held: [], email_sent: true }; },
+    sendOnboardingPackage: async (id, categories) => { CURRENT.calls.sendPackage.push(id); CURRENT.calls.sendCategories = categories; if (CURRENT.over.sendError) throw CURRENT.over.sendError; return CURRENT.over.sendResult ?? { success: true, message: "1 document(s) sent to Ann Lee.", issued: [{ category: "daily_kpi", title: "Daily Key Performance Indicators", mode: "ACKNOWLEDGE" }], held: [], email_sent: true }; },
     getHirePackage: async (id) => CURRENT.over.pkg ?? PACKAGE(id),
-    saveHirePackageInputs: async (id, values) => { CURRENT.calls.inputs = values; return PACKAGE(id); },
+    saveHirePackageInputs: async (id, values) => { CURRENT.calls.inputs = values; if (CURRENT.over.saveError) throw CURRENT.over.saveError; return CURRENT.over.pkg ?? PACKAGE(id); },
     getHirePackagePreview: async () => ({ blob: new Blob(["%PDF"]), filename: "preview.pdf" }),
     sendOnboardingPortalInvite: async () => ({ email_sent: true }),
     getOfferPackageTemplateSet: async () => ({ blob: new Blob(["%PDF"]), filename: "set.pdf" }),
-    getOnboardingProfiles: async () => ({ engagement_profiles: [{ slug: "standard-employee", name: "Standard Employee", default: true, builtin: true }],
+    getOnboardingProfiles: async () => CURRENT.over.profiles ?? ({ engagement_profiles: [{ slug: "standard-employee", name: "Standard Employee", default: true, builtin: true }],
       role_profiles: [] }),
     downloadHirePackageDocument: async (id, cat, fmt) => ({ blob: new Blob(["x"]), filename: `${cat}.${fmt}` }),
     downloadHirePackageZip: async () => ({ blob: new Blob(["x"]), filename: "package.zip" }),
@@ -260,11 +260,14 @@ test("the offer package panel shows readiness, takes missing data, and sends onl
   const boxes = [...document.querySelectorAll('input[type="checkbox"][id^="pkg-pick-"]')];
   assert.ok(boxes.length >= 1 && boxes.every((b) => b.checked));
   const ticked = boxes.map((b) => b.id.replace("pkg-pick-", ""));
-  fireEvent.click(screen.getByRole("button", { name: /Send 1 selected document/ }));
+  // the ready KPI document and the NDA waiting for the new hire's address are both ticked, and both count
+  fireEvent.click(screen.getByRole("button", { name: /Send 2 selected documents/ }));
   await settle();
   assert.deepEqual(calls.sendPackage, [7]);
   assert.deepEqual(calls.sendCategories, ticked);
   assert.match(document.body.textContent, /Sent: Daily Key Performance Indicators/);
+  const toasts = [...document.querySelectorAll('[data-testid="toast"]')].map((n) => n.textContent);
+  assert.ok(toasts.some((x) => /1 document\(s\) sent to Ann Lee/.test(x)), "a toast confirms the send");
 });
 
 test("the org admin chooses how many of the documents to send", async (t) => {
@@ -275,11 +278,13 @@ test("the org admin chooses how many of the documents to send", async (t) => {
   assert.ok(box && box.checked, "a ready document starts ticked");
   fireEvent.click(box);
   assert.equal(box.checked, false);
-  assert.ok(screen.getByRole("button", { name: /Send\s+selected documents/ }).disabled, "nothing ready is ticked: nothing to send");
+  // QA R1-11: a ticked document waiting only for the new hire's details can be sent (it is released once they enter them)
+  assert.equal(screen.getByRole("button", { name: /Send 1 selected document/ }).disabled, false);
   fireEvent.click(screen.getByRole("button", { name: "Select all" }));
   assert.equal(document.getElementById("pkg-pick-daily_kpi").checked, true);
   fireEvent.click(screen.getByRole("button", { name: "Clear" }));
   assert.ok([...document.querySelectorAll('input[id^="pkg-pick-"]')].every((b) => !b.checked));
+  assert.ok(screen.getByRole("button", { name: /Send\s+selected documents/ }).disabled, "nothing ticked: nothing to send");
   fireEvent.click(document.getElementById("pkg-pick-daily_kpi"));
   fireEvent.click(screen.getByRole("button", { name: /Send 1 selected document/ }));
   await settle();
@@ -349,4 +354,103 @@ test("the All submissions view lists every submission with the hire's name, Need
   assert.equal(rows.length, 2);
   assert.match(rows[0].textContent, /Ann Lee.*Bank details.*Needs review/);
   assert.equal(document.querySelector('[data-testid="employee-row"]'), null);
+});
+
+// ── QA R1-5 / R1-11 / R1-12 / R1-13 / R1-14 / R1-23 ──────────────────────────────────────────────────────────────────
+const openPackage = async () => {
+  fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+  await settle();
+};
+const toastText = () => [...document.querySelectorAll('[data-testid="toast"]')].map((n) => n.textContent).join(" | ");
+
+test("R1-11: a hire with only a document waiting for their details can be sent; the send is confirmed in a toast", async (t) => {
+  const calls = await load(t, { sendResult: { success: false, message: "Nothing sent yet: 1 document(s) are not ready.", issued: [],
+    held: [{ category: "nda", title: "Non-Disclosure Agreement" }], email_sent: false } });
+  await openPackage();
+  fireEvent.click(document.getElementById("pkg-pick-daily_kpi"));         // leave only the NDA ticked
+  const btn = screen.getByRole("button", { name: /Send 1 selected document/ });
+  assert.equal(btn.disabled, false);
+  fireEvent.click(btn);
+  await settle();
+  assert.deepEqual(calls.sendCategories, ["nda"]);
+  assert.match(toastText(), /Nothing sent yet/);
+});
+
+test("R1-11: a failed send shows the error in a toast", async (t) => {
+  await load(t, { sendError: new Error("Onboarding documents can only be sent while onboarding is active.") });
+  await openPackage();
+  fireEvent.click(screen.getByRole("button", { name: /Send 2 selected documents/ }));
+  await settle();
+  assert.match(toastText(), /can only be sent while onboarding is active/);
+});
+
+test("R1-12: Save choices confirms with 'Choices saved'", async (t) => {
+  const pkg = { ...PACKAGE(7), input_fields: [{ key: "document.issue_date" }] };
+  const calls = await load(t, { pkg });
+  await openPackage();
+  fireEvent.change(document.getElementById("pkg-issue"), { target: { value: "2026-12-01" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save choices" }));
+  await settle();
+  assert.deepEqual(calls.inputs, { "document.issue_date": "2026-12-01" });
+  assert.match(toastText(), /Choices saved/);
+});
+
+test("R1-12: a failed Save choices shows the error", async (t) => {
+  const pkg = { ...PACKAGE(7), input_fields: [{ key: "document.issue_date" }] };
+  await load(t, { pkg, saveError: new Error("Choose a role profile from the list.") });
+  await openPackage();
+  fireEvent.change(document.getElementById("pkg-issue"), { target: { value: "2026-12-02" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save choices" }));
+  await settle();
+  assert.match(toastText(), /Choose a role profile from the list/);
+  assert.doesNotMatch(toastText(), /Choices saved/);
+});
+
+test("R1-5: the Role profile choice lists every configured role profile, 'Match the position' first and chosen by default", async (t) => {
+  const pkg = { ...PACKAGE(7), input_fields: [{ key: "role_profile_slug" }], role: { slug: "python-developer", title: "Python Developer", source: "position" },
+    role_profiles: [{ slug: "python-developer", title: "Python Developer" }, { slug: "account-manager", title: "Account Manager" }] };
+  await load(t, { pkg, profiles: { engagement_profiles: [], role_profiles: [{ slug: "qa-engineer", title: "QA Engineer" }, { slug: "account-manager", title: "Account Manager" }] } });
+  await openPackage();
+  const select = document.getElementById("pkg-role");
+  const options = [...select.options].map((o) => [o.value, o.textContent]);
+  assert.deepEqual(options, [["", "Match the position: Python Developer"], ["account-manager", "Account Manager"],
+    ["python-developer", "Python Developer"], ["qa-engineer", "QA Engineer"]]);
+  assert.equal(select.value, "", "Match the position stays the default");
+});
+
+test("R1-5: with no role profiles the choice says where to add them", async (t) => {
+  await load(t);
+  await openPackage();
+  assert.equal(document.getElementById("pkg-role").options.length, 1);
+  assert.match(document.querySelector("[role=dialog]").textContent, /No role profiles yet\. Add role profiles in Settings/);
+});
+
+test("R1-13/R1-14: a Files Sent card counts the documents sent to new hires, and every card fills its cell", async (t) => {
+  await load(t, { docs: [
+    { id: 1, title: "Offer Letter", category: "offer_letter", kind: "package", board_state: "awaiting_signature", status: "requested", onboarding_new_hire_id: 7 },
+    { id: 2, title: "NDA", category: "nda", kind: "package", board_state: "not_sent", status: "requested", onboarding_new_hire_id: 7 },
+    { id: 3, title: "DWR", category: "daily_work_report", kind: "package", board_state: "available", status: "available", onboarding_new_hire_id: 7 },
+    { id: 4, title: "ID proof", category: "id_proof", kind: "upload", board_state: "needs_review", status: "pending", onboarding_new_hire_id: 7, file_url: "/f/4" },
+  ] });
+  const sent = document.querySelector('[data-testid="count-sent"]');
+  assert.match(sent.textContent, /Files Sent\s*2/);
+  for (const id of ["pending", "requested", "sent", "approved", "rejected", "total"]) {
+    const cell = document.querySelector(`[data-testid="count-${id}"]`);
+    assert.match(cell.className, /\bh-full\b/, `${id} wrapper fills the grid row`);
+    assert.match(cell.firstElementChild.className, /\bh-full\b/, `${id} card fills its wrapper`);
+  }
+});
+
+test("R1-23: the Upload Document file picker shows a Browse button and the chosen file's name", async (t) => {
+  await load(t);
+  await open();
+  const box = document.getElementById("od-file").closest("[data-file-input]");
+  assert.match(box.textContent, /Browse/);
+  assert.match(box.textContent, /No file chosen/);
+  choose(new File(["%PDF"], "offer.pdf", { type: "application/pdf" }));
+  await settle();
+  assert.match(box.textContent, /offer\.pdf/);
+  fireEvent.click(screen.getByRole("button", { name: "Remove offer.pdf" }));
+  await settle();
+  assert.match(box.textContent, /No file chosen/);
 });

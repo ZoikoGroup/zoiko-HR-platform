@@ -125,9 +125,12 @@ TABLES: dict[str, Level] = {
     "hr_employee_document_categories": L.PLATFORM_META, "hr_company_document_categories": L.PLATFORM_META,
     "hr_document_access_rules": L.PERSONAL_BASIC, "hr_document_ack_rounds": L.PERSONAL_BASIC,
     "hr_document_acknowledgements": L.PERSONAL_CONFIDENTIAL, "hr_document_audit_logs": L.PERSONAL_CONFIDENTIAL,
-    "hr_document_reminders": L.PERSONAL_BASIC, "document_tasks": L.PERSONAL_BASIC,
+    "hr_document_reminders": L.PERSONAL_BASIC, "hr_document_reminder_requests": L.PERSONAL_BASIC,
+    "document_tasks": L.PERSONAL_BASIC,
     "automation_rules": L.PLATFORM_META, "automation_runs": L.PERSONAL_BASIC, "automation_settings": L.PLATFORM_META,
     "notification_templates": L.PLATFORM_META, "retention_policies": L.PLATFORM_META,
+    # Company Documents P4: who a file was emailed to (employees, or outside addresses that may be personal mailboxes)
+    "hr_document_shares": L.PERSONAL_BASIC, "hr_document_share_recipients": L.PERSONAL_BASIC,
     # attendance engine (attendance plan M1): breaks and the edit trail are about a person's working day
     "attendance_breaks": L.PERSONAL_CONFIDENTIAL, "attendance_audit_log": L.PERSONAL_CONFIDENTIAL,
     "employee_shifts": L.PERSONAL_BASIC, "attendance_day_closures": L.PLATFORM_META,
@@ -178,6 +181,7 @@ COLUMN_RULES: list[tuple[re.Pattern, Level]] = [(re.compile(p, re.I), lvl) for p
 
 # Explicit per-column levels where a table default or the name rules would be wrong.
 COLUMN_OVERRIDES: dict[str, Level] = {
+    "hr_document_share_recipients.email": L.PERSONAL_CONFIDENTIAL,   # an outside recipient's address may be a personal mailbox
     "employees.hashed_password": L.SECRET,
     "onboarding_form_submissions.data_encrypted": L.FINANCIAL,   # bank / tax identifiers, encrypted at rest
     "leave_requests.reason_encrypted": L.SPECIAL_CATEGORY,        # sickness reasons, encrypted, never rendered or shown to managers

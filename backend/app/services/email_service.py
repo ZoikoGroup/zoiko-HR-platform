@@ -2263,6 +2263,21 @@ def send_document_declined_email(email, first_name, document_label, document_num
     }, db=db, organization_id=organization_id)
 
 
+def send_document_share_email(email, first_name, sender_name, target_name, files, mode, message=None, action_url=None,
+                              attachments=None, error_out=None, db=None, organization_id=None):
+    """Company Documents P4: an admin emailed company files. mode "link" points to the employee portal (action_url);
+    mode "attachment" carries the files. One email per recipient; error_out collects the delivery error, if any."""
+    count = len(files)
+    what = f"\u201c{files[0]['title']}\u201d" if count == 1 else f"{count} documents"
+    return send_approval_email(email, "document_share.html", {
+        # the subject is rendered as a template when it contains {{ or {%: braces in a title or name must stay text
+        "subject": f"{sender_name} shared {what} with you".replace("{", "(").replace("}", ")"),
+        "first_name": first_name or "there", "sender_name": sender_name, "target_name": target_name, "files": files,
+        "file_count": count, "message": message, "mode": mode,
+        "action_url": (action_url or _login_url()) if mode == "link" else None,
+    }, db=db, organization_id=organization_id, attachments=attachments, error_out=error_out, wait=error_out is not None)
+
+
 def send_document_expired_email(email, first_name, document_label, document_number, expired_at_local, action_url=None,
                                 db=None, organization_id=None):
     return send_approval_email(email, "document_expired.html", {

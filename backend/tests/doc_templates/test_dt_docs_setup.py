@@ -380,7 +380,7 @@ def test_uploads_are_limited_and_checked(world, no_ai):
     assert _upload(world, s["id"], "contract.pdf", label="nonsense").status_code == 422
 
 
-def test_by_default_only_word_documents_are_accepted_and_content_controls_are_read(world, no_ai, monkeypatch):
+def test_word_only_setting_refuses_pdfs_and_content_controls_are_read(world, no_ai, monkeypatch):
     from app.config import settings
     from docx.oxml import parse_xml
     from docx.oxml.ns import nsdecls
@@ -691,3 +691,20 @@ def test_a_signatory_the_documents_do_not_name_comes_from_the_admin_setting_them
     r = world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/apply", headers={"Idempotency-Key": "sig"})
     assert r.status_code == 200, r.text
     assert CP.get_profile(world.db, 1)["signatory_name"] == "Avery Admin"
+
+
+def test_qa_r1_3_word_and_pdf_are_accepted_by_default_and_a_pdf_offer_letter_uploads(world, no_ai, monkeypatch):
+    """QA R1-3: the wizard took only .docx unless the deployment switched PDFs on; Word and PDF are now the default."""
+    from app.config import Settings, settings
+    assert Settings.model_fields["DOCS_SETUP_FILE_TYPES"].default == "docx,pdf"
+    monkeypatch.setattr(settings, "DOCS_SETUP_FILE_TYPES", "")            # unset / blank: the default kinds
+    assert DS.accepted_types() == ("docx", "pdf")
+    monkeypatch.setattr(settings, "DOCS_SETUP_FILE_TYPES", "docx,pdf")
+    s = _session(world)
+    assert s["file_types"] == ["docx", "pdf"]
+    pdf = "contract.pdf"
+    r = _upload(world, s["id"], pdf, label="tpl:offer_letter")
+    assert r.status_code == 200, r.text
+    f = next(x for x in r.json()["files"] if x["filename"] == pdf)
+    assert f["media_type"] == "application/pdf" and f["role"] == "template"
+    assert _upload(world, s["id"], "notes.txt", data=b"Some notes", label=None).status_code == 422, "text files stay off"

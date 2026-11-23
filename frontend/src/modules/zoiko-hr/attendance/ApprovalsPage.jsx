@@ -3,7 +3,7 @@ import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import AttendanceSubNav from "./components/AttendanceSubNav";
 import Pager from "../documents/components/Pager";
-import { correctionSummary } from "./constants";
+import { correctionSummary, formatClockTime } from "./constants";
 import { useAttendanceApprovals, useDecideAttendanceRequest } from "./hooks/useAttendanceApprovals";
 import { formatDate, formatDateTime } from "../../../utils/dateTime";
 
@@ -20,8 +20,8 @@ function waited(hours) {
 }
 
 function what(r) {
-  if (r.type === "overtime") return `Overtime ${r.start_time}–${r.end_time} · ${r.hours} h${r.emergency ? " · emergency" : ""}${r.pre_approved ? " · asked in advance" : ""}`;
-  const was = r.original_check_in || r.original_check_out ? `Recorded ${r.original_check_in || "—"}–${r.original_check_out || "—"} → ` : "";
+  if (r.type === "overtime") return `Overtime ${formatClockTime(r.start_time)}–${formatClockTime(r.end_time)} · ${r.hours} h${r.emergency ? " · emergency" : ""}${r.pre_approved ? " · asked in advance" : ""}`;
+  const was = r.original_check_in || r.original_check_out ? `Recorded ${formatClockTime(r.original_check_in)}–${formatClockTime(r.original_check_out)} → ` : "";
   return `${was}${correctionSummary(r)}`;
 }
 

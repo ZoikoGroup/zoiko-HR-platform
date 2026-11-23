@@ -112,6 +112,7 @@ class HrCompanyDocumentCategory(Base):
     escalation_ladder        = Column(JSON, nullable=True)
     is_system                = Column(Boolean, nullable=False, default=False, server_default="0")
     is_active                = Column(Boolean, nullable=False, default=True, server_default="1")
+    is_hidden                = Column(Boolean, nullable=False, default=False, server_default="0")   # hidden from employees
     sort_order               = Column(Integer, nullable=False, default=0, server_default="0")
     created_by               = Column(Integer, ForeignKey("employees.id"), nullable=True)
     created_at               = Column(DateTime, nullable=False, server_default=func.now())
@@ -220,6 +221,31 @@ class HrDocumentReminder(Base):
     resolved_at          = Column(DateTime, nullable=True)
 
 
+class HrDocumentReminderRequest(Base):
+    """A reminder HR asked for in Employee Documents ("upload what is missing"), sent now or at `scheduled_for` (QA R1-15).
+
+    It also carries the per-document cooldown (QA R1-16): `sent_category_ids` are the containers the person was actually
+    reminded about, so a second reminder about the SAME document within the cooldown is refused while the person's other
+    documents can still be reminded about. Times are naive UTC like the rest of the module."""
+    __tablename__ = "hr_document_reminder_requests"
+    __table_args__ = (Index("ix_hdrr_due", "status", "scheduled_for"),
+                      Index("ix_hdrr_employee", "organization_id", "employee_id", "sent_at"))
+
+    id                = Column(Integer, primary_key=True)
+    organization_id   = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    employee_id       = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    category_ids      = Column(JSON, nullable=True)          # what HR picked (None: every missing / to-replace document)
+    sent_category_ids = Column(JSON, nullable=True)          # what the person was reminded about when it went out
+    message           = Column(Text, nullable=True)
+    channel           = Column(String(10), nullable=False, default="both", server_default="both")
+    scheduled_for     = Column(DateTime, nullable=True)      # None: sent at once
+    status            = Column(String(12), nullable=False, default="scheduled", server_default="scheduled")  # scheduled|sent|skipped|failed|cancelled
+    detail            = Column(String(255), nullable=True)   # why it was skipped or failed
+    created_by        = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    created_at        = Column(DateTime, nullable=False, server_default=func.now())
+    sent_at           = Column(DateTime, nullable=True)
+
+
 # ── append-only evidence ──────────────────────────────────────────────────────────────────────────────────────────────
 
 class AppendOnlyViolation(RuntimeError):
@@ -233,3 +259,44 @@ def _refuse_change(mapper, connection, target):
 for _cls in (HrDocumentAuditLog, HrDocumentAcknowledgement):
     event.listen(_cls, "before_update", _refuse_change)
     event.listen(_cls, "before_delete", _refuse_change)
+
+
+# ── email sharing (Company Documents P4) ───────────────────────────────────────────────────────────────────────────────
+
+class HrDocumentShare(Base):
+    """One "send by email" of a company file, folder or category. The files are fixed when the share is made
+    (document_ids), so a retry sends exactly what was sent before. mode: link (portal link, employees only) or
+    attachment (the files themselves, the only way to reach people outside the company)."""
+    __tablename__ = "hr_document_shares"
+    __table_args__ = (Index("ix_hds_target", "organization_id", "target_type", "target_id"),)
+
+    id                   = Column(Integer, primary_key=True)
+    organization_id      = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    target_type          = Column(String(10), nullable=False)          # document | folder | category
+    target_id            = Column(Integer, nullable=False)
+    target_name          = Column(String(255), nullable=False)
+    mode                 = Column(String(12), nullable=False)          # link | attachment
+    message              = Column(Text, nullable=True)
+    grant_portal_access  = Column(Boolean, nullable=False, default=False, server_default="0")
+    document_ids         = Column(JSON, nullable=False)
+    total_bytes          = Column(BigInteger, nullable=False, default=0, server_default="0")
+    status               = Column(String(10), nullable=False, default="sending", server_default="sending")  # sending|sent|partial|failed
+    created_by           = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    created_at           = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class HrDocumentShareRecipient(Base):
+    """One person an email share went to: an employee (employee_id set) or an outside address."""
+    __tablename__ = "hr_document_share_recipients"
+
+    id              = Column(Integer, primary_key=True)
+    share_id        = Column(Integer, ForeignKey("hr_document_shares.id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    kind            = Column(String(10), nullable=False)               # employee | external
+    employee_id     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    email           = Column(String(255), nullable=True)
+    status          = Column(String(10), nullable=False, default="pending", server_default="pending")  # pending|sent|failed|skipped
+    error           = Column(String(500), nullable=True)
+    attempts        = Column(Integer, nullable=False, default=0, server_default="0")
+    last_attempt_at = Column(DateTime, nullable=True)
+    sent_at         = Column(DateTime, nullable=True)

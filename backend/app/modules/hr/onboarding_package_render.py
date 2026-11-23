@@ -70,7 +70,9 @@ class RenderContext:
     answers_signed_on: str = ""                                # the date the new hire signed the filled-in form
     logo_png: Optional[bytes] = None                           # the organisation's uploaded logo (PNG); None -> no logo
                                                                # (the dashed "insert logo" box is shown on the template set only)
-    content: Optional[list] = None                             # renderer blocks of the template version to draw (None ->
+    signature_png: Optional[bytes] = None                      # the authorised signatory's signature (Company Profile);
+                                                               # None -> the employer's signature cell stays blank
+    content: Optional[list] = None                            # renderer blocks of the template version to draw (None ->
                                                                # the platform default); see onboarding_package.resolve_content
     source: Optional[dict] = None                              # which template version `content` is (variant id/version/checksum)
     meta: Optional[dict] = None                                # the document's description (title, template id, orientation…)
@@ -154,6 +156,33 @@ def _hook_token(key: str) -> str:
     return "{{required_clause_block}}" if key == "required_clause_block" else "{{clause:%s}}" % key
 
 
+SIGNATURE_TOKEN = "employer.signature"
+
+
+def missing_text(token: str) -> str:
+    """What an issued document's preview shows where a value is still missing: what is missing, in words, never the raw
+    "{{token}}" (the document is held as not ready until it is filled; readiness lists the same item)."""
+    ck = C.clause_key(token)
+    if ck:
+        title = C.CLAUSES.get(ck, (ck.replace("_", " "),))[0]
+        return f"Missing: {title} (clause wording)"
+    meaning = C.FIELDS.get(token, (None,))[0]
+    if not meaning:
+        try:
+            from app.modules.hr import onboarding_clause_tokens as T
+            meaning = T.label(token.split(".", 1)[1]) if token.startswith("clause.") else None
+        except Exception:
+            meaning = None
+    return f"Missing: {meaning or token.replace('_', ' ').replace('.', ' – ')}"
+
+
+def placeholder_text(token: str, ctx: "RenderContext") -> str:
+    """An unresolved placeholder as printed: the token itself on the blank template set, its meaning on a hire's document."""
+    if ctx.mode == "template":
+        return _hook_token(C.clause_key(token)) if C.clause_key(token) else "{{%s}}" % token
+    return ctx.spell(missing_text(token))
+
+
 def inline(text: str, ctx: RenderContext, fmt: str = "pdf") -> tuple[str, list[str]]:
     """Text with tokens -> (markup, drafting notes to print after it)."""
     out, notes, bold = [], [], False
@@ -178,15 +207,15 @@ def inline(text: str, ctx: RenderContext, fmt: str = "pdf") -> tuple[str, list[s
             if ck:
                 res = ctx.clause_value(ck)
                 if res is None:
-                    out.append(mark(_hook_token(ck)))
+                    out.append(mark(placeholder_text(tok, ctx)))
                     notes.append(C.CLAUSES[ck][1])
                 elif res[0] == "na":
                     out.append(esc("Not used."))
                 else:
                     out.append("<br/>".join(esc(line) for line in res[1].splitlines() if line.strip()))
             else:
-                v = ctx.field_value(tok)
-                out.append(mark("{{%s}}" % tok) if v is None else "<br/>".join(esc(line) for line in v.split("\n")))
+                v = "" if tok == SIGNATURE_TOKEN and ctx.mode != "template" else ctx.field_value(tok)  # drawn as an image
+                out.append(mark(placeholder_text(tok, ctx)) if v is None else "<br/>".join(esc(line) for line in v.split("\n")))
         else:
             out.append(esc(ctx.spell(part)))
     if bold:
@@ -452,6 +481,25 @@ def _logo_reader(ctx: RenderContext):
         return None
 
 
+SIGN_LINE = "____________________"
+
+
+def is_signature_line(text) -> bool:
+    """A paragraph that is only the signatory's signature token (an imported template's line under "Warm regards")."""
+    return isinstance(text, str) and text.strip() == "{{%s}}" % SIGNATURE_TOKEN
+
+
+def is_employer_party(party) -> bool:
+    return str(party or "").strip().lower().startswith("for ")
+
+
+def _signature_data_uri(ctx: "RenderContext") -> Optional[str]:
+    if not ctx.signature_png:
+        return None
+    import base64
+    return "data:image/png;base64," + base64.b64encode(ctx.signature_png).decode("ascii")
+
+
 def _fit(reader, max_w: float, max_h: float) -> tuple[float, float]:
     w, h = reader.getSize()
     scale = min(max_w / w, max_h / h, 1.0 if w <= max_w and h <= max_h else 10)
@@ -478,6 +526,20 @@ class PdfBuilder:
         self._width_override: Optional[float] = None
 
     # helpers
+    def _signature_image(self, max_w: float, max_h: float):
+        """The authorised signatory's signature as a flowable, or None when none was uploaded (or it cannot be read)."""
+        if not self.ctx.signature_png:
+            return None
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import Image as RLImage
+        try:
+            w, h = _fit(ImageReader(io.BytesIO(self.ctx.signature_png)), max_w, max_h)
+        except Exception:
+            return None
+        img = RLImage(io.BytesIO(self.ctx.signature_png), width=w, height=h)
+        img.hAlign = "LEFT"
+        return img
+
     def _para(self, text, style="body", extra_notes=True) -> list:
         markup, notes = inline(text, self.ctx)
         out = [Paragraph(markup, self.s[style])]
@@ -551,7 +613,8 @@ class PdfBuilder:
         widths = widths or [1.0 / n] * n
         cw = [self.width * f for f in widths]
         th, td = ("th_c", "cell_c") if compact else ("th", "cell")
-        data = [[Paragraph(escape(self.ctx.spell(h)), self.s[th]) for h in headers]]
+        # header cells hold placeholders too: an imported template's first row is often data ("Position | {{…}}")
+        data = [[Paragraph(inline(str(h or ""), self.ctx)[0], self.s[th]) for h in headers]]
         data += [[self._cell(v, td) for v in r] for r in rows]
         if total:
             data.append([self._cell(f"**{v}**" if v else "", td) for v in total])
@@ -604,6 +667,9 @@ class PdfBuilder:
             lead = [CondPageBreak(60)] if t != "h1" and not self._width_override else []
             return lead + self._para(b["text"], t)
         if t == "p":
+            if is_signature_line(b["text"]) and ctx.mode != "template":
+                img = self._signature_image(180, 48)
+                return [img] if img is not None else self._para(SIGN_LINE, b.get("style", "body"))
             return self._para(b["text"], b.get("style", "body"))
         if t == "center":
             return self._para(b["text"], "center")
@@ -740,7 +806,7 @@ class PdfBuilder:
         res = self.ctx.clause_value(key)
         style = "small" if small else "body"
         if res is None:
-            mark = f'<font backColor="{HIGHLIGHT}">{escape(_hook_token(key))}</font>'
+            mark = f'<font backColor="{HIGHLIGHT}">{escape(placeholder_text(_hook_token(key).strip("{}"), self.ctx))}</font>'
             return [Paragraph(mark, self.s[style]), Paragraph(escape(C.CLAUSES[key][1]), self.s["note"])]
         if res[0] == "na":
             return [Paragraph("Not used.", self.s[style])]
@@ -808,12 +874,15 @@ class PdfBuilder:
             out += self._para(b["statement"])
         data = [[Paragraph(h, s["th"]) for h in ("Party", "Name", "Title", "Signature", "Date")]]
         for party, name, title, dt in b["rows"]:
-            employer = party.startswith("For ")
+            employer = is_employer_party(party)
             sig_note = ""
             if ctx.esign and ctx.mode == "issue":
                 sig_note = "Issued electronically by the employer" if employer else "Electronic signature – see execution certificate"
-            data.append([self._cell(party), self._cell(name), self._cell(title),
-                         Paragraph(escape(sig_note), s["ex"]), self._cell(dt)])
+            sig_cell = Paragraph(escape(sig_note), s["ex"])
+            img = self._signature_image(self.width * 0.2 - 12, 34) if employer and ctx.mode == "issue" else None
+            if img is not None:                  # the authorised signatory's signature from the Company Profile
+                sig_cell = [img] + ([Paragraph(escape(sig_note), s["ex"])] if sig_note else [])
+            data.append([self._cell(party), self._cell(name), self._cell(title), sig_cell, self._cell(dt)])
         # rows grow with their content (a long company name or date never spills out of its cell); the bottom padding
         # leaves room to sign by hand
         tb = Table(data, colWidths=[self.width * f for f in (0.22, 0.21, 0.19, 0.2, 0.18)], repeatRows=1)
@@ -996,6 +1065,9 @@ class _Html:
         return markup + "".join(f'<div class="note">{_html.escape(n)}</div>' for n in notes)
 
     def cell(self, v):
+        if isinstance(v, dict) and v.get("sig"):
+            note = f'<div class="ex">{_html.escape(v.get("ex") or "")}</div>' if v.get("ex") else ""
+            return f'<img src="{v["sig"]}" alt="Signature" style="max-height:34px;max-width:140px">{note}'
         if isinstance(v, dict) and "ex" in v:
             return f'<span class="ex">{_html.escape(self.ctx.spell(v["ex"]))}</span>'
         return self.il(str(v or "")) or "&nbsp;"
@@ -1003,13 +1075,14 @@ class _Html:
     def hook(self, key):
         res = self.ctx.clause_value(key)
         if res is None:
-            return f'<p><mark class="ph">{_html.escape(_hook_token(key))}</mark></p><div class="note">{_html.escape(C.CLAUSES[key][1])}</div>'
+            label = placeholder_text(_hook_token(key).strip("{}"), self.ctx)
+            return f'<p><mark class="ph">{_html.escape(label)}</mark></p><div class="note">{_html.escape(C.CLAUSES[key][1])}</div>'
         if res[0] == "na":
             return "<p>Not used.</p>"
         return "".join(f"<p>{_html.escape(p.strip()).replace(chr(10), '<br/>')}</p>" for p in re.split(r"\n\s*\n", res[1]) if p.strip())
 
     def table(self, headers, rows, total=None):
-        th = "".join(f"<th>{_html.escape(self.ctx.spell(h))}</th>" for h in headers)
+        th = "".join(f"<th>{inline(str(h or ''), self.ctx, 'html')[0]}</th>" for h in headers)
         trs = "".join("<tr>" + "".join(f"<td>{self.cell(v)}</td>" for v in r) + "</tr>" for r in rows)
         if total:
             trs += '<tr class="total">' + "".join(f"<td>{_html.escape(v)}</td>" for v in total) + "</tr>"
@@ -1020,6 +1093,10 @@ class _Html:
         if t in ("h1", "h2", "h3"):
             return f"<{t}>{self.il(b['text'])}</{t}>"
         if t == "p":
+            if is_signature_line(b["text"]) and ctx.mode != "template":
+                uri = _signature_data_uri(ctx)
+                return (f'<p><img src="{uri}" alt="Signature" style="max-height:48px;max-width:180px"></p>' if uri
+                        else f"<p>{SIGN_LINE}</p>")
             return f"<p>{self.il(b['text'])}</p>"
         if t == "center":
             return f'<p class="center">{self.il(b["text"])}</p>'
@@ -1070,9 +1147,11 @@ class _Html:
             rows = []
             for party, name, title, dt in b["rows"]:
                 note = ""
+                employer = is_employer_party(party)
                 if ctx.esign and ctx.mode == "issue":
-                    note = "Issued electronically by the employer" if party.startswith("For ") else "Electronic signature – see execution certificate"
-                rows.append([party, name, title, {"ex": note}, dt])
+                    note = "Issued electronically by the employer" if employer else "Electronic signature – see execution certificate"
+                uri = _signature_data_uri(ctx) if employer and ctx.mode == "issue" else None
+                rows.append([party, name, title, {"sig": uri, "ex": note} if uri else {"ex": note}, dt])
             return st + self.table(["Party", "Name", "Title", "Signature", "Date"], rows)
         if t == "clause":
             num = b["num"]

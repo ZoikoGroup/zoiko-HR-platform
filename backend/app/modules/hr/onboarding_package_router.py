@@ -239,6 +239,25 @@ def delete_logo(db: Session = Depends(get_db), user=Depends(get_current_admin)):
     return onboarding_package.remove_logo(db, user)
 
 
+@router.post("/package/signature", summary="Upload the authorised signatory's signature printed in the employer's signature cell")
+async def upload_signature(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    data = await file.read(onboarding_package.LOGO_MAX_BYTES + 1)
+    return onboarding_package.save_signature(db, user, data)
+
+
+@router.get("/package/signature", summary="The authorised signatory's signature image")
+def get_signature(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    data = onboarding_package.signature_bytes(db, user.organization_id)
+    if not data:
+        raise HTTPException(404, "No signature has been uploaded.")
+    return Response(content=data, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/package/signature", summary="Remove the signatory's signature (signature cells stay blank)")
+def delete_signature(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    return onboarding_package.remove_signature(db, user)
+
+
 @router.get("/package/template.pdf", summary="The full template set: cover sheet, 10 templates, Placeholder Dictionary")
 def template_set(db: Session = Depends(get_db), user=Depends(get_current_admin)):
     return _pdf(onboarding_package.template_set_pdf(db, user.organization_id), "offer-package-template-set.pdf", inline=False)

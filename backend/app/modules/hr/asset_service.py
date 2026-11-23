@@ -164,6 +164,23 @@ def get_asset_dashboard(db: Session, organization_id: Optional[int] = None) -> d
     }
 
 
+def _record_asset_activity(db: Session, action_type: str, actor, asset: Asset, *, changes=None, details=None) -> None:
+    """QA R1-19/R1-20: one row in the platform audit ledger (super_admin_audit_logs) for an asset change."""
+    if actor is None:
+        return
+    from app.modules.super_admin import activity_service
+    from app.modules.hr.models import Organization
+
+    actor_row = db.get(Employee, actor) if isinstance(actor, int) else actor
+    org = db.get(Organization, asset.organization_id) if asset.organization_id else None
+    activity_service.record_activity(
+        db, action_type=action_type, actor=actor_row, organization_id=asset.organization_id,
+        organization_name=(org.organization_name or org.display_name) if org else None,
+        target_name=asset.name, target_code=asset.asset_tag, entity_type="Asset", entity_id=asset.id,
+        changes=changes, details=details,
+    )
+
+
 def create_asset(db: Session, data: AssetCreate, organization_id: int = None, created_by: Optional[int] = None) -> Asset:
     raw = data.model_dump()
     safe = sanitize_dict(raw)
@@ -212,6 +229,7 @@ def create_asset(db: Session, data: AssetCreate, organization_id: int = None, cr
     db.refresh(asset)
     if asset.employee_id is not None:
         _after_assigned(db, asset, created_by)
+    _record_asset_activity(db, "asset.created", created_by, asset)
     return asset
 
 
@@ -350,22 +368,28 @@ def update_asset(db: Session, asset_id: int, data: AssetUpdate, updated_by: int 
     if new_status is not None and new_status != AssetStatus.ASSIGNED and asset.status == AssetStatus.ASSIGNED:
         update_data["employee_id"] = None            # no longer held by anyone
         update_data["assigned_date"] = None
+    from app.modules.super_admin import activity_service
+    before = activity_service.snapshot(asset, list(update_data))
     for field, value in update_data.items():
         setattr(asset, field, value)
     if updated_by is not None:
         asset.updated_by = updated_by
     commit_or_conflict(db)
     db.refresh(asset)
+    changes = activity_service.changes_from(before, update_data)
+    if changes:
+        _record_asset_activity(db, "asset.updated", updated_by, asset, changes=changes)
     return asset
 
 
-def delete_asset(db: Session, asset_id: int, organization_id: Optional[int] = None) -> None:
+def delete_asset(db: Session, asset_id: int, organization_id: Optional[int] = None, deleted_by: Optional[int] = None) -> None:
     asset = get_asset_by_id(db, asset_id, organization_id)
     if asset.status == AssetStatus.ASSIGNED:          # A12: an asset someone holds is returned first, never deleted from under them
         holder = asset.employee.full_name if asset.employee else 'an employee'
         raise AssetConflict(f'Asset {asset.asset_tag} is assigned to {holder}. Return it before deleting it.')
     asset.deleted_at = datetime.utcnow()
     db.commit()
+    _record_asset_activity(db, "asset.deleted", deleted_by, asset)
 
 
 def assign_asset(db: Session, asset_id: int, employee_id: int, assigned_by: int, organization_id: Optional[int] = None) -> Asset:

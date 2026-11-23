@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Coffee, Loader2, LogIn, LogOut, Play } from "lucide-react";
 import AttendanceStatusChip from "./AttendanceStatusChip";
-import { formatMinutes, timeIn } from "../constants";
+import { dayTotalsAt, formatClockTime, formatDuration, formatMinutes, timeIn } from "../constants";
 
+/** The current time, re-rendering every `intervalMs`; the interval is cleared on unmount. */
 function useNow(intervalMs = 1000) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -14,28 +15,30 @@ function useNow(intervalMs = 1000) {
 
 /**
  * Punch In / Punch Out card (attendance plan §7): live clock in the person's time zone, today's status, a running timer
- * of net worked time (breaks excluded) and the break button. The server's totals are the base; the timer only adds
- * the seconds since they were fetched, so it never drifts from what is stored.
+ * of net worked time (breaks excluded, HH:MM:SS, ticking every second) and the break button. The base is the day's
+ * totals at the server's `as_of` instant (to the second, from the punch and break instants); the timer only adds the
+ * seconds since the answer arrived, so a wrong clock on the device never skews it.
  */
 export default function PunchCard({ today, busy, onPunchIn, onPunchOut, onStartBreak, onEndBreak, error }) {
   const now = useNow();
-  const fetchedAt = useRef(Date.now());
-  useEffect(() => { fetchedAt.current = Date.now(); }, [today]);
+  // when the answer arrived: reset in the same render a new `today` comes in (no stale frame)
+  const [anchor, setAnchor] = useState(() => ({ today, at: Date.now() }));
+  if (anchor.today !== today) setAnchor({ today, at: Date.now() });
+  const fetchedAt = anchor.today === today ? anchor.at : now;
   const tz = today?.timezone;
-  const elapsed = Math.max(0, Math.floor((now - fetchedAt.current) / 60000));   // never below the server total
+  const elapsedSec = Math.max(0, Math.floor((now - fetchedAt) / 1000));
+  const base = dayTotalsAt(today, today?.as_of ? Date.parse(today.as_of) : NaN);
   const ticking = today?.running && !today?.on_break;
-  const worked = (today?.worked_minutes || 0) + (ticking ? elapsed : 0);
-  const onBreakFor = today?.on_break ? (today.break_minutes || 0) + elapsed : today?.break_minutes || 0;
-  let clock = "";
-  try {
-    clock = new Date(now).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: tz });
-  } catch {
-    clock = new Date(now).toLocaleTimeString("en-GB", { hour12: false });
-  }
+  const workedSec = base.worked + (ticking ? elapsedSec : 0);
+  const breakSec = base.breaks + (today?.running && today?.on_break ? elapsedSec : 0);
+  const clock = formatClockTime(now, { timeZone: tz, seconds: true });
 
+  // the state is announced when it changes; the ticking timer sits outside the live region (role="timer" is not read
+  // out every second)
   let headline = "Not punched in yet";
-  if (today?.running && today?.on_break) headline = `On a break · ${formatMinutes(onBreakFor)}`;
-  else if (today?.running) headline = `Working · ${formatMinutes(worked)}`;
+  let timer = null;
+  if (today?.running && today?.on_break) { headline = "On a break"; timer = formatDuration(breakSec); }
+  else if (today?.running) { headline = "Working"; timer = formatDuration(workedSec); }
   else if (today?.check_out_at) headline = `Done for the day · ${formatMinutes(today.worked_minutes)}`;
 
   const btn = "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60";
@@ -45,14 +48,17 @@ export default function PunchCard({ today, busy, onPunchIn, onPunchOut, onStartB
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Today{tz ? ` · ${tz}` : ""}</p>
           <p className="mt-1 font-mono text-4xl font-black tabular-nums text-slate-900 dark:text-white" aria-label="Current time">{clock}</p>
-          <p role="status" aria-live="polite" className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">{headline}</p>
+          <p className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <span role="status" aria-live="polite">{headline}</span>
+            {timer && <> · <span role="timer" aria-label={today?.on_break ? "Break time" : "Worked time"} className="font-mono tabular-nums">{timer}</span></>}
+          </p>
         </div>
         <div className="text-right">
           <AttendanceStatusChip status={today?.status} />
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
             <dt>Punched in</dt><dd className="font-mono text-slate-800 dark:text-slate-200">{timeIn(today?.check_in_at, tz)}</dd>
             <dt>Punched out</dt><dd className="font-mono text-slate-800 dark:text-slate-200">{timeIn(today?.check_out_at, tz)}</dd>
-            <dt>Breaks</dt><dd className="font-mono text-slate-800 dark:text-slate-200">{formatMinutes(onBreakFor)}</dd>
+            <dt>Breaks</dt><dd className="font-mono text-slate-800 dark:text-slate-200">{formatMinutes(Math.floor(breakSec / 60))}</dd>
             {today?.late_minutes > 0 && (<><dt>Late by</dt><dd className="font-mono text-amber-700">{today.late_minutes} min</dd></>)}
           </dl>
         </div>

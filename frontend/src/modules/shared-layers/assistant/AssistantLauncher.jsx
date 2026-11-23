@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
-import { X } from "lucide-react";
+import { ChevronLeft, Minus, X } from "lucide-react";
 import zoikoWaveGlyph from "../../../assets/zoikohr-wave-glyph.svg";
 import { useAuth } from "../../../context/AuthContext";
 import { ROLES } from "../../../config/roles";
 import { loadStates } from "../../../components/PlanGate";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
+import { applyDock, dockState, minimisedKey, readMinimised, writeMinimised } from "./assistantDock";
 import "./assistant-tokens.css";
 
 // Public, unauthenticated routes (kept in sync with the public <Route>
@@ -61,11 +62,15 @@ export default function AssistantLauncher() {
 }
 
 function DockedAssistant() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const launcherRef = useRef(null);
+  const tabRef = useRef(null);
+  // QA-R1-4: minimised to a slim edge tab so it stops covering the page; remembered per person (assistantDock.js)
+  const storeKey = minimisedKey(user);
+  const [minimised, setMinimised] = useState(() => readMinimised(storeKey));
   const panelRef = useRef(null);
   const headingRef = useRef(null);
 
@@ -132,6 +137,22 @@ function DockedAssistant() {
     launcherRef.current?.focus();
   };
 
+  const minimise = () => {
+    setMinimised(true);
+    writeMinimised(storeKey, true);
+    requestAnimationFrame(() => tabRef.current?.focus());
+  };
+  const restore = () => {
+    setMinimised(false);
+    writeMinimised(storeKey, false);
+    requestAnimationFrame(() => launcherRef.current?.focus());
+  };
+
+  // The page keeps the bottom-right corner clear while the launcher is there (assistant-tokens.css reads this).
+  const dock = dockState({ hidden: (pageDialogOpen && !open) || !planAllows, open, minimised });
+  useEffect(() => { applyDock(dock); }, [dock]);
+  useEffect(() => () => applyDock("none"), []);
+
   // Escape closes the panel (open menus stop propagation and close first);
   // Tab is contained within the dialog while it's open.
   const onPanelKeyDown = (e) => {
@@ -154,11 +175,43 @@ function DockedAssistant() {
     }
   };
 
-  if (pageDialogOpen && !open) return null;
-  if (!planAllows) return null;
+  if (dock === "none") return null;
+
+  if (dock === "tab") {
+    return createPortal(
+      <button
+        ref={tabRef}
+        type="button"
+        onClick={restore}
+        aria-label="Show Zoiko HR Assistant"
+        title="Show Zoiko HR Assistant"
+        data-assistant-tab=""
+        className="fixed bottom-6 right-0 z-50 flex h-14 w-5 items-center justify-center rounded-l-xl
+          bg-[var(--zhr-action-primary)] text-white shadow-lg transition-[width] duration-150 hover:w-7
+          hover:bg-[var(--zhr-action-primary-hover)]
+          focus-visible:w-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zhr-border-focus)]"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+      </button>,
+      document.body
+    );
+  }
 
   return createPortal(
     <>
+      {!open && (
+        <button
+          type="button"
+          onClick={minimise}
+          aria-label="Minimise Zoiko HR Assistant"
+          title="Minimise to the edge"
+          className="fixed bottom-[68px] right-[68px] z-[51] flex h-6 w-6 items-center justify-center rounded-full border
+            border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-50 hover:text-slate-700
+            focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zhr-border-focus)]"
+        >
+          <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      )}
       <button
         ref={launcherRef}
         type="button"

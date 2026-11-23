@@ -11,7 +11,7 @@ import { useEmployeeCategoryFiles, useSendReminder } from "../hooks/useEmployeeD
 import { getDocumentFile } from "../../../../service/hrService";
 import { saveBlobAs } from "../../../../utils/documents";
 import { formatDate } from "../../../../utils/dateTime";
-import { EXPIRY_SOON_DAYS } from "../constants";
+import { EXPIRY_SOON_DAYS, reminderNotice } from "../constants";
 
 const LINK_TO_QUEUE = new Set(["pending_approval", "rejected", "reupload_requested"]);
 
@@ -104,9 +104,9 @@ export default function EmployeeCategoryFilesPage() {
       </div>
       <FilePreviewDrawer open={Boolean(previewing)} documentId={previewing?.id} title={previewing?.title} onClose={() => setPreviewing(null)} />
       <ReminderDialog open={reminding} who={employeeName} what={`They will be asked to upload their ${categoryName}.`} onClose={() => setReminding(false)}
-        onSubmit={async ({ message }) => {
-          await remind.mutateAsync({ employeeId: Number(employeeId), categoryIds: [Number(categoryId)], message });
-          setNotice("Reminder sent.");
+        onSubmit={async ({ message, scheduledFor }) => {
+          const r = await remind.mutateAsync({ employeeId: Number(employeeId), categoryIds: [Number(categoryId)], message, scheduledFor });
+          setNotice(reminderNotice(r));
         }} />
     </OrganizationDocumentsLayout>
   );

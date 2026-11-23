@@ -111,6 +111,7 @@ def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
     }
     return {"month": start.strftime("%Y-%m"), "timezone": tz.key, "today": today.isoformat(), "days": days, "kpis": kpis,
             "policy": {"grace_minutes": pol.grace_minutes, "half_day_min_minutes": pol.half_day_min_minutes,
+                       "min_present_minutes": pol.min_present_minutes,
                        "standard_minutes": pol.standard_minutes, "working_days": list(pol.working_days)}}
 
 

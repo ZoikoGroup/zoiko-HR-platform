@@ -26,7 +26,8 @@ import OnboardingSubmissions, { ReissueBadge } from "./OnboardingSubmissions";
 import { openFile } from "../../../utils/fileViewer";
 import { useRequestCategories } from "../../../utils/useRequestCategories";
 import { getPackageDocuments } from "../../../service/docsSetupService";
-import { MAX_FILE_MB, validateUploadForm, serverUploadErrors, fileSizeText, extensionOf } from "../../../utils/onboardingDocForm";
+import { MAX_FILE_MB, validateUploadForm, serverUploadErrors, extensionOf } from "../../../utils/onboardingDocForm";
+import FileInput from "../../../components/FileInput";
 
 // The 10 offer-package documents are generated and issued from the Offer package panel, never requested as uploads.
 export const PACKAGE_CATEGORIES = [
@@ -97,6 +98,17 @@ const labelCls = "mb-1 block text-sm font-medium text-gray-700";
 const fieldCls = (bad) => `w-full rounded-xl border ${bad ? "border-rose-300" : "border-gray-200"} bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100`;
 
 const statusOf = (doc) => doc.status || "pending";
+/**
+ * "Files sent": a document HR sent to a new hire — a package document that has been issued (any state but "not sent"),
+ * or a file shared with them as "Sent – no action needed". Upload requests and HR's own uploads are not counted.
+ */
+export function isSentToHire(doc) {
+  if (!doc?.onboarding_new_hire_id) return false;
+  if (doc.status === "available") return true;
+  const isPackage = doc.kind ? doc.kind === "package" : PACKAGE_CATEGORIES.some((c) => c.value === doc.category);
+  if (!isPackage) return false;
+  return doc.board_state ? doc.board_state !== "not_sent" : Boolean(doc.package_mode || doc.document_id);
+}
 // Signed, acknowledged, voluntary and information package documents are completed by the new hire, never reviewed by HR.
 const reviewable = (doc) => !["SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"].includes(doc?.package_mode);
 
@@ -495,6 +507,7 @@ export default function OnboardingDocuments() {
   const k = insights.data?.kpis || {};
   const pendingKpi = !recordFilter && k.documents_pending ? { ...k.documents_pending, value: statusCounts.pending } : { value: statusCounts.pending };
   const kpiLoading = loading && documents.length === 0;
+  const sentCount = documents.filter(isSentToHire).length;
 
   const layout = (body) => (
     <OnboardingLayout title="Onboarding Documents" subtitle="Request, collect and review new hires' onboarding documents."
@@ -704,12 +717,14 @@ export default function OnboardingDocuments() {
           </div>
         )}
 
-        <KpiGrid cols={5}>
-          <div data-testid="count-pending"><KpiCard label="Needs Review" icon={Inbox} tone="amber" kpi={pendingKpi} loading={kpiLoading} /></div>
-          <div data-testid="count-requested"><KpiCard label="Awaiting Upload" icon={Hourglass} tone="blue" kpi={{ value: statusCounts.requested }} loading={kpiLoading} /></div>
-          <div data-testid="count-approved"><KpiCard label="Approved" icon={FileCheck2} tone="green" kpi={{ value: statusCounts.approved }} loading={kpiLoading} /></div>
-          <div data-testid="count-rejected"><KpiCard label="Rejected" icon={FileX2} tone="red" kpi={{ value: statusCounts.rejected }} loading={kpiLoading} /></div>
-          <div data-testid="count-total"><KpiCard label="Total Documents" icon={Files} tone="violet" kpi={{ value: documents.length }} loading={kpiLoading} /></div>
+        {/* every card fills its grid cell (h-full), so a card with a trend line is never taller than the others */}
+        <KpiGrid cols={6}>
+          <div className="h-full" data-testid="count-pending"><KpiCard label="Needs Review" icon={Inbox} tone="amber" kpi={pendingKpi} loading={kpiLoading} /></div>
+          <div className="h-full" data-testid="count-requested"><KpiCard label="Awaiting Upload" icon={Hourglass} tone="blue" kpi={{ value: statusCounts.requested }} loading={kpiLoading} /></div>
+          <div className="h-full" data-testid="count-sent"><KpiCard label="Files Sent" icon={Send} tone="teal" kpi={{ value: sentCount }} loading={kpiLoading} /></div>
+          <div className="h-full" data-testid="count-approved"><KpiCard label="Approved" icon={FileCheck2} tone="green" kpi={{ value: statusCounts.approved }} loading={kpiLoading} /></div>
+          <div className="h-full" data-testid="count-rejected"><KpiCard label="Rejected" icon={FileX2} tone="red" kpi={{ value: statusCounts.rejected }} loading={kpiLoading} /></div>
+          <div className="h-full" data-testid="count-total"><KpiCard label="Total Documents" icon={Files} tone="violet" kpi={{ value: documents.length }} loading={kpiLoading} /></div>
         </KpiGrid>
 
         <div role="tablist" aria-label="Documents view" className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
@@ -821,10 +836,9 @@ export default function OnboardingDocuments() {
               </div>
               <div>
                 <label htmlFor="od-file" className={labelCls}>File <span className="text-rose-500">*</span></label>
-                <input id="od-file" key={fileInputKey} type="file" accept={UPLOAD_EXTENSIONS.join(",")} aria-invalid={!!formErrors.file}
-                  onChange={(e) => setUploadField("file", e.target.files?.[0] || null)} className={fieldCls(formErrors.file)} />
-                {uploadForm.file && !formErrors.file ? <p className="mt-1 break-all text-xs text-gray-500">{uploadForm.file.name} ({fileSizeText(uploadForm.file.size)})</p> : null}
-                {!uploadForm.file && !formErrors.file ? <p className="mt-1 text-xs text-gray-500">PDF, JPG, PNG, DOC or DOCX. Up to {MAX_FILE_MB} MB.</p> : null}
+                <FileInput id="od-file" key={fileInputKey} accept={UPLOAD_EXTENSIONS.join(",")} invalid={!!formErrors.file}
+                  file={uploadForm.file} onChange={(f) => setUploadField("file", f)} describedBy="od-file-hint" />
+                {!formErrors.file ? <p id="od-file-hint" className="mt-1 text-xs text-gray-500">PDF, JPG, PNG, DOC or DOCX. Up to {MAX_FILE_MB} MB.</p> : null}
                 {formErrors.file && <p role="alert" className="mt-1 text-xs text-rose-600">{formErrors.file}</p>}
               </div>
             </div>

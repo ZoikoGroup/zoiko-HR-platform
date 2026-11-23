@@ -130,12 +130,24 @@ def _published(document) -> bool:
         and not document.is_deleted and not document.is_archived
 
 
+def _hidden_category_ids(db: Session, org: int) -> set:
+    from app.modules.hr.documents.models import HrCompanyDocumentCategory
+    return {cid for (cid,) in db.query(HrCompanyDocumentCategory.id).filter(HrCompanyDocumentCategory.organization_id == org,
+                                                                            HrCompanyDocumentCategory.is_hidden.is_(True))}
+
+
+def in_hidden_category(db: Session, document) -> bool:
+    """Files in a hidden category are invisible to everyone except admins (Company Documents P3)."""
+    cid = getattr(document, "company_category_id", None)
+    return bool(cid) and cid in _hidden_category_ids(db, document.organization_id)
+
+
 def can_view(db: Session, viewer: Viewer, document, rule: Optional[EffectiveRule] = None) -> bool:
     if document.organization_id != viewer.org_id or document.scope != "company" or not viewer.is_active:
         return False
     if viewer.role in ADMINS:
         return True
-    if not _published(document):
+    if not _published(document) or in_hidden_category(db, document):
         return False
     rule = rule or effective_rule(db, viewer.org_id, document)
     return rule_allows(rule, viewer) or _assigned(db, document.id, viewer.employee_id)
@@ -158,6 +170,10 @@ def visible_company_documents(db: Session, viewer: Viewer, category_id: Optional
                  HrDocument.approved_version_id.isnot(None)))
     if category_id:
         q = q.filter(HrDocument.company_category_id == category_id)
+    if viewer.role not in ADMINS:
+        hidden = _hidden_category_ids(db, viewer.org_id)
+        if hidden:
+            q = q.filter((HrDocument.company_category_id.is_(None)) | (HrDocument.company_category_id.notin_(hidden)))
     out = []
     for doc in q.order_by(HrDocument.updated_at.desc(), HrDocument.id.desc()).all():
         rule = effective_rule(db, viewer.org_id, doc)

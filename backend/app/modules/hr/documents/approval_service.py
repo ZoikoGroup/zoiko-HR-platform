@@ -185,6 +185,11 @@ def approve(db: Session, actor, document_id: int, version_id: Optional[int] = No
     document = _document(db, actor, document_id)
     version = _version_for(db, document, version_id)
     self_approved = assert_can_decide(db, actor, document, version)
+    from app.modules.hr.documents import storage_service
+    if not (storage_service.is_available(version) or storage_service.is_available(document)):
+        # nobody could have looked at it (QA R1-17): ask for a new copy instead
+        raise errors.DocError(409, "DOC_FILE_MISSING", "The file for this document is missing on the server, so it cannot be "
+                                                       "approved. Ask for a new copy instead.")
     _close_steps(db, document, version, actor, "approved", remark)
     lifecycle.apply_transition(db, version, lifecycle.Event.APPROVE, actor, note=remark, ctx=ctx,
                                auto_reason="self_approved_no_other_approver" if self_approved else None)

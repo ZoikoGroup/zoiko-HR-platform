@@ -488,7 +488,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_BASIC**: `name`, `date`, `type`, `is_recurring`, `description`, `is_active`, `created_by`
 
 ## `hr_company_document_categories` (default PLATFORM_META; most sensitive column rank 2)
-- **PLATFORM_META**: `id`, `organization_id`, `key`, `icon`, `requires_approval`, `default_require_ack`, `ack_reminder_after_days`, `reack_interval_months`, `auto_unpublish_on_expiry`, `locked_by_org_admin`, `escalation_ladder`, `is_system`, `is_active`, `sort_order`, `created_by`, `created_at`, `updated_at`
+- **PLATFORM_META**: `id`, `organization_id`, `key`, `icon`, `requires_approval`, `default_require_ack`, `ack_reminder_after_days`, `reack_interval_months`, `auto_unpublish_on_expiry`, `locked_by_org_admin`, `escalation_ladder`, `is_system`, `is_active`, `is_hidden`, `sort_order`, `created_by`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `name`
 
 ## `hr_document_access_rules` (default PERSONAL_BASIC; most sensitive column rank 2)
@@ -515,9 +515,22 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_BASIC**: `parent_id`, `created_by`, `company_category_id`
 - **TENANT_FILE**: `name`
 
+## `hr_document_reminder_requests` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `employee_id`, `category_ids`, `sent_category_ids`, `message`, `channel`, `scheduled_for`, `status`, `detail`, `created_by`, `sent_at`
+
 ## `hr_document_reminders` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`
 - **PERSONAL_BASIC**: `task_id`, `kind`, `level`, `dedupe_key`, `employee_id`, `document_id`, `employee_category_id`, `sent_by`, `channel`, `message`, `sent_at`, `resolved_at`
+
+## `hr_document_share_recipients` (default PERSONAL_BASIC; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`
+- **PERSONAL_BASIC**: `share_id`, `kind`, `employee_id`, `status`, `error`, `attempts`, `last_attempt_at`, `sent_at`
+- **PERSONAL_CONFIDENTIAL**: `email`
+
+## `hr_document_shares` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `target_type`, `target_id`, `target_name`, `mode`, `message`, `grant_portal_access`, `document_ids`, `total_bytes`, `status`, `created_by`
 
 ## `hr_document_versions` (default TENANT_FILE; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `version`, `created_at`, `organization_id`
@@ -855,7 +868,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `shifts` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `name`, `shift_type`, `start_time`, `end_time`, `grace_time_minutes`, `break_duration_minutes`, `is_overtime_eligible`, `requires_attendance`, `standard_hours`, `working_days`, `half_day_min_minutes`, `description`, `is_active`
+- **PERSONAL_BASIC**: `name`, `shift_type`, `start_time`, `end_time`, `grace_time_minutes`, `break_duration_minutes`, `is_overtime_eligible`, `requires_attendance`, `standard_hours`, `working_days`, `half_day_min_minutes`, `min_present_minutes`, `description`, `is_active`
 
 ## `structure_components` (default FINANCIAL; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `created_at`, `updated_at`

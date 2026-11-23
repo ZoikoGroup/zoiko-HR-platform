@@ -59,10 +59,13 @@ export const getDocumentEmployeesSummary = () => api.get("/hr/documents/employee
 export const getDocumentEmployee = (employeeId) => api.get(`/hr/documents/employees/${employeeId}`);
 export const getEmployeeCategoryFiles = (employeeId, categoryId) =>
   api.get(`/hr/documents/employees/${employeeId}/categories/${categoryId}/files`);
-export const sendEmployeeReminder = ({ employeeId, categoryIds, message, channel }) =>
-  api.post(`/hr/documents/employees/${employeeId}/reminders`, { category_ids: categoryIds || null, message: message || null, channel: channel || "both" });
-export const sendBulkReminders = ({ employeeIds, message }) =>
-  api.post("/hr/documents/reminders/bulk", { employee_ids: employeeIds, message: message || null });
+/** `scheduledFor`: an ISO date-time in UTC ("…Z") to send it later; empty sends it now (QA R1-15). */
+export const sendEmployeeReminder = ({ employeeId, categoryIds, message, channel, scheduledFor }) =>
+  api.post(`/hr/documents/employees/${employeeId}/reminders`, { category_ids: categoryIds || null, message: message || null,
+    channel: channel || "both", scheduled_for: scheduledFor || null });
+export const sendBulkReminders = ({ employeeIds, message, scheduledFor }) =>
+  api.post("/hr/documents/reminders/bulk", { employee_ids: employeeIds, message: message || null, scheduled_for: scheduledFor || null });
+export const cancelScheduledReminder = (reminderId) => api.delete(`/hr/documents/reminders/${reminderId}`);
 export async function downloadEmployeeZip(employeeId, approvedOnly = true) {
   const { fetchAuthenticatedFile } = await import("./hrService");
   return fetchAuthenticatedFile(`/hr/documents/employees/${employeeId}/export.zip?approved_only=${approvedOnly}`, `employee-${employeeId}-documents.zip`);
@@ -79,7 +82,7 @@ export const updateCompanyCategory = (id, data) => api.patch(`/hr/documents/comp
 export const deleteCompanyCategory = (id) => api.delete(`/hr/documents/company-categories/${id}`);
 export const listCompanyItems = (categoryId, params) => api.get(`/hr/documents/company-categories/${categoryId}/items`, { params: clean(params) });
 export const listCompanyFiles = (params) => api.get("/hr/documents/company/files", { params: clean(params) });
-export function uploadCompanyDocument({ categoryId, file, title, description, folderId, expiryDate, requireAck, publishAt }) {
+export function uploadCompanyDocument({ categoryId, file, title, description, folderId, expiryDate, requireAck, publishAt, notify }) {
   const form = new FormData();
   form.append("file", file);
   if (title) form.append("title", title);
@@ -88,6 +91,7 @@ export function uploadCompanyDocument({ categoryId, file, title, description, fo
   if (expiryDate) form.append("expiry_date", expiryDate);
   if (requireAck !== undefined) form.append("require_ack", String(Boolean(requireAck)));
   if (publishAt) form.append("publish_at", publishAt);
+  if (notify !== undefined) form.append("notify", String(Boolean(notify)));
   return apiRequest(`/hr/documents/company-categories/${categoryId}/files`, { method: "POST", body: form, timeoutMs: 120000 });
 }
 export function uploadCompanyVersion({ documentId, file, changeNotes, expiryDate, materialChange }) {
@@ -109,9 +113,22 @@ export const createCompanyFolder = ({ name, categoryId, parentId }) => {
   if (parentId) form.append("parent_id", String(parentId));
   return api.post("/hr/document-folders", form);
 };
+export const renameCompanyFolder = ({ folderId, name }) => {
+  const form = new FormData();
+  form.append("name", name);
+  return api.patch(`/hr/document-folders/${folderId}`, form);
+};
+export const deleteCompanyFolder = (folderId) => api.delete(`/hr/document-folders/${folderId}`);
+// ── admin: email sharing (Company Documents P4/P5) ────────────────────────────────────────────────────────────────────
+export const getEmailStatus = () => api.get("/hr/documents/email-status");
+export const shareByEmail = (body) => api.post("/hr/documents/shares/email", body);
+export const listShares = (params) => api.get("/hr/documents/shares", { params: clean(params) });
+export const retryShare = (shareId) => api.post(`/hr/documents/shares/${shareId}/retry`);
 export const getAccessRule = (targetType, targetId) => api.get(`/hr/documents/access/${targetType}/${targetId}`);
 export const putAccessRule = (targetType, targetId, rule) => api.put(`/hr/documents/access/${targetType}/${targetId}`, rule);
 export const previewAccessRule = (rule) => api.post("/hr/documents/access/preview", rule);
+/** Share several company documents in one action: the same rule on each, all or nothing (QA R1-21). */
+export const putBulkAccessRule = (documentIds, rule) => api.put("/hr/documents/access/bulk", { ...rule, document_ids: documentIds });
 export const getAckTracking = (documentId, params) => api.get(`/hr/documents/company/${documentId}/acknowledgements`, { params: clean(params) });
 export const remindAcks = (documentId, employeeIds) => api.post(`/hr/documents/company/${documentId}/acknowledgements/remind`, { employee_ids: employeeIds || null });
 

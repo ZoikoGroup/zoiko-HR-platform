@@ -648,5 +648,5 @@ def update_asset(asset_id: int, data: AssetUpdate, db: Session = Depends(get_db)
     dependencies=[Depends(get_current_admin)],
 )
 def delete_asset(asset_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    asset_service.delete_asset(db, asset_id, current_user.organization_id)
+    asset_service.delete_asset(db, asset_id, current_user.organization_id, deleted_by=current_user.id)
     return {"message": f"Asset {asset_id} has been deleted successfully."}

@@ -39,3 +39,31 @@ test("other documents are uploaded from their own section, as sources", async (t
   assert.deepEqual(calls.at(-1), { relabel: 2, label: "handbook" }, "the kind can be changed after uploading");
 });
 
+
+test("QA R1-3: PDFs can be chosen and uploaded as templates (the offer letter) when the server takes Word and PDF", async (t) => {
+  const calls = [];
+  const session = { ...SESSION, file_types: ["docx", "pdf"] };
+  t.mock.module("../src/service/docsSetupService.js", { exports: {
+    uploadDocsSetupFile: async (id, file, label) => { calls.push({ name: file.name, label }); return session; },
+    deleteDocsSetupFile: async () => session,
+    setDocsSetupFileLabel: async () => session,
+  } });
+  const { default: UploadStep } = await import(`../src/modules/zoiko-hr/onboarding/docs-setup/UploadStep.jsx?t=${Math.random()}`);
+  render(React.createElement(UploadStep, { session, onSession: () => {}, locked: false }));
+  const input = screen.getByRole("region", { name: "Your templates" }).querySelector('input[type="file"]');
+  assert.match(input.getAttribute("accept"), /\.pdf/);
+  assert.match(input.getAttribute("accept"), /\.docx/);
+  fireEvent.change(input, { target: { files: [new File(["%PDF-1.4"], "offer-letter.pdf", { type: "application/pdf" })] } });
+  await settle();
+  assert.deepEqual(calls, [{ name: "offer-letter.pdf", label: "tpl:auto" }]);
+});
+
+test("QA R1-3: without a server list the picker still offers Word and PDF", async (t) => {
+  t.mock.module("../src/service/docsSetupService.js", { exports: {
+    uploadDocsSetupFile: async () => SESSION, deleteDocsSetupFile: async () => SESSION, setDocsSetupFileLabel: async () => SESSION,
+  } });
+  const { default: UploadStep } = await import(`../src/modules/zoiko-hr/onboarding/docs-setup/UploadStep.jsx?t=${Math.random()}`);
+  render(React.createElement(UploadStep, { session: { ...SESSION, file_types: undefined }, onSession: () => {}, locked: false }));
+  const input = screen.getByRole("region", { name: "Your templates" }).querySelector('input[type="file"]');
+  assert.match(input.getAttribute("accept"), /\.pdf/);
+});

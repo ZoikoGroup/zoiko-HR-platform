@@ -269,6 +269,13 @@ export const uploadOfferPackageLogo = (file) => {
 };
 export const deleteOfferPackageLogo = () => api.delete("/hr/onboarding/package/logo");
 export const getOfferPackageLogo = () => fetchDocumentFile("/hr/onboarding/package/logo", "logo.png");
+export const uploadOfferPackageSignature = (file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/hr/onboarding/package/signature", fd);
+};
+export const deleteOfferPackageSignature = () => api.delete("/hr/onboarding/package/signature");
+export const getOfferPackageSignature = () => fetchDocumentFile("/hr/onboarding/package/signature", "signature.png");
 export const getOfferPackageTemplateSet = () => fetchDocumentFile("/hr/onboarding/package/template.pdf", "offer-package-template-set.pdf");
 export const getHirePackage = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/package`);
 // Onboarding › Checklists: the state of the 10 package documents for every new hire, in one request
@@ -842,14 +849,19 @@ async function fetchDocumentFile(path, fallbackName) {
     // 410 in particular means the record exists but the bytes are not on the
     // server — "Failed to load document: 410" told the user nothing (ZHR 44).
     let detail = null;
+    let body = null;
     try {
-      const body = await res.clone().json();
+      body = await res.clone().json();
       detail = typeof body?.detail === "string" ? body.detail : null;
     } catch {
       detail = null;
     }
     if (res.status === 410) {
-      throw new Error(detail || "This file is no longer stored on the server. Please upload it again.");
+      // The record exists but its file is gone from the server (QA R1-17 / R1-22). `recovery` says what the viewer can do:
+      // upload_version (admin, company document), request_reupload (admin, employee document), upload_again, ask_admin.
+      const missing = new Error(detail || "This file is no longer stored on the server. Please upload it again.");
+      Object.assign(missing, { status: 410, code: body?.error || "DOC_FILE_MISSING", recovery: body?.recovery || null });
+      throw missing;
     }
     if (res.status === 403) {
       throw new Error(detail || "You do not have permission to open this document.");

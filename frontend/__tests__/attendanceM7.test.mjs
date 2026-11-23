@@ -62,9 +62,9 @@ test("the queue: counts, what is asked, how long it has waited, own requests", a
   assert.ok(screen.getByRole("tab", { name: "Pending (3)" }));
   assert.ok(screen.getByRole("tab", { name: "Approved (5)" }));
   const items = within(screen.getByRole("list", { name: "Requests" })).getAllByRole("listitem");
-  assert.match(items[0].textContent, /Recorded 09:00–— → Missed punch: 09:00–18:30/);
+  assert.match(items[0].textContent, /Recorded 09:00 AM–— → Missed punch: 09:00 AM–06:30 PM/);
   assert.match(items[0].textContent, /Forgot to check in\/out.*waiting 30 h/);
-  assert.match(items[1].textContent, /Overtime 18:00–20:00 · 2 h · emergency/);
+  assert.match(items[1].textContent, /Overtime 06:00 PM–08:00 PM · 2 h · emergency/);
   assert.match(items[2].textContent, /Wrong status: Remote/);
   assert.match(items[2].textContent, /Your own request — someone else decides it/);
   assert.equal(within(items[2]).queryByRole("button", { name: /Approve/ }), null);

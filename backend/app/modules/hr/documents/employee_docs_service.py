@@ -6,7 +6,8 @@ expired > needs review (pending / rejected / new copy requested) > pending (requ
 """
 import io
 import zipfile
-from datetime import date, datetime, timedelta
+import logging
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterator, Optional
 
 from sqlalchemy import func, or_
@@ -17,10 +18,16 @@ from app.modules.hr.documents import audit_service, errors, notify
 from app.modules.hr.documents.automation import tasks as task_service
 from app.modules.hr.documents.automation.doc_actions import applicable_required_categories
 from app.modules.hr.documents.me_service import containers_for, ensure_categories
-from app.modules.hr.documents.models import HrDocumentReminder, HrEmployeeDocumentCategory, VersionStatus
+from app.modules.hr.documents.models import (
+    HrDocumentReminder, HrDocumentReminderRequest, HrEmployeeDocumentCategory, VersionStatus,
+)
 
 V = VersionStatus
-REMINDER_COOLDOWN = timedelta(hours=24)
+logger = logging.getLogger("zoiko.documents.reminders")
+
+REMINDER_COOLDOWN = timedelta(hours=24)            # per person AND per document (QA R1-16)
+SCHEDULE_GRACE = timedelta(seconds=90)            # a schedule time this old still counts as "now"
+MAX_SCHEDULE_AHEAD = timedelta(days=365)
 MAX_ZIP_BYTES = 500 * 1024 * 1024
 STATUSES = ("complete", "pending", "needs_review", "expired")
 
@@ -193,10 +200,14 @@ def employee_detail(db: Session, actor, employee_id: int) -> dict:
     s = _summary_for(db, org, emp)
     required_ids = {c.id for c in applicable_required_categories(db, org, emp)}
     last = _last_reminder(db, org, emp.id)
+    recent = recently_reminded(db, org, emp.id)
     for c in s["containers"]:
         c["is_required"] = c["id"] in required_ids
+        at = recent.get(c["id"])
+        c["reminded_at"] = at.isoformat() + "Z" if at else None      # within the 24-hour cooldown of this document
     return {"employee": _employee_row(emp, s), "categories": s["containers"],
-            "last_reminder_at": last.isoformat() + "Z" if last else None}
+            "last_reminder_at": last.isoformat() + "Z" if last else None,
+            "scheduled_reminders": scheduled_reminders(db, org, emp.id)}
 
 
 def category_files(db: Session, actor, employee_id: int, category_id: int) -> dict:
@@ -209,60 +220,206 @@ def category_files(db: Session, actor, employee_id: int, category_id: int) -> di
 
 # ── reminders ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def send_reminders(db: Session, actor, employee_id: int, category_ids: Optional[list[int]] = None,
-                   message: Optional[str] = None, channel: str = "both", now: Optional[datetime] = None,
-                   ctx=None, commit: bool = True) -> dict:
-    """Remind one person about missing (or to-be-replaced) documents. One reminder per person per 24 hours."""
+def _parse_when(value) -> Optional[datetime]:
+    """A schedule time as naive UTC. Accepts a datetime or an ISO string; one with an offset ("Z", "+05:30") is converted."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise errors.invalid("Use a date and time like 2026-12-01T09:30.", "scheduled_for") from None
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def schedule_time(value, now: Optional[datetime] = None) -> Optional[datetime]:
+    """The validated send time: None means "send now". A time in the past is refused; one a few seconds old (the picker's
+    current minute, network delay) counts as now."""
     now = now or datetime.utcnow()
+    when = _parse_when(value)
+    if when is None or now - SCHEDULE_GRACE <= when <= now:
+        return None
+    if when < now:
+        raise errors.invalid("Choose a time in the future.", "scheduled_for")
+    if when > now + MAX_SCHEDULE_AHEAD:
+        raise errors.invalid(f"Choose a time within the next {MAX_SCHEDULE_AHEAD.days} days.", "scheduled_for")
+    return when
+
+
+def recently_reminded(db: Session, org: int, employee_id: int, now: Optional[datetime] = None) -> dict:
+    """{category id: when} for the documents this person was reminded about within the cooldown (QA R1-16: the cooldown is
+    per person AND per document, not per person)."""
+    now = now or datetime.utcnow()
+    rows = (db.query(HrDocumentReminderRequest.sent_category_ids, HrDocumentReminderRequest.sent_at)
+            .filter(HrDocumentReminderRequest.organization_id == org, HrDocumentReminderRequest.employee_id == employee_id,
+                    HrDocumentReminderRequest.status == "sent", HrDocumentReminderRequest.sent_at >= now - REMINDER_COOLDOWN)
+            .all())
+    out: dict = {}
+    for ids, at in rows:
+        for cid in ids or []:
+            if cid not in out or at > out[cid]:
+                out[cid] = at
+    return out
+
+
+def _deliver(db: Session, actor, emp, request: HrDocumentReminderRequest, now: datetime, ctx=None) -> dict:
+    """Send `request` now: the person's missing / to-replace documents (or the ones HR picked), minus those already reminded
+    about within the cooldown. Records the outcome on the request. Raises DOC_REMINDER_COOLDOWN when every document it is
+    about is cooling down."""
     org = actor.organization_id
-    emp = _get_employee(db, org, employee_id)
-    if not emp.is_active:
-        raise errors.invalid("This person is no longer active.")
-    last = _last_reminder(db, org, emp.id)
-    if last and now - last < REMINDER_COOLDOWN:
-        raise errors.DocError(429, "DOC_REMINDER_COOLDOWN", "A reminder was already sent in the last 24 hours.",
-                              {"last_reminder_at": last.isoformat() + "Z"})
     containers = containers_for(db, org, emp.id)
     required_ids = {c.id for c in applicable_required_categories(db, org, emp)}
-    wanted = set(category_ids or [])
+    wanted = set(request.category_ids or [])
     targets = [c for c in containers if c["can_upload"] and (c["id"] in wanted if wanted else
                (c["id"] in required_ids and c["status"] == "not_uploaded") or c["status"] in
                (V.REJECTED.value, V.REUPLOAD_REQUESTED.value, V.EXPIRED.value))]
     if not targets:
-        return {"sent": 0, "categories": []}
+        request.status, request.detail, request.sent_category_ids = "skipped", "Nothing is missing.", []
+        return {"sent": 0, "categories": [], "cooling_down": []}
+    recent = recently_reminded(db, org, emp.id, now)
+    cooling = [c for c in targets if c["id"] in recent]
+    targets = [c for c in targets if c["id"] not in recent]
+    if not targets:
+        last = max(recent[c["id"]] for c in cooling)
+        names = ", ".join(c["name"] for c in cooling)
+        request.status, request.sent_category_ids = "skipped", []
+        request.detail = f"Already reminded about {names} in the last 24 hours."[:255]
+        raise errors.DocError(429, "DOC_REMINDER_COOLDOWN",
+                              f"A reminder about {names} was already sent in the last 24 hours.",
+                              {"last_reminder_at": last.isoformat() + "Z", "categories": [c["key"] for c in cooling]})
     names = ", ".join(c["name"] for c in targets)
     for c in targets:
         if c["status"] == "not_uploaded":
             task_service.open_task(db, org, "upload_required", employee_id=emp.id, employee_category_id=c["id"],
                                    source="manual", created_by=actor.id, now=now)
-    channels = {"both": ["in_app", "email"], "email": ["email"], "in_app": ["in_app"]}.get(channel, ["in_app", "email"])
+    channels = {"both": ["in_app", "email"], "email": ["email"], "in_app": ["in_app"]}.get(request.channel, ["in_app", "email"])
+    message = request.message
     extra = f" Note from HR: {message.strip()[:500]}" if message and message.strip() else ""
     n = notify.send(db, org, [emp], "document.upload_reminder", title=names, link=notify.MY_FILES_LINK, channels=channels,
                     email=notify.EmailPart(subject="Reminder: documents to upload", heading="Please upload your documents",
                                            message=f"Please upload these documents in My Files: {names}.{extra}",
                                            action_label="Open My Files", badge_tone="warning"),
-                    reminder_kind="upload_missing", sent_by=actor.id, now=now)
+                    reminder_kind="upload_missing", employee_category_id=targets[0]["id"] if len(targets) == 1 else None,
+                    sent_by=actor.id, now=now)
+    if not n:
+        request.status, request.sent_category_ids = "skipped", []
+        request.detail = "Not delivered: the daily reminder limit was reached or automation is paused."
+        return {"sent": 0, "categories": [], "cooling_down": [c["key"] for c in cooling], "reason": request.detail}
+    request.status, request.sent_at, request.sent_category_ids = "sent", now, [c["id"] for c in targets]
+    request.detail = None
     audit_service.record(db, org_id=org, actor=actor, action="reminder_sent", target_type="employee", target_id=emp.id,
-                         employee_id=emp.id, ctx=ctx, after={"categories": [c["key"] for c in targets]})
+                         employee_id=emp.id, ctx=ctx, after={"categories": [c["key"] for c in targets],
+                                                             "scheduled": request.scheduled_for is not None})
+    return {"sent": n, "categories": [c["key"] for c in targets], "cooling_down": [c["key"] for c in cooling]}
+
+
+def send_reminders(db: Session, actor, employee_id: int, category_ids: Optional[list[int]] = None,
+                   message: Optional[str] = None, channel: str = "both", now: Optional[datetime] = None,
+                   ctx=None, commit: bool = True, scheduled_for=None) -> dict:
+    """Remind one person about missing (or to-be-replaced) documents, now or at `scheduled_for` (UTC). One reminder per
+    person per document per 24 hours: documents reminded about recently are left out, and when nothing else is left the
+    request is refused (429)."""
+    now = now or datetime.utcnow()
+    org = actor.organization_id
+    emp = _get_employee(db, org, employee_id)
+    if not emp.is_active:
+        raise errors.invalid("This person is no longer active.")
+    when = schedule_time(scheduled_for, now)
+    request = HrDocumentReminderRequest(organization_id=org, employee_id=emp.id,
+                                        category_ids=list(category_ids) if category_ids else None,
+                                        message=(message or "").strip()[:500] or None, channel=channel or "both",
+                                        scheduled_for=when, status="scheduled", created_by=getattr(actor, "id", None),
+                                        created_at=now)
+    if when is not None:
+        db.add(request)
+        db.flush()
+        audit_service.record(db, org_id=org, actor=actor, action="reminder_scheduled", target_type="employee",
+                             target_id=emp.id, employee_id=emp.id, ctx=ctx,
+                             after={"scheduled_for": when.isoformat() + "Z", "category_ids": request.category_ids})
+        if commit:
+            db.commit()
+        return {"sent": 0, "scheduled": True, "id": request.id, "scheduled_for": when.isoformat() + "Z", "categories": []}
+    result = _deliver(db, actor, emp, request, now, ctx)
+    db.add(request)
     if commit:
         db.commit()
-    return {"sent": n, "categories": [c["key"] for c in targets]}
+    return result
 
 
 def bulk_reminders(db: Session, actor, employee_ids: list[int], category_ids: Optional[list[int]] = None,
-                   message: Optional[str] = None, ctx=None) -> dict:
-    sent = skipped = 0
+                   message: Optional[str] = None, ctx=None, scheduled_for=None, now: Optional[datetime] = None) -> dict:
+    now = now or datetime.utcnow()
+    when = schedule_time(scheduled_for, now)               # validated once, before anything is sent
+    sent = skipped = scheduled = 0
     for emp_id in employee_ids[:500]:
         try:
-            r = send_reminders(db, actor, emp_id, category_ids, message, ctx=ctx)
-            if r["sent"]:
+            r = send_reminders(db, actor, emp_id, category_ids, message, ctx=ctx, now=now, scheduled_for=when)
+            if r.get("scheduled"):
+                scheduled += 1
+            elif r["sent"]:
                 sent += 1
             else:
                 skipped += 1
         except errors.DocError:
             db.rollback()
             skipped += 1
-    return {"sent": sent, "skipped": skipped}
+    return {"sent": sent, "skipped": skipped, "scheduled": scheduled}
+
+
+def scheduled_reminders(db: Session, org: int, employee_id: int) -> list[dict]:
+    rows = (db.query(HrDocumentReminderRequest)
+            .filter(HrDocumentReminderRequest.organization_id == org, HrDocumentReminderRequest.employee_id == employee_id,
+                    HrDocumentReminderRequest.status == "scheduled")
+            .order_by(HrDocumentReminderRequest.scheduled_for).all())
+    return [{"id": r.id, "scheduled_for": r.scheduled_for.isoformat() + "Z" if r.scheduled_for else None,
+             "category_ids": r.category_ids, "message": r.message} for r in rows]
+
+
+def cancel_scheduled_reminder(db: Session, actor, reminder_id: int, ctx=None) -> dict:
+    r = (db.query(HrDocumentReminderRequest)
+         .filter(HrDocumentReminderRequest.id == reminder_id,
+                 HrDocumentReminderRequest.organization_id == actor.organization_id).first())
+    if r is None:
+        raise errors.not_found("Reminder")
+    if r.status != "scheduled":
+        raise errors.DocError(409, "DOC_REMINDER_NOT_SCHEDULED", "This reminder has already been sent or cancelled.")
+    r.status, r.detail = "cancelled", "Cancelled by HR."
+    audit_service.record(db, org_id=actor.organization_id, actor=actor, action="reminder_cancelled", target_type="employee",
+                         target_id=r.employee_id, employee_id=r.employee_id, ctx=ctx, after={"reminder_id": r.id})
+    db.commit()
+    return {"id": r.id, "status": r.status}
+
+
+def send_due_reminders(db: Session, org: int, now: datetime) -> int:
+    """Background job (automation/jobs.py, background leader only): send the scheduled reminders whose time has come. Each
+    is sent at most once: its status leaves "scheduled" whatever the outcome."""
+    from types import SimpleNamespace
+    Employee, _ = _employee_model()
+    due = (db.query(HrDocumentReminderRequest)
+           .filter(HrDocumentReminderRequest.organization_id == org, HrDocumentReminderRequest.status == "scheduled",
+                   HrDocumentReminderRequest.scheduled_for.isnot(None), HrDocumentReminderRequest.scheduled_for <= now)
+           .order_by(HrDocumentReminderRequest.scheduled_for, HrDocumentReminderRequest.id).all())
+    sent = 0
+    for request in due:
+        creator = db.get(Employee, request.created_by) if request.created_by else None
+        actor = creator if creator is not None and creator.organization_id == org else SimpleNamespace(
+            organization_id=org, id=None, role=None)
+        emp = db.query(Employee).filter(Employee.id == request.employee_id, Employee.organization_id == org).first()
+        if emp is None or not emp.is_active:
+            request.status, request.detail = "skipped", "The person is no longer active."
+            continue
+        try:
+            with db.begin_nested():
+                sent += 1 if _deliver(db, actor, emp, request, now)["sent"] else 0
+        except errors.DocError as e:                     # every document is cooling down
+            request.status = "skipped"
+            request.detail = (getattr(e, "message", None) or "Skipped.")[:255]
+        except Exception:
+            logger.exception("scheduled document reminder %s failed", request.id)
+            request.status, request.detail = "failed", "The reminder could not be sent."
+    return sent
 
 
 # ── ZIP export ─────────────────────────────────────────────────────────────────────────────────────────────────────

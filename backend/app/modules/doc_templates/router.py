@@ -1168,9 +1168,13 @@ def _public_view(db, doc: GeneratedDocument) -> dict:
     from app.modules.hr.models import Organization
     org = db.get(Organization, doc.organization_id)
     signed = signing.signed_parties(db, doc)
+    # the company as its documents name it: the Company Profile's legal name and the logo uploaded in Onboarding settings
+    from app.modules.hr import onboarding_package
+    brand_name, brand_logo = onboarding_package.public_branding(db, doc.organization_id)
     return {"document_number": doc.document_number, "title": doc.title, "status": doc.status,
-            "organization_name": getattr(org, "display_name", None) or getattr(org, "organization_name", ""),
-            "organization_logo": getattr(org, "logo_url", None), "recipient_name": doc.recipient_name, "due_by": doc.due_by,
+            "organization_name": brand_name or getattr(org, "display_name", None) or getattr(org, "organization_name", ""),
+            "organization_logo": brand_logo or getattr(org, "logo_url", None), "recipient_name": doc.recipient_name,
+            "due_by": doc.due_by,
             "can_sign": doc.status == "ISSUED" and "candidate" in signing.required_parties(doc) and "candidate" not in signed,
             "needs_otp": True, "consent": {"version": governance.CONSENT_VERSION, "text": governance.CONSENT_TEXT},
             "needs_declaration": _needs_declaration(db, doc)}

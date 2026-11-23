@@ -23,6 +23,7 @@ DEFAULT_WORKING_DAYS = ("mon", "tue", "wed", "thu", "fri")
 class AttendancePolicy:
     grace_minutes: int = 10
     half_day_min_minutes: int = 240
+    min_present_minutes: int = 60
     standard_minutes: int = DEFAULT_STANDARD_MINUTES
     overtime_requires_approval: bool = True
     default_shift_id: Optional[int] = None
@@ -53,6 +54,7 @@ def get_policy(db: Session, organization_id: int) -> AttendancePolicy:
     return AttendancePolicy(
         grace_minutes=int(get("attendance.grace_minutes") or 0),
         half_day_min_minutes=_minutes_from_hours(get("attendance.half_day_min_hours"), 240),
+        min_present_minutes=_minutes_from_hours(get("attendance.min_present_hours"), 60),
         standard_minutes=_minutes_from_hours(get("attendance.standard_workday_hours"), DEFAULT_STANDARD_MINUTES),
         overtime_requires_approval=bool(get("attendance.overtime_requires_approval")),
         default_shift_id=get("attendance.default_shift_id"),
@@ -75,6 +77,7 @@ def shift_info(shift, policy: AttendancePolicy) -> Optional[ShiftInfo]:
                      grace_minutes=int(shift.grace_time_minutes) if shift.grace_time_minutes else policy.grace_minutes,
                      break_minutes=int(shift.break_duration_minutes or 0), standard_minutes=standard,
                      half_day_min_minutes=shift.half_day_min_minutes,
+                     min_present_minutes=getattr(shift, "min_present_minutes", None),
                      working_days=normalise_days(shift.working_days) or None)
 
 

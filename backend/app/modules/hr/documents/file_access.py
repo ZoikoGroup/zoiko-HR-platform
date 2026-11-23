@@ -83,6 +83,27 @@ def readable_version(db: Session, user, doc, version_id: Optional[int] = None):
     return None
 
 
+def file_missing(user, doc) -> errors.DocError:
+    """410 for a record whose bytes are gone (QA R1-17 / R1-22). The record is fine; the file was lost from the server's disk
+    (a redeploy or another instance of a platform whose disk is not persistent) or was never written. Says what the caller
+    can do about it: an admin uploads a new version of a company document, or asks the employee for a new copy of theirs
+    (admins never upload on an employee's behalf)."""
+    admin = is_document_admin(user)
+    if doc.scope == "company":
+        recovery = "upload_version" if admin else "ask_admin"
+        message = ("The file for this document is not available on the server. Upload it again as a new version."
+                   if admin else "The file for this document is not available on the server. Ask an administrator to upload it again.")
+    elif doc.scope == "employee":
+        recovery = "request_reupload" if admin else ("upload_again" if is_owner(user, doc) else "ask_admin")
+        message = ("The file for this document is not available on the server. Ask the employee for a new copy."
+                   if admin else "The file for this document is not available on the server. Please upload it again.")
+    else:
+        recovery = "ask_admin"
+        message = "The file for this document is not available on the server. Ask an administrator to upload it again."
+    return errors.DocError(410, "DOC_FILE_MISSING", message,
+                           {"document_id": doc.id, "scope": doc.scope, "recovery": recovery})
+
+
 def serve(db: Session, user, doc, version=None, *, disposition: str = "inline", ctx=None) -> Response:
     """The file's bytes as a response, audited. 410 when the record exists but the bytes are gone."""
     from app.modules.hr import file_storage
@@ -92,8 +113,7 @@ def serve(db: Session, user, doc, version=None, *, disposition: str = "inline", 
         source = doc
         data = storage_service.open_for_read(doc)
     if data is None:
-        raise errors.DocError(410, "DOC_FILE_MISSING", "The file for this document is not available on the server. "
-                                                       "Ask an administrator to upload it again.")
+        raise file_missing(user, doc)
     name = (getattr(source, "file_name", None) or doc.file_name or f"document-{doc.id}").replace('"', "")
     media = file_storage.effective_media_type(name, getattr(source, "mime_type", None) or doc.mime_type)
     if disposition == "attachment" and doc.scope == "company" and not (is_document_admin(user) or is_owner(user, doc)):

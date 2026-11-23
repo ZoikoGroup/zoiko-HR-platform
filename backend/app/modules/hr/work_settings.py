@@ -41,6 +41,8 @@ SETTINGS: dict[str, tuple[type, Any, str]] = {
     # attendance engine (attendance plan §4): grace, half day, overtime, default shift, punching, edits
     "attendance.grace_minutes": (int, 10, "Minutes after the shift start before a check-in counts as late (when the shift sets none)"),
     "attendance.half_day_min_hours": (Decimal, Decimal("4"), "Net hours below which a worked day counts as a half day"),
+    "attendance.min_present_hours": (Decimal, Decimal("1"),
+                                     "Net hours below which a worked day counts as absent (from here up to the half-day threshold: half day)"),
     "attendance.overtime_requires_approval": (bool, True, "Overtime counts only when an overtime request is approved"),
     "attendance.default_shift_id": (int, None, "Shift used for people with no roster entry or assigned shift"),
     "attendance.auto_close_punch_out": (bool, True, "Close a day with no punch-out as a missed punch at the end of the day"),
@@ -138,5 +140,18 @@ def save(db, actor, data: dict, prefix: str) -> dict:
             row.value = json.dumps(value)
         else:
             row.value = str(value).strip()[:2000]
+    if prefix == "attendance":
+        _check_attendance_thresholds(db, actor.organization_id)
     db.commit()
     return group(db, actor.organization_id, prefix)
+
+
+def _check_attendance_thresholds(db, organization_id: int) -> None:
+    """The minimum worked time for a day to count at all may not exceed the half-day threshold (pending, unflushed
+    writes are read back through the session, so the check sees the values being saved)."""
+    db.flush()
+    minimum = get(db, organization_id, "attendance.min_present_hours")
+    half = get(db, organization_id, "attendance.half_day_min_hours")
+    if minimum is not None and half is not None and minimum > half:
+        db.rollback()
+        raise HTTPException(422, "min_present_hours cannot be more than half_day_min_hours.")

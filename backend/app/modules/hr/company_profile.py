@@ -322,6 +322,10 @@ def _clean(key: str, value, errors: dict):
     if kind == "text":
         if len(text) > opt:
             errors[key] = f"{label} must be {opt} characters or fewer."
+        if key == "signatory_name" and text:
+            from app.modules.hr.onboarding_package import real_person_name
+            if real_person_name(text) is None:       # e.g. "Candidate Signature" copied from a template's signature block
+                errors[key] = "Enter the authorised signatory's own name, not a label from the signature block."
         return text[:opt]
     if not text:
         return ""

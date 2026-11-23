@@ -55,6 +55,9 @@ async function loadSettings(t, over = {}) {
     getOfferPackageLogo: async () => ({ blob: new Blob(["png"], { type: "image/png" }), filename: "logo.png" }),
     uploadOfferPackageLogo: async () => ({ settings: { has_logo: true }, clauses: [], documents: [], mode_labels: {} }),
     deleteOfferPackageLogo: async () => ({ settings: { has_logo: false }, clauses: [], documents: [], mode_labels: {} }),
+    getOfferPackageSignature: async () => ({ blob: new Blob(["png"], { type: "image/png" }), filename: "signature.png" }),
+    uploadOfferPackageSignature: async () => ({ settings: { has_signature: true }, clauses: [], documents: [], mode_labels: {} }),
+    deleteOfferPackageSignature: async () => ({ settings: { has_signature: false }, clauses: [], documents: [], mode_labels: {} }),
     getCompanyProfile: async () => ({ profile: { legal_name: "" }, completeness: { percent: 0, missing: [], complete: false }, fields: [] }),
     saveCompanyProfile: async (p) => ({ profile: p, completeness: { percent: 100, missing: [], complete: true }, fields: [] }),
     prefillCompanyProfile: async () => ({ proposal: {}, saved: false }),
@@ -105,4 +108,19 @@ test("a failed settings load shows Retry, and Retry loads the form", async (t) =
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await settle();
   assert.ok(screen.getAllByRole("button", { name: "Save changes" })[0]);
+});
+
+test("the authorised signatory's signature can be uploaded next to the company logo (QA R1-9, R2-6)", async (t) => {
+  await loadSettings(t);
+  const input = screen.getByLabelText("Signatory's signature file");
+  assert.match(document.body.textContent, /Authorised signatory's signature/);
+  assert.match(document.body.textContent, /No signature yet/);
+  const file = new File(["png"], "signature.png", { type: "image/png" });
+  fireEvent.change(input, { target: { files: [file] } });
+  await settle();
+  assert.ok(screen.getAllByRole("status").some((s) => /Signature saved/.test(s.textContent)));
+  const bad = new File(["gif"], "signature.gif", { type: "image/gif" });
+  fireEvent.change(screen.getByLabelText("Signatory's signature file"), { target: { files: [bad] } });
+  await settle();
+  assert.ok(screen.getAllByRole("alert").some((a) => /signature as a PNG, JPG or WebP/.test(a.textContent)));
 });
