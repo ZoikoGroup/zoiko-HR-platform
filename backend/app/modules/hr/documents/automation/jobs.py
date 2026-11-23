@@ -465,6 +465,37 @@ def weekly_digest_job():
     return _run("weekly_digest", "digest", weekly_digest)
 
 
+def scheduled_reminders_job():
+    """Reminders HR scheduled in Employee Documents (QA R1-15). Not tied to an automation feature switch: HR asked for each
+    one by hand, exactly like a reminder sent at once."""
+    from app.core.privacy import context as privacy_ctx
+    from app.modules.hr.documents.automation import limits
+    from app.modules.hr.documents.employee_docs_service import send_due_reminders
+    from app.modules.hr.documents.models import HrDocumentReminderRequest as R
+    now = datetime.utcnow()
+    db = _session()
+    total = 0
+    try:
+        if limits.globally_paused(db):
+            return 0
+        # runs every minute: only the organizations that have something due are visited
+        orgs = [o for (o,) in db.query(R.organization_id).filter(R.status == "scheduled", R.scheduled_for.isnot(None),
+                                                                  R.scheduled_for <= now).distinct().all()]
+        for org in orgs:
+            try:
+                with privacy_ctx.tenant_context(org, None):
+                    total += send_due_reminders(db, org, now) or 0
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("scheduled reminders failed for organization %s", org)
+        if total:
+            logger.info("documents scheduled_reminders: %s", total)
+        return total
+    finally:
+        db.close()
+
+
 def company_ack_job():
     def both(db, org, now):
         return ack_new_audience(db, org, now) + periodic_reack(db, org, now) + auto_unpublish(db, org, now)
@@ -479,6 +510,8 @@ def register(scheduler) -> None:
         (task_escalation_job, CronTrigger(minute=20), "hr_doc_task_escalation", "Document task reminders and escalation"),
         (approval_sla_job, CronTrigger(minute=35), "hr_doc_approval_sla", "Overdue document reviews: remind HR, then Org Admins"),
         (scheduled_publish_job, CronTrigger(minute="*/5"), "hr_doc_scheduled_publish", "Publish company documents at their scheduled time"),
+        (scheduled_reminders_job, CronTrigger(minute="*"), "hr_doc_scheduled_reminders",
+         "Send upload reminders HR scheduled for a date and time"),
         (offboarding_job, CronTrigger(hour=2, minute=30), "hr_doc_offboarding_finalize", "Archive the files of people who left"),
         (retention_job, CronTrigger(hour=3, minute=45), "hr_doc_retention_sweep", "Apply document retention policies"),
         (weekly_digest_job, CronTrigger(day_of_week="mon", hour=7, minute=10), "hr_doc_weekly_digest",

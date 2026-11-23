@@ -9,6 +9,7 @@ import ReminderDialog from "../components/ReminderDialog";
 import Pager from "../components/Pager";
 import { useDocumentEmployees, useDocumentEmployeesSummary, useSendBulkReminders } from "../hooks/useEmployeeDocuments";
 import { formatDate } from "../../../../utils/dateTime";
+import { bulkReminderNotice } from "../constants";
 
 const STATUS_CARDS = [
   { key: "complete", label: "Complete", icon: CheckCircle2, tone: "text-emerald-700 bg-emerald-50" },
@@ -126,9 +127,9 @@ export default function EmployeeDocumentsListPage() {
       </div>
       <ReminderDialog open={reminding} who={`${selected.size} employee${selected.size === 1 ? "" : "s"}`}
         onClose={() => setReminding(false)}
-        onSubmit={async ({ message }) => {
-          const r = await bulk.mutateAsync({ employeeIds: [...selected], message });
-          setNotice(`Reminders sent to ${r.sent}${r.skipped ? `; ${r.skipped} had nothing missing or were reminded in the last 24 hours` : ""}.`);
+        onSubmit={async ({ message, scheduledFor }) => {
+          const r = await bulk.mutateAsync({ employeeIds: [...selected], message, scheduledFor });
+          setNotice(bulkReminderNotice(r));
           setSelected(new Set());
         }} />
     </OrganizationDocumentsLayout>

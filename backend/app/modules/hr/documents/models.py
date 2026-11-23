@@ -220,6 +220,31 @@ class HrDocumentReminder(Base):
     resolved_at          = Column(DateTime, nullable=True)
 
 
+class HrDocumentReminderRequest(Base):
+    """A reminder HR asked for in Employee Documents ("upload what is missing"), sent now or at `scheduled_for` (QA R1-15).
+
+    It also carries the per-document cooldown (QA R1-16): `sent_category_ids` are the containers the person was actually
+    reminded about, so a second reminder about the SAME document within the cooldown is refused while the person's other
+    documents can still be reminded about. Times are naive UTC like the rest of the module."""
+    __tablename__ = "hr_document_reminder_requests"
+    __table_args__ = (Index("ix_hdrr_due", "status", "scheduled_for"),
+                      Index("ix_hdrr_employee", "organization_id", "employee_id", "sent_at"))
+
+    id                = Column(Integer, primary_key=True)
+    organization_id   = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    employee_id       = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    category_ids      = Column(JSON, nullable=True)          # what HR picked (None: every missing / to-replace document)
+    sent_category_ids = Column(JSON, nullable=True)          # what the person was reminded about when it went out
+    message           = Column(Text, nullable=True)
+    channel           = Column(String(10), nullable=False, default="both", server_default="both")
+    scheduled_for     = Column(DateTime, nullable=True)      # None: sent at once
+    status            = Column(String(12), nullable=False, default="scheduled", server_default="scheduled")  # scheduled|sent|skipped|failed|cancelled
+    detail            = Column(String(255), nullable=True)   # why it was skipped or failed
+    created_by        = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    created_at        = Column(DateTime, nullable=False, server_default=func.now())
+    sent_at           = Column(DateTime, nullable=True)
+
+
 # ── append-only evidence ──────────────────────────────────────────────────────────────────────────────────────────────
 
 class AppendOnlyViolation(RuntimeError):

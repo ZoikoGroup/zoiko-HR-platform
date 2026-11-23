@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Loader2, X } from "lucide-react";
+import { Download, FileWarning, Loader2, X } from "lucide-react";
 import { PreviewBody } from "../../../../components/DocumentPreviewModal";
 import DocumentErrorState from "../../../../components/documents/DocumentErrorState";
 import { detectPreviewKind, fileExtension, humanFileSize, normalizePreviewBlob } from "../../../../utils/documentPreview";
@@ -14,10 +14,15 @@ import { getDocumentFile } from "../../../../service/hrService";
  * Accessibility: role="dialog" + aria-modal in drawer mode, focus moves to the close button and back to the element that
  * opened it, Escape closes.
  *
+ * A record whose file is gone from the server (410, QA R1-17 / R1-22) gets its own "file missing" state instead of the generic
+ * error, with the way out the server named: `missingActions[recovery]` ({ label, onClick }) is shown as a button, e.g.
+ * { upload_version: { label: "Upload it again", onClick } } for an admin on a company document.
+ *
  * @param {{ open: boolean, documentId?: number, title?: string, canDownload?: boolean, inline?: boolean,
- *           fetcher?: () => Promise<{blob: Blob, filename: string}>, onClose: () => void }} props
+ *           fetcher?: () => Promise<{blob: Blob, filename: string}>, onClose: () => void,
+ *           missingActions?: Record<string, { label: string, onClick: () => void }> }} props
  */
-export default function FilePreviewDrawer({ open, documentId, title, canDownload = true, inline = false, fetcher, onClose }) {
+export default function FilePreviewDrawer({ open, documentId, title, canDownload = true, inline = false, fetcher, onClose, missingActions }) {
   const [state, setState] = useState({ status: "idle" });
   const closeRef = useRef(null);
   const returnFocus = useRef(null);
@@ -35,7 +40,11 @@ export default function FilePreviewDrawer({ open, documentId, title, canDownload
         url = URL.createObjectURL(normalized);
         setState({ status: "ready", blob: normalized, url, filename: filename || title || "document" });
       })
-      .catch((e) => { if (!cancelled) setState({ status: "error", message: e?.message || "The file could not be opened." }); });
+      .catch((e) => {
+        if (cancelled) return;
+        if (e?.status === 410) setState({ status: "missing", message: e.message, recovery: e.recovery || null });
+        else setState({ status: "error", message: e?.message || "The file could not be opened." });
+      });
     return () => {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
@@ -96,6 +105,7 @@ export default function FilePreviewDrawer({ open, documentId, title, canDownload
           </div>
         )}
         {state.status === "error" && <DocumentErrorState message={state.message} />}
+        {state.status === "missing" && <MissingFile message={state.message} action={missingActions?.[state.recovery]} />}
         {state.status === "ready" && (
           <PreviewBody key={`${filename}:${kind}`} kind={kind} blob={state.blob} url={state.url} filename={filename} />
         )}
@@ -107,6 +117,23 @@ export default function FilePreviewDrawer({ open, documentId, title, canDownload
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} data-testid="preview-drawer-overlay">
       {panel}
+    </div>
+  );
+}
+
+/** The record is fine but its file is not on the server: say so plainly and offer the one thing that fixes it. */
+export function MissingFile({ message, action }) {
+  return (
+    <div role="alert" data-testid="file-missing" className="flex flex-col items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-6 py-10 text-center text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+      <FileWarning size={28} aria-hidden="true" />
+      <p className="font-semibold">File missing on the server</p>
+      <p className="max-w-sm">{message || "The file for this document is missing on the server."}</p>
+      {action && (
+        <button type="button" onClick={action.onClick}
+          className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

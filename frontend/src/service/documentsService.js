@@ -59,10 +59,13 @@ export const getDocumentEmployeesSummary = () => api.get("/hr/documents/employee
 export const getDocumentEmployee = (employeeId) => api.get(`/hr/documents/employees/${employeeId}`);
 export const getEmployeeCategoryFiles = (employeeId, categoryId) =>
   api.get(`/hr/documents/employees/${employeeId}/categories/${categoryId}/files`);
-export const sendEmployeeReminder = ({ employeeId, categoryIds, message, channel }) =>
-  api.post(`/hr/documents/employees/${employeeId}/reminders`, { category_ids: categoryIds || null, message: message || null, channel: channel || "both" });
-export const sendBulkReminders = ({ employeeIds, message }) =>
-  api.post("/hr/documents/reminders/bulk", { employee_ids: employeeIds, message: message || null });
+/** `scheduledFor`: an ISO date-time in UTC ("…Z") to send it later; empty sends it now (QA R1-15). */
+export const sendEmployeeReminder = ({ employeeId, categoryIds, message, channel, scheduledFor }) =>
+  api.post(`/hr/documents/employees/${employeeId}/reminders`, { category_ids: categoryIds || null, message: message || null,
+    channel: channel || "both", scheduled_for: scheduledFor || null });
+export const sendBulkReminders = ({ employeeIds, message, scheduledFor }) =>
+  api.post("/hr/documents/reminders/bulk", { employee_ids: employeeIds, message: message || null, scheduled_for: scheduledFor || null });
+export const cancelScheduledReminder = (reminderId) => api.delete(`/hr/documents/reminders/${reminderId}`);
 export async function downloadEmployeeZip(employeeId, approvedOnly = true) {
   const { fetchAuthenticatedFile } = await import("./hrService");
   return fetchAuthenticatedFile(`/hr/documents/employees/${employeeId}/export.zip?approved_only=${approvedOnly}`, `employee-${employeeId}-documents.zip`);

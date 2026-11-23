@@ -125,7 +125,8 @@ TABLES: dict[str, Level] = {
     "hr_employee_document_categories": L.PLATFORM_META, "hr_company_document_categories": L.PLATFORM_META,
     "hr_document_access_rules": L.PERSONAL_BASIC, "hr_document_ack_rounds": L.PERSONAL_BASIC,
     "hr_document_acknowledgements": L.PERSONAL_CONFIDENTIAL, "hr_document_audit_logs": L.PERSONAL_CONFIDENTIAL,
-    "hr_document_reminders": L.PERSONAL_BASIC, "document_tasks": L.PERSONAL_BASIC,
+    "hr_document_reminders": L.PERSONAL_BASIC, "hr_document_reminder_requests": L.PERSONAL_BASIC,
+    "document_tasks": L.PERSONAL_BASIC,
     "automation_rules": L.PLATFORM_META, "automation_runs": L.PERSONAL_BASIC, "automation_settings": L.PLATFORM_META,
     "notification_templates": L.PLATFORM_META, "retention_policies": L.PLATFORM_META,
     # attendance engine (attendance plan M1): breaks and the edit trail are about a person's working day

@@ -44,6 +44,12 @@ async def lifespan(application: FastAPI):
     # create_all is additive-only and never alters existing tables/columns.
     initialize_database()
     logger.info("[startup] Tables ready: %s", sorted(Base.metadata.tables.keys()))
+    try:  # uploaded files on a disk that is wiped on redeploy is the usual cause of "file not available on the server"
+        from app.modules.hr.documents.storage_service import storage_config_problems
+        for problem in storage_config_problems():
+            logger.warning("[startup] Document storage: %s", problem)
+    except Exception:  # a settings check must never stop the app from starting
+        logger.debug("document storage check failed", exc_info=True)
 
     # Entitlement matrix visibility: report count so an empty table is never silent.
     try:

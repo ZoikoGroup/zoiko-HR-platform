@@ -515,6 +515,10 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_BASIC**: `parent_id`, `created_by`, `company_category_id`
 - **TENANT_FILE**: `name`
 
+## `hr_document_reminder_requests` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `employee_id`, `category_ids`, `sent_category_ids`, `message`, `channel`, `scheduled_for`, `status`, `detail`, `created_by`, `sent_at`
+
 ## `hr_document_reminders` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`
 - **PERSONAL_BASIC**: `task_id`, `kind`, `level`, `dedupe_key`, `employee_id`, `document_id`, `employee_category_id`, `sent_by`, `channel`, `message`, `sent_at`, `resolved_at`

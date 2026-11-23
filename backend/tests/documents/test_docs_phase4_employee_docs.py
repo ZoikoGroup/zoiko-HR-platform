@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.modules.hr.documents.category_service import employee_category_by_key
-from app.modules.hr.documents.models import HrDocumentAuditLog, HrDocumentReminder
-from test_docs_phase2_flows import _notified, _pdf, _upload, api  # noqa: F401
+from app.modules.hr.documents.models import HrDocumentAuditLog, HrDocumentReminder, HrDocumentReminderRequest
+from test_docs_phase2_flows import _cat, _notified, _pdf, _upload, api  # noqa: F401
 
 
 def _approve(api, body):
@@ -73,7 +73,8 @@ def test_reminders_name_what_is_missing_and_wait_24_hours(api):
     assert "Reminder: documents to upload" in _notified(api, "emp")
     again = api.post(f"/hr/documents/employees/{api.people['emp'].id}/reminders", json={})
     assert again.status_code == 429 and again.json()["error"] == "DOC_REMINDER_COOLDOWN"
-    row = api.db.query(HrDocumentReminder).filter_by(employee_id=api.people["emp"].id, kind="upload_missing").one()
+    assert api.db.query(HrDocumentReminder).filter_by(employee_id=api.people["emp"].id, kind="upload_missing").count() == 1
+    row = api.db.query(HrDocumentReminderRequest).filter_by(employee_id=api.people["emp"].id, status="sent").one()
     row.sent_at = datetime.utcnow() - timedelta(hours=25)
     api.db.commit()
     assert api.post(f"/hr/documents/employees/{api.people['emp'].id}/reminders", json={}).status_code == 200
@@ -84,7 +85,109 @@ def test_bulk_reminders_skip_people_with_nothing_missing(api):
     _all_required(api, "emp")
     api.as_("hr")
     r = api.post("/hr/documents/reminders/bulk", json={"employee_ids": [api.people["emp"].id, api.people["emp2"].id]})
-    assert r.json() == {"sent": 1, "skipped": 1}
+    assert r.json() == {"sent": 1, "skipped": 1, "scheduled": 0}
+
+
+# ── QA R1-16: the cooldown is per person AND per document ────────────────────────────────────────────────────────────
+
+def _remind(api, who="emp", **body):
+    api.as_("hr")
+    return api.post(f"/hr/documents/employees/{api.people[who].id}/reminders", json=body)
+
+
+def test_the_cooldown_applies_per_document_not_per_person(api):
+    education, identity = _cat(api, "education").id, _cat(api, "identity_proof").id
+    assert _remind(api, category_ids=[education]).json()["categories"] == ["education"]
+    # another document of the same person: not blocked by the reminder about Education
+    assert _remind(api, category_ids=[identity]).json()["categories"] == ["identity_proof"]
+    again = _remind(api, category_ids=[education])
+    assert again.status_code == 429 and again.json()["error"] == "DOC_REMINDER_COOLDOWN" and "Education" in again.json()["message"]
+    # "remind about everything missing" leaves out the documents still cooling down and sends the rest
+    r = _remind(api).json()
+    assert sorted(r["categories"]) == ["address_proof", "bank_details"]
+    assert sorted(r["cooling_down"]) == ["education", "identity_proof"]
+    # another person is not affected at all
+    assert _remind(api, who="emp2", category_ids=[education]).status_code == 200
+    detail = api.get(f"/hr/documents/employees/{api.people['emp'].id}").json()
+    reminded = {c["key"]: c["reminded_at"] for c in detail["categories"]}
+    assert reminded["education"] and reminded["identity_proof"] and reminded["payslips"] is None
+
+
+# ── QA R1-15: a reminder sent at a chosen date and time ──────────────────────────────────────────────────────────────
+
+def _iso(dt):
+    return dt.replace(microsecond=0).isoformat() + "Z"
+
+
+def test_a_scheduled_reminder_waits_for_its_time_and_is_sent_once(api):
+    from app.modules.hr.documents.employee_docs_service import send_due_reminders
+    when = datetime.utcnow() + timedelta(hours=3)
+    r = _remind(api, scheduled_for=_iso(when), message="By Friday")
+    assert r.status_code == 200 and r.json()["scheduled"] is True and r.json()["sent"] == 0
+    assert "Reminder: documents to upload" not in _notified(api, "emp")
+    detail = api.get(f"/hr/documents/employees/{api.people['emp'].id}").json()
+    assert [x["id"] for x in detail["scheduled_reminders"]] == [r.json()["id"]]
+    assert send_due_reminders(api.db, 1, datetime.utcnow()) == 0                    # not yet
+    assert send_due_reminders(api.db, 1, when + timedelta(minutes=1)) == 1
+    api.db.commit()
+    assert "Reminder: documents to upload" in _notified(api, "emp")
+    row = api.db.get(HrDocumentReminderRequest, r.json()["id"])
+    assert row.status == "sent" and row.sent_at is not None and sorted(row.sent_category_ids)
+    assert send_due_reminders(api.db, 1, when + timedelta(minutes=2)) == 0          # never twice
+    assert api.db.query(HrDocumentAuditLog).filter_by(action="reminder_scheduled").count() == 1
+    # the scheduled send started the per-document cooldown
+    assert _remind(api).status_code == 429
+
+
+def test_a_time_in_the_past_is_refused_and_an_empty_one_sends_now(api):
+    past = _remind(api, scheduled_for=_iso(datetime.utcnow() - timedelta(hours=1)))
+    assert past.status_code == 422 and "future" in past.json()["message"]
+    assert _remind(api, scheduled_for=_iso(datetime.utcnow() + timedelta(days=400))).status_code == 422
+    now = _remind(api, scheduled_for="")
+    assert now.status_code == 200 and now.json()["sent"] == 1 and not now.json().get("scheduled")
+    assert _remind(api, who="emp2", scheduled_for="not a date").status_code == 422
+
+
+def test_a_scheduled_time_with_an_offset_is_stored_in_utc(api):
+    from datetime import timezone as tz
+    local = (datetime.now(tz(timedelta(hours=5, minutes=30))) + timedelta(hours=2)).replace(microsecond=0)
+    r = _remind(api, scheduled_for=local.isoformat())
+    row = api.db.get(HrDocumentReminderRequest, r.json()["id"])
+    assert row.scheduled_for == local.astimezone(tz.utc).replace(tzinfo=None)
+
+
+def test_a_scheduled_reminder_can_be_cancelled_and_is_then_never_sent(api):
+    from app.modules.hr.documents.employee_docs_service import send_due_reminders
+    when = datetime.utcnow() + timedelta(hours=1)
+    rid = _remind(api, scheduled_for=_iso(when)).json()["id"]
+    assert api.delete(f"/hr/documents/reminders/{rid}").json()["status"] == "cancelled"
+    assert api.delete(f"/hr/documents/reminders/{rid}").status_code == 409
+    assert send_due_reminders(api.db, 1, when + timedelta(minutes=5)) == 0
+    assert "Reminder: documents to upload" not in _notified(api, "emp")
+    api.as_("emp")
+    assert api.delete(f"/hr/documents/reminders/{rid}").status_code == 403
+
+
+def test_a_scheduled_reminder_for_someone_who_left_is_skipped(api):
+    from app.modules.hr.documents.employee_docs_service import send_due_reminders
+    when = datetime.utcnow() + timedelta(hours=1)
+    rid = _remind(api, scheduled_for=_iso(when)).json()["id"]
+    api.people["emp"].is_active = False
+    api.db.commit()
+    assert send_due_reminders(api.db, 1, when + timedelta(minutes=1)) == 0
+    row = api.db.get(HrDocumentReminderRequest, rid)
+    assert row.status == "skipped" and "no longer active" in row.detail
+
+
+def test_bulk_reminders_can_be_scheduled(api):
+    api.as_("hr")
+    when = _iso(datetime.utcnow() + timedelta(hours=2))
+    r = api.post("/hr/documents/reminders/bulk", json={"employee_ids": [api.people["emp"].id, api.people["emp2"].id],
+                                                      "scheduled_for": when})
+    assert r.json() == {"sent": 0, "skipped": 0, "scheduled": 2}
+    past = api.post("/hr/documents/reminders/bulk", json={"employee_ids": [api.people["emp"].id],
+                                                         "scheduled_for": _iso(datetime.utcnow() - timedelta(hours=2))})
+    assert past.status_code == 422
 
 
 def test_zip_export_holds_approved_files_by_category_and_is_audited(api):

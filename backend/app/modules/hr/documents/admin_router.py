@@ -20,12 +20,15 @@ class ReminderIn(BaseModel):
     category_ids: Optional[list[int]] = None
     message: Optional[str] = Field(None, max_length=500)
     channel: str = Field("both", pattern="^(both|email|in_app)$")
+    # ISO date-time, ideally with an offset ("2026-12-01T09:30:00Z"); one without is taken as UTC. Empty: send now.
+    scheduled_for: Optional[str] = Field(None, max_length=40)
 
 
 class BulkReminderIn(BaseModel):
     employee_ids: list[int] = Field(..., min_length=1, max_length=500)
     category_ids: Optional[list[int]] = None
     message: Optional[str] = Field(None, max_length=500)
+    scheduled_for: Optional[str] = Field(None, max_length=40)
 
 
 class CategoryIn(BaseModel):
@@ -67,16 +70,25 @@ def employee_category_files(employee_id: int, category_id: int, db: Session = De
     return svc.category_files(db, user, employee_id, category_id)
 
 
-@router.post("/employees/{employee_id}/reminders", summary="Remind an employee to upload (one reminder per 24 hours)")
+@router.post("/employees/{employee_id}/reminders",
+             summary="Remind an employee to upload, now or at a chosen time (one reminder per document per 24 hours)")
 def remind(employee_id: int, body: ReminderIn, db: Session = Depends(get_db),
            user=Depends(require_doc_permission(DocAction.EMP_DOCS_REMIND)), ctx: RequestCtx = Depends(request_ctx)):
-    return svc.send_reminders(db, user, employee_id, body.category_ids, body.message, body.channel, ctx=ctx)
+    return svc.send_reminders(db, user, employee_id, body.category_ids, body.message, body.channel, ctx=ctx,
+                              scheduled_for=body.scheduled_for)
 
 
-@router.post("/reminders/bulk", summary="Remind several employees")
+@router.post("/reminders/bulk", summary="Remind several employees, now or at a chosen time")
 def remind_bulk(body: BulkReminderIn, db: Session = Depends(get_db),
                 user=Depends(require_doc_permission(DocAction.EMP_DOCS_REMIND)), ctx: RequestCtx = Depends(request_ctx)):
-    return svc.bulk_reminders(db, user, body.employee_ids, body.category_ids, body.message, ctx=ctx)
+    return svc.bulk_reminders(db, user, body.employee_ids, body.category_ids, body.message, ctx=ctx,
+                              scheduled_for=body.scheduled_for)
+
+
+@router.delete("/reminders/{reminder_id}", summary="Cancel a scheduled reminder that has not been sent yet")
+def cancel_reminder(reminder_id: int, db: Session = Depends(get_db),
+                    user=Depends(require_doc_permission(DocAction.EMP_DOCS_REMIND)), ctx: RequestCtx = Depends(request_ctx)):
+    return svc.cancel_scheduled_reminder(db, user, reminder_id, ctx=ctx)
 
 
 @router.get("/employees/{employee_id}/export.zip", summary="Download an employee's documents as a ZIP (audited)")

@@ -36,6 +36,7 @@ function mockService(t, over = {}) {
     getEmployeeCategoryFiles: async (_e, c) => ({ employee: EMPLOYEE, category: { ...CATS[Number(c) - 1], files: undefined }, files: CATS[Number(c) - 1].files }),
     sendEmployeeReminder: async (v) => { calls.remind.push(v); return { sent: 1, categories: ["education"] }; },
     sendBulkReminders: async (v) => { calls.bulk.push(v); return { sent: 1, skipped: 0 }; },
+    cancelScheduledReminder: async () => ({ status: "cancelled" }),
     downloadEmployeeZip: async () => ({ blob: new Blob(["zip"]), filename: "x.zip" }),
     listEmployeeCategories: async () => ({ items: [{ id: 1, key: "identity_proof", name: "Identity Proof", is_required: true, requires_expiry: true,
       uploader: "employee", id_number_field: null, human_approval_required: true, is_system: true, is_active: true }],
@@ -77,7 +78,7 @@ test("bulk reminders go to the selected employees", async (t) => {
   fireEvent.click(screen.getByRole("button", { name: /Remind 1/ }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send reminder" }));
   await settle();
-  assert.deepEqual(calls.bulk, [{ employeeIds: [7], message: undefined }]);
+  assert.deepEqual(calls.bulk, [{ employeeIds: [7], message: undefined, scheduledFor: undefined }]);
 });
 
 test("one employee's containers: a missing required one offers a reminder; HR-issued ones do not", async (t) => {
@@ -92,7 +93,7 @@ test("one employee's containers: a missing required one offers a reminder; HR-is
   fireEvent.click(within(education).getByRole("button", { name: /Send reminder/ }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send reminder" }));
   await settle();
-  assert.deepEqual(calls.remind, [{ employeeId: 7, categoryIds: [2], message: undefined }]);
+  assert.deepEqual(calls.remind, [{ employeeId: 7, categoryIds: [2], message: undefined, scheduledFor: undefined }]);
 });
 
 test("files in a container: preview and download only; a pending file links to Approval Workflow", async (t) => {
@@ -122,4 +123,24 @@ test("the old admin upload address redirects to the read-only list", () => {
     const src = fs.readFileSync(`src/modules/zoiko-hr/documents/employee-documents/${f}.jsx`, "utf8");
     assert.doesNotMatch(src, /uploadDocument|uploadMyDocument|approveDocument/, f);
   }
+});
+
+test("QA R1-15/16: scheduled reminders are listed and can be cancelled; a document reminded about today waits its 24 hours", async (t) => {
+  const cancelled = [];
+  const cats = structuredClone(CATS);
+  cats[1].reminded_at = "2026-11-23T08:00:00Z";
+  mockService(t, {
+    getDocumentEmployee: async () => ({ employee: EMPLOYEE, categories: cats, last_reminder_at: "2026-11-23T08:00:00Z",
+      scheduled_reminders: [{ id: 4, scheduled_for: "2026-12-01T09:30:00Z", category_ids: [1], message: null }] }),
+    cancelScheduledReminder: async (id) => { cancelled.push(id); return { status: "cancelled" }; },
+  });
+  await renderAt("employee-documents/EmployeeDocumentCategoriesPage.jsx", "/zoiko-hr/documents/employees/7", "/zoiko-hr/documents/employees/:employeeId");
+  const education = screen.getByRole("link", { name: "Education" }).closest("li");
+  assert.equal(within(education).queryByRole("button", { name: /Send reminder/ }), null);
+  assert.match(education.textContent, /Reminded .* 24 hours later/);
+  const scheduled = screen.getByRole("list", { name: "Scheduled reminders" });
+  assert.match(scheduled.textContent, /Reminder scheduled for .*\(Identity Proof\)/);
+  fireEvent.click(within(scheduled).getByRole("button", { name: "Cancel" }));
+  await settle();
+  assert.deepEqual(cancelled, [4]);
 });

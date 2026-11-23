@@ -74,3 +74,27 @@ export function validateLadder(steps) {
 }
 
 export const isValid = (errors) => Object.keys(errors || {}).length === 0;
+
+const pad = (n) => String(n).padStart(2, "0");
+/** "YYYY-MM-DD" / "HH:MM" of a Date in the viewer's own time zone (what <input type="date|time"> show). */
+export const localDateValue = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export const localTimeValue = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/**
+ * The send time of a reminder (QA R1-15) from the dialog's date and time fields, read in the viewer's time zone.
+ * Both empty: send now ({ scheduledFor: null }). A date without a time (or the reverse), or a moment that is not in the
+ * future, is an error. `scheduledFor` is ISO UTC, ready for the API.
+ *
+ * @returns {{ scheduledFor: string|null, errors: { schedule?: string } }}
+ */
+export function reminderSchedule(date, time, now = new Date()) {
+  if (!date && !time) return { scheduledFor: null, errors: {} };
+  if (!date) return { scheduledFor: null, errors: { schedule: "Choose a date, or clear the time to send now." } };
+  if (!time) return { scheduledFor: null, errors: { schedule: "Choose a time, or clear the date to send now." } };
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  const when = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+  if (Number.isNaN(when.getTime())) return { scheduledFor: null, errors: { schedule: "Enter a valid date and time." } };
+  if (when.getTime() <= now.getTime()) return { scheduledFor: null, errors: { schedule: "Choose a time in the future." } };
+  return { scheduledFor: when.toISOString(), errors: {} };
+}
