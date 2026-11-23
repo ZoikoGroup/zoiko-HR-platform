@@ -859,7 +859,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `shifts` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `name`, `shift_type`, `start_time`, `end_time`, `grace_time_minutes`, `break_duration_minutes`, `is_overtime_eligible`, `requires_attendance`, `standard_hours`, `working_days`, `half_day_min_minutes`, `description`, `is_active`
+- **PERSONAL_BASIC**: `name`, `shift_type`, `start_time`, `end_time`, `grace_time_minutes`, `break_duration_minutes`, `is_overtime_eligible`, `requires_attendance`, `standard_hours`, `working_days`, `half_day_min_minutes`, `min_present_minutes`, `description`, `is_active`
 
 ## `structure_components` (default FINANCIAL; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `created_at`, `updated_at`
