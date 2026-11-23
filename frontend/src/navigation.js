@@ -23,6 +23,9 @@ import {
   HeartHandshake,
   History,
   LayoutDashboard,
+  LogOut,
+  MessageSquareText,
+  UserMinus,
   Layers,
   LifeBuoy,
   Lock,
@@ -223,6 +226,17 @@ const products = {
           { label: "Checklists",            href: "/zoiko-hr/onboarding/checklists",     icon: ClipboardCheck, featureKey: "hr.onboarding.core" },
           { label: "Settings",              href: "/zoiko-hr/onboarding/settings",        icon: SlidersHorizontal, featureKey: "hr.onboarding.core" },
         ]},
+        { label: "Offboarding",        icon: UserMinus, children: [
+          { label: "Dashboard",             href: "/zoiko-hr/offboarding",               icon: LayoutDashboard, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Exit Cases",            href: "/zoiko-hr/offboarding/cases",         icon: Users, featureKey: "hr.lifecycle.offboarding" },
+          { label: "New Exit",              href: "/zoiko-hr/offboarding/new",           icon: UserMinus, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Resignations",          href: "/zoiko-hr/offboarding/resignations",  icon: FileSignature, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Clearance Board",       href: "/zoiko-hr/offboarding/clearance",     icon: ClipboardCheck, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Asset Recovery",        href: "/zoiko-hr/offboarding/assets",        icon: Package, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Settlements",           href: "/zoiko-hr/offboarding/settlements",   icon: WalletCards, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Exit Interviews",       href: "/zoiko-hr/offboarding/interviews",    icon: MessageSquareText, featureKey: "hr.lifecycle.offboarding" },
+          { label: "Settings",              href: "/zoiko-hr/offboarding/settings",      icon: SlidersHorizontal, featureKey: "hr.lifecycle.offboarding" },
+        ]},
         { label: "Employee Management", icon: Users, excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN], children: [
           { label: "Dashboard",             href: "/zoiko-hr/employee-management",         icon: LayoutDashboard },
           { label: "Employees",             href: "/zoiko-hr/employee-management/employees", icon: Users },
@@ -325,9 +339,14 @@ const employeeWorkspace = {
         { label: "Time Requests", href: "/employee/ess/time-requests", icon: Clock },
         { label: "My Compensation", href: "/employee/compensation", icon: WalletCards },
         { label: "My Performance", href: "/employee/performance", icon: Target },
+        { label: "Offboarding Tasks", href: "/employee/ess/offboarding-tasks", icon: ClipboardCheck, featureKey: "hr.lifecycle.offboarding" },
         { label: "Settings",    href: "/employee/ess/settings",   icon: SlidersHorizontal },
       ],
     },
+
+    // ── My Exit: one entry; its sections (Resign, Exit Status, Exit Tasks, Exit Interview, Exit Documents) are tabs
+    // inside the page that appear as they become relevant
+    { label: "My Exit", href: "/employee/ess/exit", icon: LogOut, featureKey: "hr.lifecycle.offboarding" },
 
     // ── Learning ───────────────────────────────────────────────────────────
     {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import HRPage from "../../../../components/HRPage";
-import { getEmployeeLifecycle, confirmProbation, promoteEmployee, transferEmployee, resignEmployee, exitEmployee } from "../../../../service/employee";
+import { getEmployeeLifecycle, confirmProbation, promoteEmployee, transferEmployee } from "../../../../service/employee";
 import { Clock, UserCheck, TrendingUp, AlertCircle, RefreshCw, FileText, Users, Building2, MapPin } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -150,6 +150,12 @@ export default function EmployeeLifecycle() {
   const handleAction = async (eventId, action, eventType) => {
     const today = new Date().toISOString().split("T")[0];
 
+    // Resignations and exits are handled in Offboarding: notice, last working day, clearance, assets and settlement.
+    if (eventType === "resignation" || eventType === "exit") {
+      navigate(`/zoiko-hr/offboarding/new?employee=${encodeURIComponent(eventId)}`);
+      return;
+    }
+
     switch (eventType) {
       case "probation_start":
         if (!window.confirm("Confirm probation completion for this employee?")) return;
@@ -168,26 +174,12 @@ export default function EmployeeLifecycle() {
         load();
         return;
       }
-      case "resignation": {
-        if (!window.confirm("Process resignation for this employee?")) return;
-        break;
-      }
-      case "exit": {
-        if (!window.confirm("Process exit for this employee? This will mark them as terminated.")) return;
-        break;
-      }
     }
 
     try {
       switch (eventType) {
         case "probation_start":
           await confirmProbation({ employee_id: eventId, confirmation_date: today });
-          break;
-        case "resignation":
-          await resignEmployee({ employee_id: eventId, resignation_date: today, last_working_date: today });
-          break;
-        case "exit":
-          await exitEmployee({ employee_id: eventId, exit_date: today, exit_type: "voluntary" });
           break;
       }
       load();

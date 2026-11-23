@@ -52,6 +52,18 @@ EVENTS = {
     "document.retention_due": ("document", "Retention period ended", "The retention period ended for {title}. Review them before anything is removed."),
     "document.weekly_digest": ("document", "Weekly documents summary", "This week: {title}. Open Approval Workflow for details."),
     "onboarding.tasks_assigned": ("onboarding", "Onboarding tasks assigned", "You have new onboarding tasks to complete."),
+    # offboarding (ZHR-PRIV-001: no reason for leaving, no names of the leaver's colleagues)
+    "offboarding.resignation_submitted": ("offboarding", "Resignation to review", "A resignation is waiting for your decision."),
+    "offboarding.approval_needed": ("offboarding", "Exit to approve", "An exit is waiting for approval in Offboarding."),
+    "offboarding.resignation_approved": ("offboarding", "Resignation accepted", "Your resignation has been accepted. Your last working day is {date}."),
+    "offboarding.resignation_rejected": ("offboarding", "Resignation not accepted", "Your resignation was not accepted. Open My Exit to see why."),
+    "offboarding.exit_started": ("offboarding", "Your exit details", "Your exit details are in My Exit. Your last working day is {date}."),
+    "offboarding.tasks_assigned": ("offboarding", "Offboarding tasks assigned", "You have new offboarding tasks to complete."),
+    "offboarding.task_overdue": ("offboarding", "Offboarding task overdue", "“{title}” is overdue."),
+    "offboarding.interview_requested": ("offboarding", "Exit interview", "Please complete your exit interview in My Exit."),
+    "offboarding.document_issued": ("offboarding", "Exit document issued", "“{title}” is ready in My Exit."),
+    "offboarding.withdrawal_requested": ("offboarding", "Withdrawal requested", "An employee asked to withdraw their resignation."),
+    "offboarding.withdrawal_decided": ("offboarding", "Withdrawal decided", "HR has decided on your withdrawal request. Open My Exit for details."),
     "performance.review_shared": ("performance", "Performance review shared", "Your performance review has been shared with you."),
 }
 

@@ -513,6 +513,14 @@ attendance_routers = _safe_import(lambda: [
 ], "hr.attendance")
 for _r in attendance_routers or []:
     app.include_router(_r)
+# Offboarding: exit cases (/hr/offboarding), My Exit and Offboarding Tasks (/hr/me/offboarding), exit documents link.
+offboarding_routers = _safe_import(lambda: [
+    __import__("app.modules.hr.offboarding.router", fromlist=["x"]).router,
+    __import__("app.modules.hr.offboarding.router", fromlist=["x"]).me_router,
+    __import__("app.modules.hr.offboarding.router", fromlist=["x"]).public_router,
+], "hr.offboarding")
+for _r in offboarding_routers or []:
+    app.include_router(_r)
 app.include_router(support_data_router)
 app.include_router(support_login_operator_router)
 app.include_router(support_login_tenant_router)

@@ -1651,7 +1651,7 @@ def resign_employee_mgmt(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.resign_employee(db, data, current_user.organization_id)
+    return service.resign_employee(db, data, current_user.organization_id, actor=current_user)
 
 
 @employee_router.post(
@@ -1665,7 +1665,7 @@ def exit_employee_mgmt(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.exit_employee(db, data, current_user.organization_id)
+    return service.exit_employee(db, data, current_user.organization_id, actor=current_user)
 
 # ── REPORTS ─────────────────────────────────────────────────────────────────────
 

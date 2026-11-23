@@ -244,3 +244,9 @@ def register(scheduler) -> None:
         register_attendance_jobs(scheduler)
     except Exception:
         logger.exception("attendance jobs could not be registered")
+    # Offboarding: finish exits past the last working day, overdue task reminders, contracts ending.
+    try:
+        from app.modules.hr.offboarding.jobs import register as register_offboarding_jobs
+        register_offboarding_jobs(scheduler)
+    except Exception:
+        logger.exception("offboarding jobs could not be registered")

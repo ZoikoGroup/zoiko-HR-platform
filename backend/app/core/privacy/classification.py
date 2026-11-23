@@ -136,6 +136,13 @@ TABLES: dict[str, Level] = {
     "employee_shifts": L.PERSONAL_BASIC, "attendance_day_closures": L.PLATFORM_META,
     # Prompt 4: probation reviews and improvement plans hold performance concerns (C3 documents)
     "probation_reviews": L.PERSONAL_CONFIDENTIAL, "performance_improvement_plans": L.SPECIAL_CATEGORY,
+    # offboarding: why someone leaves, the decision, exit interview answers and the final settlement are confidential;
+    # clearance tasks and asset returns name people; settings and checklists are configuration
+    "offboarding_cases": L.PERSONAL_CONFIDENTIAL, "offboarding_tasks": L.PERSONAL_BASIC,
+    "offboarding_checklist_templates": L.PLATFORM_META, "offboarding_asset_returns": L.PERSONAL_BASIC,
+    "offboarding_settlements": L.FINANCIAL, "offboarding_exit_interviews": L.PERSONAL_CONFIDENTIAL,
+    "offboarding_documents": L.PERSONAL_CONFIDENTIAL, "offboarding_activity": L.PERSONAL_BASIC,
+    "offboarding_settings": L.PLATFORM_META,
     # child tables of tenant tables (no organization_id of their own)
     "billable_workforce_snapshots": L.TENANT_AGGREGATE, "downgrade_impact_item": L.PLATFORM_META, "workflow_workflows": L.PLATFORM_META,
     "connect_channels": L.PLATFORM_META, "hub_webhooks": L.PLATFORM_META, "hub_webhook_deliveries": L.PERSONAL_CONFIDENTIAL,
