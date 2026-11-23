@@ -1,4 +1,5 @@
 import { getCurrentAppCurrency } from "./appCurrency";
+import { getLocaleForCurrency } from "./locale";
 // Money shown the way its currency is written (₹1,20,000 · €45,000 · $90,000), with what kind of pay it is.
 
 export const REMUNERATION_TYPES = [
@@ -55,6 +56,30 @@ export function formatMoney(amount, currency, { compact = false } = {}) {
     }).format(n);
   } catch {
     return `${code || ""} ${n.toLocaleString()}`.trim();
+  }
+}
+
+/** The organization's currency code (from the signed-in user: the organization's registered country), else USD. */
+export function orgCurrency() {
+  try { return getCurrentAppCurrency() || "USD"; } catch { return "USD"; }
+}
+
+/**
+ * Money in the organization's currency, written the way that currency is (₹1,20,000 · $120,000 · £120,000).
+ * `compact` gives "₹1.2L" / "$1.2M". Use this for organization figures such as department budgets.
+ */
+export function formatOrgMoney(amount, { compact = false, currency } = {}) {
+  if (amount === null || amount === undefined || amount === "") return "—";
+  const n = Number(amount);
+  if (Number.isNaN(n)) return String(amount);
+  const code = currency || orgCurrency();
+  try {
+    return new Intl.NumberFormat(getLocaleForCurrency(code), {
+      style: "currency", currency: code, notation: compact ? "compact" : "standard",
+      maximumFractionDigits: compact ? 1 : n % 1 === 0 ? 0 : 2,
+    }).format(n);
+  } catch {
+    return `${code} ${n.toLocaleString()}`;
   }
 }
 

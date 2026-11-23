@@ -6,6 +6,7 @@ import { getDepartments, createDepartment, updateDepartment, getDepartmentSettin
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { DEFAULT_DEPARTMENT_SETTINGS, normalizeDepartmentSettings } from "../../../utils/departmentSettings";
 import { fieldProblem } from "../../../utils/fieldRules";
+import { currencySymbol, formatOrgMoney, orgCurrency } from "../../../utils/money";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/departments" },
@@ -373,7 +374,7 @@ export default function DepartmentList() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(r.created_at)}</td>
-                    {showBudget && <td className="px-4 py-3 text-right text-sm">${(Number(r.budget) || 0).toLocaleString()}</td>}
+                    {showBudget && <td className="whitespace-nowrap px-4 py-3 text-right text-sm">{formatOrgMoney(Number(r.budget) || 0)}</td>}
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
                         <button onClick={() => handleEditClick(r)} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors">
@@ -482,12 +483,12 @@ export default function DepartmentList() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Allocated Budget ($) *</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Allocated Budget ({currencySymbol(orgCurrency())} {orgCurrency()}) *</label>
                   <input type="number" required placeholder="e.g., 1500000" value={formData.budget} onChange={(e) => setFormData({...formData, budget: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Spent Budget ($) *</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Spent Budget ({currencySymbol(orgCurrency())} {orgCurrency()}) *</label>
                   <input type="number" required placeholder="e.g., 250000" value={formData.spent_budget} onChange={(e) => setFormData({...formData, spent_budget: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500" />
                 </div>
