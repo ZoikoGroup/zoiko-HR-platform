@@ -1,7 +1,7 @@
 """Learning: set each open enrollment's progress from the quizzes its learner has already passed
 
 Revision ID: 4c8e1f2a9b7d
-Revises: c1d2e3f4a5b6
+Revises: d030f23705b4
 Create Date: 2026-11-23
 
 From this release an enrollment's progress_pct is worked out from its course's quizzes (passed quizzes / quizzes in the
@@ -23,7 +23,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "4c8e1f2a9b7d"
-down_revision = "c1d2e3f4a5b6"
+down_revision = "d030f23705b4"
 branch_labels = None
 depends_on = None
 
