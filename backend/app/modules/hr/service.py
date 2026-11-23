@@ -516,7 +516,11 @@ def create_department(db: Session, data: DepartmentCreate, organization_id: int)
     from app.core.code_generation import generate_business_code
     dept_code = generate_business_code(db, organization_id, "DEP", Department, "department_code")
 
-    dept = Department(**data.model_dump(), organization_id=organization_id, department_code=dept_code)
+    values = data.model_dump()
+    head_id = values.pop("head_employee_id", None)
+    dept = Department(**values, organization_id=organization_id, department_code=dept_code)
+    if head_id is not None:
+        _set_department_head(db, dept, head_id, organization_id)
     db.add(dept)
     try:
         db.commit()
@@ -555,12 +559,39 @@ def update_department(db: Session, dept_id: int, data: DepartmentUpdate, organiz
     if "is_active" in update_data and update_data["is_active"] != bool(dept.is_active):
         _check_department_status_change(db, dept, update_data["is_active"], organization_id)
 
+    if "head_employee_id" in update_data:
+        head_id = update_data.pop("head_employee_id")
+        if head_id is None:
+            dept.head_employee_id = None
+            if "head" not in update_data:
+                dept.head = None
+        else:
+            _set_department_head(db, dept, head_id, organization_id)
+            update_data.pop("head", None)                  # the person's name wins over typed text
+
     for field, value in update_data.items():
         setattr(dept, field, value)
 
     db.commit()
     db.refresh(dept)
     return dept
+
+
+def _set_department_head(db: Session, dept: Department, employee_id: int, organization_id: int) -> None:
+    """The head must be an active employee of the organization. With "allow cross-department heads" off, someone who
+    already heads another active department is refused. `head` keeps the person's name for older screens."""
+    person = (db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == organization_id,
+                                        Employee.is_active.isnot(False)).first())
+    if person is None:
+        raise BadRequestException("The head of department must be an active employee of your organization.")
+    if not get_department_settings(db, organization_id).allow_cross_heads:
+        other = (db.query(Department).filter(Department.organization_id == organization_id, Department.head_employee_id == employee_id,
+                                             Department.is_active.isnot(False), Department.id != (dept.id or 0)).first())
+        if other is not None:
+            raise BadRequestException(f"{person.first_name or person.email} already heads {other.name}. "
+                                      "Allow cross-department heads in Department settings, or pick someone else.")
+    dept.head_employee_id = person.id
+    dept.head = (f"{person.first_name or ''} {person.last_name or ''}".strip() or person.email)[:100]
 
 
 def _check_department_status_change(db: Session, dept: Department, make_active: bool, organization_id: int) -> None:
@@ -644,8 +675,11 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
             "is_active": dept.is_active,
             "created_at": dept.created_at,
             "head": dept.head,
+            "head_employee_id": dept.head_employee_id,
+            "head_name": dept.head_name,
             "budget": dept.budget,
             "spent_budget": dept.spent_budget,
+            "utilization": dept.utilization,
             "establishment_year": dept.establishment_year,
             "parent_id": dept.parent_id,
             "organization_id": dept.organization_id,

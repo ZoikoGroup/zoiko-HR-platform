@@ -216,10 +216,25 @@ class Department(Base):
     spent_budget       = Column(Numeric(12, 2), default=0.00, nullable=True)
     establishment_year = Column(Integer, nullable=True)
     parent_id          = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    # the head of department as a person (migration 5d2a8c4e1f3b); `head` keeps the name for older screens
+    head_employee_id   = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
 
     organization_id    = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
 
-    employees          = relationship("Employee", back_populates="department")
+    employees          = relationship("Employee", back_populates="department", foreign_keys="Employee.department_id")
+    head_employee      = relationship("Employee", foreign_keys=[head_employee_id], lazy="joined", viewonly=True)
+
+    @property
+    def head_name(self):
+        e = self.head_employee
+        if e is not None:
+            return f"{e.first_name or ''} {e.last_name or ''}".strip() or e.email
+        return self.head
+
+    @property
+    def utilization(self):
+        budget = float(self.budget or 0)
+        return round(float(self.spent_budget or 0) / budget * 100) if budget > 0 else None
     organization       = relationship("Organization")
 
 

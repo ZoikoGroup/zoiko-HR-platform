@@ -74,10 +74,10 @@ function TreeNode({ node, allDepts, depth, onSelect }) {
               <span>{node.employee_count}</span>
             </div>
           )}
-          {node.head && (
+          {(node.head_name || node.head) && (
             <div className="flex items-center gap-1 bg-blue-50/60 px-2 py-0.5 rounded border border-blue-100/40 text-blue-700">
               <UserCheck size={12} />
-              <span>{node.head}</span>
+              <span>{node.head_name || node.head}</span>
             </div>
           )}
           <div className="flex items-center gap-1 bg-emerald-50/60 px-2 py-0.5 rounded border border-emerald-100/40 text-emerald-700 font-medium">
@@ -123,7 +123,7 @@ function DepartmentDetail({ dept }) {
           <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><UserCheck size={16} /></div>
           <div>
             <p className="text-xs text-gray-400 font-medium">Department Head</p>
-            <p className="font-semibold text-gray-700">{dept.head || "Not Assigned"}</p>
+            <p className="font-semibold text-gray-700">{dept.head_name || dept.head || "Not Assigned"}</p>
           </div>
         </div>
         {dept.establishment_year && (

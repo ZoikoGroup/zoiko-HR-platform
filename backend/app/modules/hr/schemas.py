@@ -113,8 +113,9 @@ class DepartmentCreate(BaseModel):
     
     # ── Fields to capture on creation ──
     head:               Optional[str] = None
-    budget:             Optional[Decimal] = Field(Decimal("0.00"))
-    spent_budget:       Optional[Decimal] = Field(Decimal("0.00"))
+    head_employee_id:   Optional[int] = Field(None, description="The head of department: an active employee of the organization")
+    budget:             Optional[Decimal] = Field(Decimal("0.00"), ge=0, description="In the organization's currency")
+    spent_budget:       Optional[Decimal] = Field(Decimal("0.00"), ge=0, description="Typed by HR; in the organization's currency")
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
 
@@ -148,8 +149,9 @@ class DepartmentUpdate(BaseModel):
     code:               Optional[str] = Field(None, min_length=2, max_length=20)
     description:        Optional[str] = None
     head:               Optional[str] = None
-    budget:             Optional[Decimal] = None
-    spent_budget:       Optional[Decimal] = None
+    head_employee_id:   Optional[int] = None          # null clears the head
+    budget:             Optional[Decimal] = Field(None, ge=0)
+    spent_budget:       Optional[Decimal] = Field(None, ge=0)
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
     is_active:          Optional[bool] = None
@@ -178,8 +180,11 @@ class DepartmentResponse(BaseModel):
 
     # ── Return fields for UI visibility ──
     head:               Optional[str] = None
+    head_employee_id:   Optional[int] = None
+    head_name:          Optional[str] = None          # the person's current name, else the old free-text head
     budget:             Optional[Decimal] = None
     spent_budget:       Optional[Decimal] = None
+    utilization:        Optional[int] = None          # round(spent / budget × 100); null without a budget
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
     employee_count:     Optional[int] = 0

@@ -43,11 +43,11 @@ function exportCsv(rows, filename) {
   for (const r of rows) {
     const budget = Number(r.budget) || 0;
     const spent = Number(r.spent_budget) || 0;
-    const util = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+    const util = r.utilization ?? (budget > 0 ? Math.round((spent / budget) * 100) : 0);
     csvRows.push([
       `"${(r.name || "").replace(/"/g, '""')}"`,
       `"${(r.code || "").replace(/"/g, '""')}"`,
-      `"${(r.head || "").replace(/"/g, '""')}"`,
+      `"${(r.head_name || r.head || "").replace(/"/g, '""')}"`,
       budget,
       spent,
       util,
@@ -105,7 +105,7 @@ export default function DepartmentReports() {
       list = list.filter((r) =>
         (r.name || "").toLowerCase().includes(q) ||
         (r.code || "").toLowerCase().includes(q) ||
-        (r.head || "").toLowerCase().includes(q)
+        (r.head_name || r.head || "").toLowerCase().includes(q)
       );
     }
     list.sort((a, b) => {
@@ -248,7 +248,7 @@ export default function DepartmentReports() {
                   filtered.map((r) => {
                     const budget = Number(r.budget) || 0;
                     const spent = Number(r.spent_budget) || 0;
-                    const util = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+                    const util = r.utilization ?? (budget > 0 ? Math.round((spent / budget) * 100) : 0);
                     return (
                       <tr key={r.id} className="hover:bg-rose-50/30 transition-colors">
                         <td className="px-4 py-3">
@@ -258,7 +258,7 @@ export default function DepartmentReports() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm font-mono text-rose-600">{r.code || "—"}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{r.head || "—"}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{r.head_name || r.head || "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-gray-900">{formatOrgMoney(budget)}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{formatOrgMoney(spent)}</td>
                         <td className="px-4 py-3">

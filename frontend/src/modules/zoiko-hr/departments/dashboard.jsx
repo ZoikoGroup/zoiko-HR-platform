@@ -105,7 +105,7 @@ export default function DepartmentDashboard() {
     const total       = records.length;
     const active      = records.filter((r) => r.is_active).length;
     const inactive    = total - active;
-    const withHead    = records.filter((r) => r.head).length;
+    const withHead    = records.filter((r) => r.head_name || r.head).length;
     const rootDepts   = records.filter((r) => !r.parent_id).length;
     const totalBudget = records.reduce((s, r) => s + (Number(r.budget) || 0), 0);
     const totalSpent  = records.reduce((s, r) => s + (Number(r.spent_budget) || 0), 0);
@@ -214,7 +214,7 @@ export default function DepartmentDashboard() {
                   const budget   = Number(r.budget) || 0;
                   const spent    = Number(r.spent_budget) || 0;
                   const barWidth = maxBudget > 0 ? Math.round((budget / maxBudget) * 100) : 0;
-                  const spentPct = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+                  const spentPct = r.utilization ?? (budget > 0 ? Math.round((spent / budget) * 100) : 0);
                   return (
                     <div key={r.id} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
@@ -229,7 +229,7 @@ export default function DepartmentDashboard() {
                             className={`h-full rounded-full ${
                               spentPct > 90 ? "bg-red-500" : spentPct > 70 ? "bg-amber-400" : "bg-rose-500"
                             }`}
-                            style={{ width: `${spentPct}%` }}
+                            style={{ width: `${Math.min(spentPct, 100)}%` }}
                           />
                         </div>
                         <span className={`text-xs font-medium shrink-0 ${!r.is_active ? "text-gray-400" : spentPct > 90 ? "text-red-600" : spentPct > 70 ? "text-amber-600" : "text-green-600"}`}>
@@ -311,7 +311,7 @@ export default function DepartmentDashboard() {
                         <p className="text-sm font-medium text-gray-900">{r.name}</p>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono font-semibold text-rose-600">{r.code}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{r.head || "—"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{r.head_name || r.head || "—"}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {r.created_at ? formatDate(r.created_at) : "—"}
                       </td>
@@ -375,10 +375,10 @@ export default function DepartmentDashboard() {
                     </div>
 
                     <div className="mt-3 space-y-1.5 text-xs text-gray-500">
-                      {r.head && (
+                      {(r.head_name || r.head) && (
                         <div className="flex items-center gap-1.5">
                           <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate">{r.head}</span>
+                          <span className="truncate">{r.head_name || r.head}</span>
                         </div>
                       )}
                       {r.employee_count > 0 && (

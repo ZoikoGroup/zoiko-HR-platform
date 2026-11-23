@@ -233,6 +233,8 @@ _SELF_HEALED_TABLES = (
     "attendance_correction_requests",
     # Company Documents refresh (migration c2d3e4f5a6b7): company categories gained is_hidden
     "hr_company_document_categories",
+    # departments gained head_employee_id (migration 5d2a8c4e1f3b)
+    "departments",
 )
 
 

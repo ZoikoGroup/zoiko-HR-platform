@@ -7,6 +7,7 @@ import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { DEFAULT_DEPARTMENT_SETTINGS, normalizeDepartmentSettings } from "../../../utils/departmentSettings";
 import { fieldProblem } from "../../../utils/fieldRules";
 import { currencySymbol, formatOrgMoney, orgCurrency } from "../../../utils/money";
+import EmployeePicker from "../learning/EmployeePicker";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/departments" },
@@ -76,6 +77,8 @@ export default function DepartmentList() {
     name: "",
     code: "",
     head: "",
+    head_person: null,   // {id, name}: the head of department, picked from the organization's people
+    head_touched: false, // only a changed head is sent, so an old typed head is never wiped by accident
     establishment_year: "",
     budget: "",
     spent_budget: "",
@@ -121,6 +124,8 @@ export default function DepartmentList() {
     name: "",
     code: "",
     head: "",
+    head_person: null,   // {id, name}: the head of department, picked from the organization's people
+    head_touched: false, // only a changed head is sent, so an old typed head is never wiped by accident
     establishment_year: "",
     budget: "",
     spent_budget: "",
@@ -138,14 +143,17 @@ export default function DepartmentList() {
       document.getElementById("dept-name")?.focus();
       return;
     }
+    const { head_person: headPerson, head_touched: headTouched, ...rest } = formData;
     const payload = {
-      ...formData,
+      ...rest,
       parent_id: formData.parent_id === "" ? null : Number(formData.parent_id),
       establishment_year: formData.establishment_year === "" ? null : Number(formData.establishment_year),
       budget: formData.budget === "" ? 0 : Number(formData.budget),
       spent_budget: formData.spent_budget === "" ? 0 : Number(formData.spent_budget),
       is_active: formData.is_active !== false,
     };
+    delete payload.head;                       // the server writes the head's name from the person
+    if (headTouched || !editingDept) payload.head_employee_id = headPerson ? headPerson.id : null;
 
     const action = editingDept
       ? updateDepartment(editingDept.id, payload)
@@ -172,6 +180,8 @@ export default function DepartmentList() {
       name: dept.name || "",
       code: dept.code || "",
       head: dept.head || "",
+      head_person: dept.head_employee_id ? { id: dept.head_employee_id, name: dept.head_name || dept.head } : null,
+      head_touched: false,
       establishment_year: dept.establishment_year || "",
       budget: dept.budget || "",
       spent_budget: dept.spent_budget || "",
@@ -235,7 +245,7 @@ export default function DepartmentList() {
       result = result.filter((r) =>
         r.name?.toLowerCase().includes(q) ||
         r.code?.toLowerCase().includes(q) ||
-        r.head?.toLowerCase().includes(q)
+        (r.head_name || r.head)?.toLowerCase().includes(q)
       );
     }
 
@@ -358,7 +368,7 @@ export default function DepartmentList() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs font-bold text-[#3B82F6]">{r.department_code || "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-rose-600">{r.code}</td>
-                    <td className="px-4 py-3">{r.head || "—"}</td>
+                    <td className="px-4 py-3">{r.head_name || r.head || "—"}</td>
                     {showEmployeeCount && (
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 font-medium">
@@ -470,9 +480,12 @@ export default function DepartmentList() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Department Head *</label>
-                  <input type="text" required placeholder="e.g., Jane Doe" value={formData.head} onChange={(e) => setFormData({...formData, head: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500" />
+                  <EmployeePicker id="dept-head" label="Head of department (optional)" value={formData.head_person}
+                    onChange={(person) => setFormData({ ...formData, head_person: person, head_touched: true })}
+                    placeholder="Search your people by name or email..." />
+                  {!formData.head_person && formData.head && !formData.head_touched && (
+                    <p className="mt-1 text-xs text-amber-700">Currently “{formData.head}” (typed, not linked to a person). Pick the person to link them.</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Establishment Year *</label>
@@ -484,13 +497,16 @@ export default function DepartmentList() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Allocated Budget ({currencySymbol(orgCurrency())} {orgCurrency()}) *</label>
-                  <input type="number" required placeholder="e.g., 1500000" value={formData.budget} onChange={(e) => setFormData({...formData, budget: e.target.value})}
+                  <input type="number" min="0" required placeholder="e.g., 1500000" value={formData.budget} onChange={(e) => setFormData({...formData, budget: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Spent Budget ({currencySymbol(orgCurrency())} {orgCurrency()}) *</label>
-                  <input type="number" required placeholder="e.g., 250000" value={formData.spent_budget} onChange={(e) => setFormData({...formData, spent_budget: e.target.value})}
+                  <input type="number" min="0" required placeholder="e.g., 250000" value={formData.spent_budget} onChange={(e) => setFormData({...formData, spent_budget: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500" />
+                  {Number(formData.budget) > 0 && Number(formData.spent_budget) > Number(formData.budget) && (
+                    <p role="status" className="mt-1 text-xs text-amber-700">Spent is more than the budget ({formatOrgMoney(Number(formData.spent_budget) - Number(formData.budget))} over).</p>
+                  )}
                 </div>
               </div>
 

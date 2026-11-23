@@ -329,7 +329,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `departments` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `created_at`, `organization_id`
-- **PERSONAL_BASIC**: `name`, `code`, `department_code`, `description`, `is_active`, `head`, `budget`, `spent_budget`, `establishment_year`, `parent_id`
+- **PERSONAL_BASIC**: `name`, `code`, `department_code`, `description`, `is_active`, `head`, `budget`, `spent_budget`, `establishment_year`, `parent_id`, `head_employee_id`
 
 ## `designation_settings` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`

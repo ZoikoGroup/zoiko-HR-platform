@@ -19,8 +19,11 @@ class DepartmentResponse(BaseModel):
     created_at: Optional[datetime]
     organization_id: Optional[int]
     head: Optional[str]
+    head_employee_id: Optional[int] = None
+    head_name: Optional[str] = None
     budget: Optional[Decimal]
     spent_budget: Optional[Decimal]
+    utilization: Optional[int] = None
     establishment_year: Optional[int]
     parent_id: Optional[int]
     employee_count: Optional[int] = 0
