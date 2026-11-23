@@ -25,7 +25,7 @@ EXPIRING_SOON_DAYS = 30
 ACK_DUE_DAYS = 14
 VALID_ROLES = ("admin", "hr_admin", "manager", "employee")
 CATEGORY_FIELDS = ("name", "icon", "requires_approval", "default_require_ack", "ack_reminder_after_days", "reack_interval_months",
-                   "auto_unpublish_on_expiry", "locked_by_org_admin", "sort_order")
+                   "auto_unpublish_on_expiry", "locked_by_org_admin", "is_hidden", "sort_order")
 
 
 def _doc_models():
@@ -115,11 +115,12 @@ def _card(db: Session, org: int, c, stats: dict) -> dict:
     return {"id": c.id, "key": c.key, "name": c.name, "icon": c.icon, "requires_approval": bool(c.requires_approval),
             "default_require_ack": bool(c.default_require_ack), "ack_reminder_after_days": c.ack_reminder_after_days,
             "reack_interval_months": c.reack_interval_months, "auto_unpublish_on_expiry": bool(c.auto_unpublish_on_expiry),
-            "locked_by_org_admin": bool(c.locked_by_org_admin), "is_system": bool(c.is_system),
+            "locked_by_org_admin": bool(c.locked_by_org_admin), "is_system": bool(c.is_system), "is_hidden": bool(c.is_hidden),
             "file_count": n, "last_updated": _iso(last), "access": access_resolver.summary(rule)}
 
 
-def category_cards(db: Session, actor, access: Optional[str] = None, search: Optional[str] = None) -> list[dict]:
+def category_cards(db: Session, actor, access: Optional[str] = None, search: Optional[str] = None, *,
+                   include_hidden: bool = False) -> list[dict]:
     HrDocument, *_ = _doc_models()
     org = actor.organization_id
     if seed_org_categories(db, org) != (0, 0):
@@ -133,6 +134,8 @@ def category_cards(db: Session, actor, access: Optional[str] = None, search: Opt
              .group_by(HrDocument.company_category_id).all()}
     out = []
     for c in cats:
+        if c.is_hidden and not include_hidden:
+            continue
         card = _card(db, org, c, stats)
         vis = card["access"]["visibility"]
         if access == "admin_only" and vis != "admin_only":
@@ -150,9 +153,11 @@ def category_cards(db: Session, actor, access: Optional[str] = None, search: Opt
 def _clean_category(actor, data: dict) -> dict:
     out = {k: v for k, v in data.items() if k in CATEGORY_FIELDS}
     if "name" in out:
-        out["name"] = (out["name"] or "").strip()[:120]
+        out["name"] = " ".join((out["name"] or "").split())[:120]
         if not out["name"]:
             raise errors.invalid("Give the category a name.", "name")
+    if "is_hidden" in out:
+        out["is_hidden"] = bool(out["is_hidden"])
     if "locked_by_org_admin" in out and role_of(actor) != ORG_ADMIN:
         raise errors.forbidden("Only the Organization Admin can lock a category.")
     for k in ("ack_reminder_after_days", "reack_interval_months"):
@@ -167,6 +172,7 @@ def create_category(db: Session, actor, data: dict, ctx=None) -> dict:
     if not clean.get("name"):
         raise errors.invalid("Give the category a name.", "name")
     org = actor.organization_id
+    _ensure_category_name_free(db, org, clean["name"])
     base = "custom_" + (re.sub(r"[^a-z0-9]+", "_", clean["name"].lower()).strip("_")[:40] or "category")
     key, i = base, 1
     while db.query(HrCompanyDocumentCategory.id).filter(HrCompanyDocumentCategory.organization_id == org,
@@ -187,13 +193,57 @@ def update_category(db: Session, actor, category_id: int, data: dict, ctx=None) 
     if cat.locked_by_org_admin and role_of(actor) != ORG_ADMIN:
         raise errors.forbidden("The Organization Admin has locked this category.")
     clean = _clean_category(actor, data)
+    if clean.get("name") and clean["name"].lower() != (cat.name or "").lower():
+        _ensure_category_name_free(db, actor.organization_id, clean["name"], exclude_id=cat.id)
     before = {k: getattr(cat, k) for k in clean}
+    hiding = "is_hidden" in clean and clean["is_hidden"] != bool(cat.is_hidden)
     for k, v in clean.items():
         setattr(cat, k, v)
-    audit_service.record(db, org_id=actor.organization_id, actor=actor, action="category_changed", target_type="category",
-                         target_id=cat.id, ctx=ctx, before=before, after=clean)
+    if hiding:
+        _on_visibility_changed(db, cat)
+    audit_service.record(db, org_id=actor.organization_id, actor=actor,
+                         action=("category_hidden" if cat.is_hidden else "category_shown") if hiding else "category_changed",
+                         target_type="category", target_id=cat.id, ctx=ctx, before=before, after=clean)
     db.commit()
-    return _card(db, actor.organization_id, cat, {})
+    return _card(db, actor.organization_id, cat, _category_stats(db, actor.organization_id, cat.id))
+
+
+def _category_stats(db: Session, org: int, category_id: int) -> dict:
+    HrDocument, *_ = _doc_models()
+    row = (db.query(func.count(HrDocument.id), func.max(HrDocument.updated_at))
+           .filter(HrDocument.organization_id == org, HrDocument.company_category_id == category_id,
+                   HrDocument.scope == "company", HrDocument.is_deleted.is_(False)).first())
+    return {category_id: (row[0] or 0, row[1])} if row else {}
+
+
+def _ensure_category_name_free(db: Session, org: int, name: str, exclude_id: Optional[int] = None) -> None:
+    q = db.query(HrCompanyDocumentCategory.id).filter(HrCompanyDocumentCategory.organization_id == org,
+                                                      HrCompanyDocumentCategory.is_active.is_(True),
+                                                      func.lower(HrCompanyDocumentCategory.name) == name.lower())
+    if exclude_id:
+        q = q.filter(HrCompanyDocumentCategory.id != exclude_id)
+    if q.first():
+        raise errors.DocError(409, "DOC_CATEGORY_EXISTS", f"A category called \u201c{name}\u201d already exists.", {"field": "name"})
+
+
+def _on_visibility_changed(db: Session, cat) -> None:
+    """Hiding a category takes its files away from employees, so their open read-confirmation tasks are cancelled.
+    Showing it again gives the current round back to everyone in the audience who has not confirmed yet."""
+    HrDocument, *_ = _doc_models()
+    docs = (db.query(HrDocument).filter(HrDocument.organization_id == cat.organization_id, HrDocument.company_category_id == cat.id,
+                                        HrDocument.scope == "company", HrDocument.is_deleted.is_(False)).all())
+    for doc in docs:
+        if cat.is_hidden:
+            task_service.close_tasks(db, doc.organization_id, kinds=["acknowledge"], document_id=doc.id, reason="category_hidden",
+                                     status="cancelled")
+            continue
+        if not access_resolver._published(doc):
+            continue
+        rule = access_resolver.effective_rule(db, doc.organization_id, doc)
+        if not rule.require_ack or current_round(db, doc) is None:
+            continue
+        for person in access_resolver.audience(db, doc.organization_id, rule):
+            add_to_current_round(db, doc, person.id)
 
 
 def delete_category(db: Session, actor, category_id: int, ctx=None) -> None:
@@ -203,6 +253,9 @@ def delete_category(db: Session, actor, category_id: int, ctx=None) -> None:
         raise errors.DocError(409, "DOC_SYSTEM_CATEGORY", "Built-in categories can't be deleted.")
     if db.query(HrDocument.id).filter(HrDocument.company_category_id == cat.id, HrDocument.is_deleted.is_(False)).first():
         raise errors.DocError(409, "DOC_CATEGORY_NOT_EMPTY", "Move or delete the files in this category first.")
+    from app.modules.hr.models import HrDocumentFolder
+    if db.query(HrDocumentFolder.id).filter(HrDocumentFolder.company_category_id == cat.id).first():
+        raise errors.DocError(409, "DOC_CATEGORY_NOT_EMPTY", "Delete the folders in this category first.")
     cat.is_active = False
     audit_service.record(db, org_id=actor.organization_id, actor=actor, action="category_changed", target_type="category",
                          target_id=cat.id, ctx=ctx, after={"deactivated": True})
@@ -219,6 +272,19 @@ def _expiry_filter(q, HrDocument, expiry: Optional[str]):
         return q.filter(HrDocument.expiry_date.isnot(None), HrDocument.expiry_date >= today,
                         HrDocument.expiry_date <= today + timedelta(days=EXPIRING_SOON_DAYS))
     return q
+
+
+def _folders_with_counts(db: Session, folders: list) -> list[dict]:
+    """Folder cards with how many files and sub-folders each holds (two grouped queries, whatever the number of folders)."""
+    HrDocument, _, HrDocumentFolder, _, _ = _doc_models()
+    ids = [f.id for f in folders]
+    files = dict(db.query(HrDocument.folder_id, func.count(HrDocument.id))
+                 .filter(HrDocument.folder_id.in_(ids or [-1]), HrDocument.is_deleted.is_(False))
+                 .group_by(HrDocument.folder_id).all())
+    subs = dict(db.query(HrDocumentFolder.parent_id, func.count(HrDocumentFolder.id))
+                .filter(HrDocumentFolder.parent_id.in_(ids or [-1])).group_by(HrDocumentFolder.parent_id).all())
+    return [{"id": f.id, "name": f.name, "file_count": int(files.get(f.id, 0)), "folder_count": int(subs.get(f.id, 0))}
+            for f in folders]
 
 
 def list_items(db: Session, actor, category_id: int, folder_id: Optional[int] = None, expiry: Optional[str] = None,
@@ -241,7 +307,7 @@ def list_items(db: Session, actor, category_id: int, folder_id: Optional[int] = 
         "category": {"id": cat.id, "key": cat.key, "name": cat.name, "requires_approval": bool(cat.requires_approval),
                      "default_require_ack": bool(cat.default_require_ack), "locked_by_org_admin": bool(cat.locked_by_org_admin)},
         "breadcrumb": get_folder_breadcrumb(db, folder_id, org) if folder_id else [],
-        "folders": [{"id": f.id, "name": f.name} for f in folders.order_by(HrDocumentFolder.name).all()],
+        "folders": _folders_with_counts(db, folders.order_by(HrDocumentFolder.name).all()),
         "files": Page(items=[serialize_company_file(db, d) for d in docs], total=total, page=page, per_page=per_page).model_dump(),
     }
 
@@ -475,6 +541,8 @@ def add_to_current_round(db: Session, doc, employee_id: int, now: Optional[datet
                                                      HrDocumentAcknowledgement.employee_id == employee_id).first():
         return False
     cat = db.get(HrCompanyDocumentCategory, doc.company_category_id) if doc.company_category_id else None
+    if cat is not None and cat.is_hidden:
+        return False
     _, created = task_service.open_task(db, doc.organization_id, "acknowledge", employee_id=employee_id, document_id=doc.id,
                                         version_id=rnd.version_id, ack_round_id=rnd.id, due_in_days=ACK_DUE_DAYS,
                                         ladder=_ack_ladder(cat), source="system", now=now)
@@ -484,6 +552,8 @@ def add_to_current_round(db: Session, doc, employee_id: int, now: Optional[datet
 def on_published(db: Session, doc, version, actor=None, *, material_change: bool = True, notify_audience: bool = True) -> None:
     """A version became visible: open an acknowledgement round when one is needed (a minor change keeps the current round);
     otherwise optionally tell the audience a new document is available."""
+    if access_resolver.in_hidden_category(db, doc):
+        return
     rule = access_resolver.effective_rule(db, doc.organization_id, doc)
     existing = current_round(db, doc)
     if rule.require_ack and (material_change or existing is None):
@@ -684,6 +754,7 @@ def my_company_documents(db: Session, user, category_id: Optional[int] = None, s
         needle = search.strip().lower()
         rows = [(d, r) for d, r in rows if needle in (d.title or "").lower()]
     cats = {c.id: c for c in db.query(HrCompanyDocumentCategory).filter(HrCompanyDocumentCategory.organization_id == user.organization_id)}
+    folders = _folder_paths(db, user.organization_id, {d.folder_id for d, _ in rows if getattr(d, "folder_id", None)})
     mine = {(a.document_id, a.round_no): a for a in db.query(HrDocumentAcknowledgement)
             .filter(HrDocumentAcknowledgement.employee_id == user.id)}
     groups: dict = {}
@@ -696,6 +767,7 @@ def my_company_documents(db: Session, user, category_id: Optional[int] = None, s
                 "version_id": doc.approved_version_id, "updated_at": _iso(doc.updated_at), "file_name": doc.file_name,
                 "expiry_date": _iso(doc.expiry_date),
                 "can_download": rule.permission == "download" or is_document_admin(user),
+                "folder": folders.get(doc.folder_id) if getattr(doc, "folder_id", None) else None,
                 "require_ack": bool(rule.require_ack), "needs_ack": bool(rnd) and ack is None,
                 "acknowledged_at": _iso(ack.acknowledged_at) if ack else None}
         key = cat.id if cat else 0
@@ -703,6 +775,37 @@ def my_company_documents(db: Session, user, category_id: Optional[int] = None, s
     ordered = sorted(groups.values(), key=lambda g: (getattr(cats.get((g["category"] or {}).get("id")), "sort_order", 999),
                                                      (g["category"] or {}).get("name") or ""))
     return {"total": sum(len(g["items"]) for g in ordered), "groups": ordered}
+
+
+def _folder_paths(db: Session, org: int, folder_ids: set) -> dict:
+    """{folder_id: {"id", "name", "path"}} for the employee view's folder sections. The path walks up to the category
+    ("Joining / Signed"). Folder names are not secret: the employee already sees the files inside."""
+    from app.modules.hr.models import HrDocumentFolder
+    if not folder_ids:
+        return {}
+    known: dict = {}
+    todo = set(folder_ids)
+    for _ in range(20):                                    # folders are shallow; this bounds a broken parent loop
+        if not todo:
+            break
+        rows = db.query(HrDocumentFolder.id, HrDocumentFolder.name, HrDocumentFolder.parent_id).filter(
+            HrDocumentFolder.organization_id == org, HrDocumentFolder.id.in_(todo)).all()
+        todo = set()
+        for fid, name, parent in rows:
+            known[fid] = (name, parent)
+            if parent and parent not in known:
+                todo.add(parent)
+    out = {}
+    for fid in folder_ids:
+        if fid not in known:
+            continue
+        parts, cur, seen = [], fid, set()
+        while cur in known and cur not in seen:
+            seen.add(cur)
+            parts.append(known[cur][0])
+            cur = known[cur][1]
+        out[fid] = {"id": fid, "name": known[fid][0], "path": " / ".join(reversed(parts))}
+    return out
 
 
 def acknowledge(db: Session, user, document_id: int, version_id: Optional[int] = None, ctx=None) -> dict:

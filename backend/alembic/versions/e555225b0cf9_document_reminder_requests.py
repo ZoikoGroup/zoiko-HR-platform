@@ -1,7 +1,7 @@
 """document reminder requests: scheduled upload reminders and the per-document cooldown (QA R1-15, R1-16)
 
 Revision ID: e555225b0cf9
-Revises: c1d2e3f4a5b6
+Revises: a9d8c7b6e5f4
 Create Date: 2026-11-23 09:41:34.031552
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'e555225b0cf9'
-down_revision: Union[str, Sequence[str], None] = 'c1d2e3f4a5b6'
+down_revision: Union[str, Sequence[str], None] = 'a9d8c7b6e5f4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

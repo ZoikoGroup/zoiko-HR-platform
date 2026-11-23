@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, CheckCircle2, ClipboardList, FileText, GraduationCap, RefreshCw, Scale, Search, ShieldCheck } from "lucide-react";
+import { BookOpen, CheckCircle2, ClipboardList, FileText, Folder, GraduationCap, RefreshCw, Scale, Search, ShieldCheck } from "lucide-react";
 import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
@@ -124,7 +124,9 @@ export default function CompanyDocuments() {
               return (
                 <section key={g.category?.id ?? "other"} aria-label={label} className="space-y-3">
                   <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</h2>
-                  {g.items.map((item) => (
+                  {(() => {
+                  // Folder sections (Company Documents P5): files outside a folder first, then one sub-section per folder path.
+                  const renderItem = (item) => (
                     <div key={item.id} className={focusId === item.id ? "rounded-xl ring-2 ring-blue-500" : undefined}>
                       <DocumentRow
                         icon={style.icon}
@@ -157,7 +159,27 @@ export default function CompanyDocuments() {
                         )}
                       />
                     </div>
-                  ))}
+                  );
+                  const loose = g.items.filter((i) => !i.folder);
+                  const byFolder = new Map();
+                  for (const i of g.items.filter((x) => x.folder)) {
+                    const key = i.folder.path || i.folder.name;
+                    byFolder.set(key, [...(byFolder.get(key) || []), i]);
+                  }
+                  return (
+                    <>
+                      {loose.map(renderItem)}
+                      {[...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([path, items]) => (
+                        <div key={path} role="group" aria-label={`Folder ${path}`} className="space-y-3 border-l-2 border-amber-200 pl-3">
+                          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            <Folder size={14} className="text-amber-500" aria-hidden="true" />{path}
+                          </h3>
+                          {items.map(renderItem)}
+                        </div>
+                      ))}
+                    </>
+                  );
+                  })()}
                 </section>
               );
             })}

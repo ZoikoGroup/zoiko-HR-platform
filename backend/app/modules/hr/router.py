@@ -3595,6 +3595,7 @@ def create_folder(
         parent_id=parent_id,
         created_by=current_user.id,
         company_category_id=company_category_id,
+        actor=current_user,
     )
 
 
@@ -3609,12 +3610,12 @@ def rename_folder(
     current_user=Depends(get_current_admin),
     name: str = Form(...),
 ):
-    return service.rename_document_folder(db, folder_id, name, current_user.organization_id)
+    return service.rename_document_folder(db, folder_id, name, current_user.organization_id, actor=current_user)
 
 
 @hr_router.delete(
     "/document-folders/{folder_id}",
-    summary="Delete a document folder (documents move to root)",
+    summary="Delete a document folder (company folders must be empty; others move their contents up)",
     tags=["📄 HR Documents"],
 )
 def delete_folder(
@@ -3622,8 +3623,8 @@ def delete_folder(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    service.delete_document_folder(db, folder_id, current_user.organization_id)
-    return {"message": f"Folder {folder_id} deleted. Documents moved to root."}
+    service.delete_document_folder(db, folder_id, current_user.organization_id, actor=current_user)
+    return {"message": f"Folder {folder_id} deleted."}
 
 
 @hr_router.post(

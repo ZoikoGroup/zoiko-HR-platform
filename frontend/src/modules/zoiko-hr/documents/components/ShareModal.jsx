@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Globe2, Loader2, Mail, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { AccessVisibility } from "../types";
 import { isValid, validateAccessRule } from "../validation";
 import { useAccessRule, usePutAccessRule, usePutBulkAccessRule } from "../hooks/useCompanyDocuments";
 import { previewAccessRule } from "../../../../service/documentsService";
 import { getDepartments, getHrEmployees } from "../../../../service/hrService";
+import EmailSharePanel from "./EmailSharePanel";
 
 const OPTIONS = [
   [AccessVisibility.ADMIN_ONLY, "Admins only"],
@@ -23,14 +24,18 @@ const asList = (raw) => (Array.isArray(raw) ? raw : raw?.items || raw?.data || r
  * rule reaches before it is saved, view-only vs download, and whether people must confirm they have read it. A folder or
  * file can simply follow its parent ("Same as …").
  *
- * Several documents at once (QA R1-21): pass `targetIds` (company document ids). The form starts from the first one's rule and
- * Save applies the same rule to every one of them in one request (all or nothing).
+ * Two tabs (Company Documents P5): "Employee Portal" (the rule above) and "Email" (send it by email, with the history of
+ * what was sent and Retry). `initialTab="email"` opens straight on Email (the ⋯ menus' Email item).
  *
- * @param {{ open: boolean, targetType: 'category'|'folder'|'document', targetId?: number, targetIds?: number[], targetName: string,
- *           onClose: () => void, onSaved?: () => void }} props
+ * Several documents at once (QA R1-21): pass `targetIds` (company document ids). The form starts from the first one's rule and
+ * Save applies the same rule to every one of them in one request (all or nothing). Email is for one target, so its tab is hidden.
+ *
+ * @param {{ open: boolean, targetType: 'category'|'folder'|'document', targetId?: number, targetIds?: number[], targetName: string, onSaved?: () => void,
+ *           initialTab?: 'portal'|'email', onEmailed?: (share: object) => void, onClose: () => void }} props
  */
-export default function ShareModal({ open, targetType, targetId, targetIds, targetName, onClose, onSaved }) {
+export default function ShareModal({ open, targetType, targetId, targetIds, targetName, initialTab = "portal", onEmailed, onSaved, onClose }) {
   const titleId = useId();
+  const [tab, setTab] = useState(initialTab);
   const bulkMode = Array.isArray(targetIds) && targetIds.length > 0;
   const type = bulkMode ? "document" : targetType;
   const current = useAccessRule(type, bulkMode ? targetIds[0] : targetId, open);
@@ -60,6 +65,8 @@ export default function ShareModal({ open, targetType, targetId, targetIds, targ
     });
     setErrors({}); setServerError(null);
   }, [open, current.data, type]);
+
+  useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -107,12 +114,26 @@ export default function ShareModal({ open, targetType, targetId, targetIds, targ
   const peopleList = people.data || [];
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <form role="dialog" aria-modal="true" aria-labelledby={titleId} onSubmit={submit} onClick={(e) => e.stopPropagation()} noValidate
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}
         className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-2xl border border-gray-200/80 bg-white p-6 shadow-xl dark:border-[#334155] dark:bg-[#1e293b]">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-[#f1f5f9]">{bulkMode ? `Who can see these ${targetIds.length} documents` : `Who can see “${targetName}”`}</h2>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-[#f1f5f9]">
+            {bulkMode ? `Who can see these ${targetIds.length} documents` : tab === "email" ? `Email “${targetName}”` : `Who can see “${targetName}”`}
+          </h2>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X size={18} aria-hidden="true" /></button>
         </div>
+        {!bulkMode && <div role="tablist" aria-label="How to share" className="mb-4 inline-flex rounded-lg border border-gray-200 bg-white p-1 dark:border-[#334155] dark:bg-[#0f172a]">
+          {[["portal", Globe2, "Employee Portal"], ["email", Mail, "Email"]].map(([v, Icon, label]) => (
+            <button key={v} type="button" role="tab" aria-selected={tab === v} onClick={() => setTab(v)}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold ${tab === v ? "bg-blue-600 text-white" : "text-slate-600 dark:text-slate-300"}`}>
+              <Icon size={14} aria-hidden="true" />{label}
+            </button>
+          ))}
+        </div>}
+        {tab === "email" && !bulkMode ? (
+          <EmailSharePanel targetType={targetType} targetId={targetId} targetName={targetName} onSent={onEmailed} />
+        ) : (
+        <form onSubmit={submit} noValidate aria-label={`Who can see ${targetName}`}>
         {!rule ? (
           <div role="status" className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Loading…</div>
         ) : (
@@ -198,7 +219,9 @@ export default function ShareModal({ open, targetType, targetId, targetIds, targ
             </div>
           </>
         )}
-      </form>
+        </form>
+        )}
+      </div>
     </div>
   );
 }

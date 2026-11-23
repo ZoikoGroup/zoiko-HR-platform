@@ -71,6 +71,8 @@ export const keys = {
       flat: (p) => ["documents", "company", "flat", params(p)],
       access: (t, id) => ["documents", "access", t, id],
       acks: (id, p) => ["documents", "acks", id, params(p)],
+      emailStatus: () => ["documents", "company", "email-status"],
+      shares: (p) => ["documents", "company", "shares", params(p)],
     },
     approvals: {
       all: ["documents", "approvals"],
