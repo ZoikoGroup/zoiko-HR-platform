@@ -150,7 +150,7 @@ export default function DailyAttendanceRecords() {
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <thead className="whitespace-nowrap bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Employee</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Check-in</th><th className="px-4 py-3">Check-out</th><th className="px-4 py-3">Break</th>
@@ -163,12 +163,12 @@ export default function DailyAttendanceRecords() {
                   <tr key={r.id}>
                     <td className="px-4 py-3"><p className="font-medium text-slate-900">{r.employee_name}</p><p className="font-mono text-xs text-slate-500">{r.employee_code}</p></td>
                     <td className="px-4 py-3 text-slate-600">{r.department || "—"}</td>
-                    <td className="px-4 py-3">{formatDate(r.date)}</td>
-                    <td className="px-4 py-3 font-mono">{formatClockTime(r.check_in_time)}{r.late_minutes > 0 && <span className="ml-1 text-xs text-amber-700">+{r.late_minutes}m</span>}</td>
-                    <td className="px-4 py-3 font-mono">{formatClockTime(r.check_out_time)}</td>
-                    <td className="px-4 py-3">{r.break_minutes ? formatMinutes(r.break_minutes) : "—"}</td>
-                    <td className="px-4 py-3">{r.worked_minutes ? formatMinutes(r.worked_minutes) : "—"}</td>
-                    <td className="px-4 py-3">{r.overtime_minutes ? formatMinutes(r.overtime_minutes) : "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{formatDate(r.date)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono">{formatClockTime(r.check_in_time)}{r.late_minutes > 0 && <span className="ml-1 text-xs text-amber-700">+{r.late_minutes}m</span>}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono">{formatClockTime(r.check_out_time)}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{r.break_minutes ? formatMinutes(r.break_minutes) : "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{r.worked_minutes ? formatMinutes(r.worked_minutes) : "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{r.overtime_minutes ? formatMinutes(r.overtime_minutes) : "—"}</td>
                     <td className="px-4 py-3"><AttendanceStatusChip status={r.status} />{r.status_locked && <span className="ml-1 text-[10px] text-slate-500" title="Set by HR">HR</span>}</td>
                     <td className="px-4 py-3 text-xs text-slate-600">{SOURCE_LABEL[r.source] || r.source}</td>
                     <td className="px-4 py-3">
