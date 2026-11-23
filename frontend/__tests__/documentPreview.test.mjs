@@ -222,3 +222,8 @@ test("escapeHtml neutralizes markup", () => {
   assert.equal(escapeHtml('<img src=x onerror="alert(1)">'),
     "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
 });
+test("QA R1-3: a file the server declares as PDF previews as a PDF even when its name ends in .docx (never via mammoth)", () => {
+  assert.equal(detectPreviewKind("Offer Letter.docx", "application/pdf"), PDF);
+  assert.equal(detectPreviewKind("offer.doc", "", "application/pdf"), PDF);
+  assert.equal(detectPreviewKind("offer.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), WORD);
+});

@@ -1348,6 +1348,8 @@ def _package_view(db, hire) -> dict:
                               "required": C.FIELDS[k][2] if k in C.FIELDS else False} for k in HIRE_INPUT_FIELDS],
             "warnings": consistency_warnings(db, hire, cfg),
             "engagement": _engagement_summary(db, hire),
+            "role": _role_summary(db, hire),
+            "role_profiles": _role_profile_choices(db, hire.organization_id),
             "printed_values": printed_values(values),
             "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
 
@@ -1355,6 +1357,24 @@ def _package_view(db, hire) -> dict:
 def _engagement_summary(db, hire) -> dict:
     eng, source = engagement_with_source(db, hire)
     return {"slug": (eng or {}).get("slug"), "name": (eng or {}).get("name"), "source": source}
+
+
+def _role_summary(db, hire) -> dict:
+    """The role profile the documents use and why: "chosen" (HR picked it), "position" (its title matches the hire's
+    position), "generated" (no profile matches: built from the job details) or "missing" (the chosen profile was deleted)."""
+    from app.modules.hr import onboarding_profiles as PR
+    chosen = hire_inputs(hire).get("role_profile_slug") or None
+    role = PR.role_for(db, hire.organization_id, chosen, hire.position)
+    if role is not None:
+        return {"slug": role.get("slug"), "title": role.get("title"), "source": "chosen" if chosen else "position"}
+    return {"slug": None, "title": hire.position or None, "source": "missing" if chosen else "generated"}
+
+
+def _role_profile_choices(db, organization_id: int) -> list[dict]:
+    """Every role profile the organisation configured, for the panel's Role profile choice (sorted by title)."""
+    from app.modules.hr import onboarding_profiles as PR
+    out = [{"slug": p["slug"], "title": p.get("title") or p["slug"]} for p in PR.role_profiles(db, organization_id) if p.get("slug")]
+    return sorted(out, key=lambda p: str(p["title"]).casefold())
 
 
 # ── the organisation's board: the 10 documents of every new hire (Onboarding › Checklists) ─────────────────────────────

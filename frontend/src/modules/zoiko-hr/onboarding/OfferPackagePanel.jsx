@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Download, Eye, FileSignature, Hourglass, Info, Loader2, Send, ShieldAlert, UserRound } from "lucide-react";
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import OfferPackageV2Section from "./OfferPackageV2Section";
+import { Toast, useToast } from "../../../components/Toast";
 import { openFile } from "../../../utils/fileViewer";
 import { downloadHirePackageDocument, downloadHirePackageZip, getHirePackage, getHirePackagePreview, saveHirePackageInputs, sendOnboardingPackage,
   sendOnboardingPortalInvite } from "../../../service/hrService";
@@ -46,6 +47,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   const [previewing, setPreviewing] = useState("");
   const [result, setResult] = useState(null);
   const [chosen, setChosen] = useState(() => new Set());     // the documents HR ticked to send
+  const [toast, showToast] = useToast();                     // success / error of Send and Save choices, always on screen
 
   const load = async () => {
     if (!hireId) return;
@@ -63,8 +65,11 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   useEffect(() => { setResult(null); load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [hireId]);
 
   // every document that can go is ticked when the package (re)loads; HR unticks what should wait
+  // (keyed by the categories, not the array: saving choices reloads the package and must not undo HR's unticking)
   const choosable = useMemo(() => (pkg?.documents || []).filter(sendable).map((d) => d.category), [pkg]);
-  useEffect(() => { setChosen(new Set(choosable)); }, [choosable]);
+  const choosableKey = choosable.join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setChosen(new Set(choosable)); }, [choosableKey]);
   const toggle = (category) => setChosen((prev) => {
     const next = new Set(prev);
     if (next.has(category)) next.delete(category); else next.add(category);
@@ -116,6 +121,9 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   const ready = pkg?.ready_to_send || [];
   const chosenReady = ready.filter((c) => chosen.has(c));
   const chosenWaiting = [...chosen].filter((c) => !ready.includes(c));
+  // Send works for any ticked document: ready ones go now, ones waiting only for the new hire's details are released
+  // automatically once they enter them (the server holds them).
+  const chosenCount = chosenReady.length + chosenWaiting.length;
 
   // Why nothing can be sent right now, in plain words (the Send button is disabled then)
   const status = useMemo(() => {
@@ -188,15 +196,20 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   };
 
   const send = async () => {
+    if (!chosenCount) return;
     setSending(true);
     setError("");
     try {
       const res = await sendOnboardingPackage(hireId, [...chosen]);
       setResult(res);
+      showToast(res?.issued?.length || res?.held?.length ? "success" : "error",
+        res?.message || (res?.issued?.length ? "Documents sent." : "Nothing was sent."));
       onSent?.(res);
       await load();
     } catch (e) {
-      setError(e?.message || "The documents could not be sent.");
+      const msg = e?.message || "The documents could not be sent.";
+      setError(msg);
+      showToast("error", msg);
     } finally {
       setSending(false);
     }
@@ -237,7 +250,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
           </div>
         )}
 
-        {pkg && <OfferPackageV2Section pkg={pkg} hireId={hireId} onSaved={setPkg} onError={setError} />}
+        {pkg && <OfferPackageV2Section pkg={pkg} hireId={hireId} onSaved={setPkg} onError={setError} onNotice={showToast} />}
 
         {pkg && status && ready.length === 0 && (
           <div role="status" className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
@@ -455,12 +468,15 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
         <p className="mr-auto self-center text-xs text-gray-500">
           {ready.length ? `${chosenReady.length} of ${ready.length} ready document${ready.length === 1 ? "" : "s"} selected`
             + (chosenWaiting.length ? ` · ${chosenWaiting.length} more sent when ${pkg?.candidate_name} adds their details` : "")
+            : chosenWaiting.length ? `${chosenWaiting.length} selected · sent when ${pkg?.candidate_name} adds their details`
             : status?.waitingForHire.length ? `Waiting for ${pkg?.candidate_name}` : status?.blocked.length ? "Some documents are not ready" : "All documents sent"}
         </p>
-        <PrimaryButton icon={Send} onClick={send} disabled={sending || !chosenReady.length}>
-          {sending ? "Sending…" : `Send ${chosenReady.length || ""} selected document${chosenReady.length === 1 ? "" : "s"}`}
+        <PrimaryButton icon={Send} onClick={send} disabled={sending || !chosenCount}
+          title={!chosenCount ? (choosable.length ? "Tick at least one document to send." : "No document can be sent yet: see what is missing above.") : undefined}>
+          {sending ? "Sending…" : `Send ${chosenCount || ""} selected document${chosenCount === 1 ? "" : "s"}`}
         </PrimaryButton>
       </Footer>
+      <Toast toast={toast} />
     </>
   );
 }

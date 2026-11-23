@@ -252,11 +252,11 @@ def _rate_limit(organization_id: int, limit: int = 60, window: int = 3600) -> No
 
 
 def accepted_types() -> tuple:
-    """The file kinds the wizard takes (HR_DOCS_SETUP_FILE_TYPES; Word only by default)."""
+    """The file kinds the wizard takes (HR_DOCS_SETUP_FILE_TYPES; Word and PDF by default)."""
     from app.config import settings
-    kinds = tuple(k.strip().lower() for k in str(getattr(settings, "DOCS_SETUP_FILE_TYPES", "docx") or "docx").split(",")
+    kinds = tuple(k.strip().lower() for k in str(getattr(settings, "DOCS_SETUP_FILE_TYPES", "docx,pdf") or "docx,pdf").split(",")
                   if k.strip().lower() in ("docx", "pdf", "txt"))
-    return kinds or ("docx",)
+    return kinds or ("docx", "pdf")
 
 
 def add_file(db, actor, s: DocsSetupSession, data: bytes, filename: str, label: Optional[str] = None) -> DocsSetupFile:

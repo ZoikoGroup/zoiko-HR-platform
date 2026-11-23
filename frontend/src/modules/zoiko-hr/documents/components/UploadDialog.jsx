@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, Loader2, UploadCloud, X } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
+import FileInput from "../../../../components/FileInput";
 import { validateUpload, isValid } from "../validation";
 import { EMPLOYEE_UPLOAD_EXTENSIONS, MAX_UPLOAD_BYTES } from "../constants";
 
@@ -80,12 +81,8 @@ export default function UploadDialog({ open, category, replacesDocumentId, repla
         </div>
 
         <label htmlFor={fileId} className="block text-sm font-medium text-slate-700 dark:text-[#cbd5e1]">File</label>
-        <div className="mt-1 flex items-center gap-3 rounded-xl border border-dashed border-slate-300 p-4 dark:border-[#475569]">
-          <UploadCloud size={22} className="text-blue-600" aria-hidden="true" />
-          <input id={fileId} ref={fileRef} type="file" accept={EMPLOYEE_UPLOAD_EXTENSIONS.join(",")}
-            aria-invalid={Boolean(errors.file)} aria-describedby={`${fileId}-hint`}
-            onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-sm" />
-        </div>
+        <FileInput id={fileId} ref={fileRef} accept={EMPLOYEE_UPLOAD_EXTENSIONS.join(",")} className="mt-1"
+          invalid={Boolean(errors.file)} describedBy={`${fileId}-hint`} file={file} onChange={setFile} />
         <p id={`${fileId}-hint`} className="mt-1 text-xs text-slate-500">
           PDF, image, Word or Excel, up to {MAX_UPLOAD_BYTES / (1024 * 1024)} MB.
         </p>

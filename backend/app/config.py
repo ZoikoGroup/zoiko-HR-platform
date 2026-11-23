@@ -219,8 +219,9 @@ class Settings(BaseSettings):
     # Malware scanning of uploaded company documents (clamd). In production, uploads are refused when no scanner is set.
     CLAMAV_HOST: str = Field(default="", validation_alias="CLAMAV_HOST")
     CLAMAV_PORT: int = Field(default=3310, validation_alias="CLAMAV_PORT")
-    # File types the setup wizard accepts: "docx" (Word only), or e.g. "docx,pdf,txt" to also accept PDFs and text files
-    DOCS_SETUP_FILE_TYPES: str = Field(default="docx", validation_alias="HR_DOCS_SETUP_FILE_TYPES")
+    # File types the setup wizard accepts: Word and PDF by default; "docx" alone for Word only, or "docx,pdf,txt" to also
+    # accept text files. A PDF template becomes plain paragraphs and headings (Word keeps lists, tables and bold text).
+    DOCS_SETUP_FILE_TYPES: str = Field(default="docx,pdf", validation_alias="HR_DOCS_SETUP_FILE_TYPES")
     DOCS_SETUP_OCR_LANGUAGES: str = Field(default="eng+hin", validation_alias="HR_DOCS_SETUP_OCR_LANGUAGES")
     # Path to the Tesseract program when it is not on the PATH (blank: the PATH, then its usual install folders)
     TESSERACT_CMD: str = Field(default="", validation_alias="HR_TESSERACT_CMD")

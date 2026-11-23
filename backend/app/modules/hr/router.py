@@ -2148,7 +2148,8 @@ def send_onboarding_package(
     if n:
         message = f"{n} document(s) sent to {hire.candidate_name}." + (f" {h} held until they are ready." if h else "")
     elif h:
-        message = f"Nothing sent: {h} document(s) are not ready yet."
+        message = (f"Nothing sent yet: {h} document(s) are not ready. Documents waiting only for the new hire's details "
+                   "are sent automatically once they enter them.")
     else:
         message = "Every package document has already been sent."
     return {"success": n > 0, "message": message, "new_hire_id": hire.id, "candidate_name": hire.candidate_name,

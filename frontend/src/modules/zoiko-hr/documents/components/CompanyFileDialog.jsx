@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { isValid, validateUpload } from "../validation";
+import FileInput from "../../../../components/FileInput";
 
 const COMPANY_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".rtf", ".ppt", ".pptx", ".odt", ".ods", ".odp"];
 
@@ -74,8 +75,8 @@ export default function CompanyFileDialog({ open, mode, category, document: doc,
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X size={18} aria-hidden="true" /></button>
         </div>
         <label className="block text-sm font-medium text-slate-700" htmlFor={`${titleId}-file`}>File</label>
-        <input id={`${titleId}-file`} ref={first} type="file" accept={COMPANY_EXTENSIONS.join(",")} onChange={(e) => setFile(e.target.files?.[0] || null)}
-          className="mt-1 text-sm" />
+        <FileInput id={`${titleId}-file`} ref={first} accept={COMPANY_EXTENSIONS.join(",")} file={file} onChange={setFile}
+          invalid={Boolean(errors.file)} className="mt-1" />
         {errors.file && <p role="alert" className="mt-1 text-xs text-rose-700">{errors.file}</p>}
         {!isVersion && (
           <>
