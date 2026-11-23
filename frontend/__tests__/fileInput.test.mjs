@@ -60,9 +60,13 @@ test("the Documents module's Upload dialog uses it", async (t) => {
   assert.match(input.closest("[data-file-input]").textContent, /Browse/);
 });
 
-test("the company file dialog uses it", async () => {
+test("the company file dialog has a styled picker, not the bare browser one", async () => {
   const { default: CompanyFileDialog } = await import("../src/modules/zoiko-hr/documents/components/CompanyFileDialog.jsx");
   render(React.createElement(CompanyFileDialog, { open: true, mode: "new", category: { id: 2, name: "Policies" }, onSubmit: async () => {}, onClose: () => {} }));
-  const input = within(screen.getByRole("dialog")).getByLabelText("File");
-  assert.match(input.closest("[data-file-input]").textContent, /Browse/);
+  // Company documents use their own drag-and-drop zone (several files at once) with a "browse" link; the native input is
+  // visually hidden, so "Choose File / No file chosen" never shows.
+  const input = within(screen.getByRole("dialog")).getByLabelText("Files");
+  assert.equal(input.type, "file");
+  assert.match(input.className, /sr-only/);
+  assert.match(input.parentElement.textContent, /browse/i);
 });
