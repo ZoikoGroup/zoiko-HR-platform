@@ -108,6 +108,7 @@ from app.modules.hr.schemas import (
     DesignationSettingsData,
     DepartmentSettingsData,
     DesignationUpdate,
+    DesignationAssign,
     DesignationResponse,
     HrDocumentUpdate,
     HrDocumentStatusUpdate,
@@ -2968,6 +2969,28 @@ def update_designation_endpoint(
     current_user=Depends(get_current_admin),
 ):
     return service.update_designation(db, designation_id, data, organization_id=current_user.organization_id)
+
+
+@hr_router.get(
+    "/designations/{designation_id}/employees",
+    summary="People who hold this designation (current people first)",
+    tags=["📋 Designations"],
+    dependencies=[Depends(get_current_admin)],
+)
+def designation_holders_endpoint(designation_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return service.designation_holders(db, designation_id, current_user.organization_id)
+
+
+@hr_router.post(
+    "/designations/{designation_id}/assign",
+    summary="Give this designation to existing employees of the organization",
+    tags=["📋 Designations"],
+    dependencies=[Depends(get_current_admin)],
+)
+def assign_designation_endpoint(designation_id: int, data: DesignationAssign = Body(...), db: Session = Depends(get_db),
+                                current_user=Depends(get_current_admin)):
+    return service.assign_designation(db, designation_id, data.employee_ids, current_user.organization_id,
+                                      sync_job_title=data.sync_job_title, actor=current_user)
 
 
 @hr_router.delete(

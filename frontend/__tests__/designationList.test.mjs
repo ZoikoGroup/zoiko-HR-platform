@@ -8,7 +8,7 @@ import { render, screen, cleanup, act, fireEvent, within } from "@testing-librar
 afterEach(() => cleanup());
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 40)); });
 const svc = {};
-const calls = { desig: [], dept: [], emp: [], deleted: [] };
+const calls = { desig: [], dept: [], emp: [], deleted: [], holders: [], assigned: [] };
 const mocked = new WeakSet();
 
 const ROW = (o) => ({ department_name: "Eng", level: "L3", status: "active", employees_count: 0, created_at: "2026-09-01T10:00:00Z", ...o });
@@ -29,7 +29,9 @@ async function open(t, over = {}) {
     createDesignation: async () => ({ data: { id: 9 } }),
     updateDesignation: async () => ({}),
     deleteDesignation: async (id) => { calls.deleted.push(id); rows = rows.filter((r) => r.id !== id); return {}; },
-    updateEmployee: async () => ({}),
+    getDesignationHolders: async (id) => { calls.holders.push(id); return [{ id: 5, name: "Asha Rao", employee_code: "E5", status: "active" }, { id: 6, name: "Old Hand", status: "resigned" }]; },
+    assignDesignation: async (id, body) => { calls.assigned.push([id, body]); return { assigned: body.employee_ids.length, unchanged: 0 }; },
+    searchLearningPeople: async () => ({ items: [{ id: 21, first_name: "Ravi", last_name: "Shah", email: "ravi@x.com" }, { id: 22, first_name: "Meena", last_name: "Iyer", email: "m@x.com" }] }),
     ...over,
   });
   if (!mocked.has(t)) {
@@ -39,7 +41,8 @@ async function open(t, over = {}) {
     t.mock.module("../src/components/documents/GenerateDocumentButton.jsx", { exports: { default: () => null } });
     t.mock.module("../src/service/hrService.js", { exports: {
       getDesignations: (...a) => svc.getDesignations(...a), getDepartments: (...a) => svc.getDepartments(...a), getHrEmployees: (...a) => svc.getHrEmployees(...a),
-      getDesignationSettings: (...a) => svc.getDesignationSettings(...a),
+      getDesignationSettings: (...a) => svc.getDesignationSettings(...a), getDesignationHolders: (...a) => svc.getDesignationHolders(...a),
+      assignDesignation: (...a) => svc.assignDesignation(...a), searchLearningPeople: (...a) => svc.searchLearningPeople(...a),
       createDesignation: (...a) => svc.createDesignation(...a), updateDesignation: (...a) => svc.updateDesignation(...a), deleteDesignation: (...a) => svc.deleteDesignation(...a) } });
     t.mock.module("../src/service/employee.js", { exports: { updateEmployee: (...a) => svc.updateEmployee(...a) } });
   }
@@ -56,7 +59,8 @@ test("the Refresh button reloads from the server with a cache-busting request an
   await settle();
   assert.equal(calls.desig.length, 2);
   assert.ok(calls.desig[1]?._, "a refresh must not be answered from the server's two-minute cache");
-  assert.ok(calls.dept[1]?._ && calls.emp[1]?._);
+  assert.ok(calls.dept[1]?._);
+  assert.equal(calls.emp.length, 0, "the page no longer loads a 20-person employee list");
   assert.ok(screen.getByText("Designation list refreshed."));
 });
 
@@ -142,4 +146,66 @@ test("a save the server refuses (duplicate title) is shown in the form", async (
   fireEvent.submit(form);
   await settle();
   assert.ok(within(form).getByRole("alert").textContent.includes("already exists"));
+});
+
+// ── Designation code removed; Assign to employees (any role, searched on the server); optional department and level ──
+const pick = async (name) => {
+  fireEvent.focus(screen.getAllByRole("combobox").at(-1));
+  fireEvent.change(screen.getAllByRole("combobox").at(-1), { target: { value: name.slice(0, 3) } });
+  await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
+  fireEvent.click(screen.getByText(new RegExp(name)));
+  await settle();
+};
+
+test("the designation code is not shown anywhere on the list", async (t) => {
+  await open(t);
+  assert.equal(screen.queryByText("Designation Code"), null);
+  assert.equal(screen.queryByText("DES001"), null);
+  assert.ok(screen.getByText("Employees"));
+  assert.ok(within(screen.getByText("Staff Engineer").closest("tr")).getByText("2 people"));
+});
+
+test("Assign gives the designation to several people at once", async (t) => {
+  await open(t);
+  fireEvent.click(screen.getByRole("button", { name: "Assign Analyst to employees" }));
+  const dlg = screen.getByRole("dialog", { name: "Assign Analyst" });
+  await pick("Ravi Shah");
+  await pick("Meena Iyer");
+  assert.ok(within(dlg).getByRole("button", { name: "Remove Ravi Shah" }));
+  fireEvent.click(within(dlg).getByRole("button", { name: "Assign 2" }));
+  await settle();
+  assert.deepEqual(calls.assigned, [[2, { employee_ids: [21, 22], sync_job_title: true }]]);
+  assert.ok(screen.getByText(/given to 2 people/));
+});
+
+test("an inactive designation cannot be assigned", async (t) => {
+  await open(t, { getDesignations: async () => ({ data: [ROW({ id: 7, title: "Retired Role", status: "inactive" })] }) });
+  assert.equal(screen.getByRole("button", { name: "Assign Retired Role to employees" }).disabled, true);
+});
+
+test("the detail panel lists who holds the designation, current people first", async (t) => {
+  await open(t);
+  fireEvent.click(screen.getByText("Staff Engineer"));
+  await settle();
+  assert.deepEqual(calls.holders, [1]);
+  const list = screen.getByRole("region", { name: "People with this designation" });
+  assert.ok(within(list).getByText("Asha Rao"));
+  assert.ok(within(list).getByText("resigned"));
+});
+
+test("a new designation needs no department or level and can be given to people straight away", async (t) => {
+  const created = [];
+  await open(t, { createDesignation: async (p) => { created.push(p); return { data: { id: 9, status: "active" } }; } });
+  fireEvent.click(screen.getByRole("button", { name: /Add Designation/ }));
+  const form = document.querySelector("form");
+  fireEvent.change(form.querySelector('input[type="text"]'), { target: { value: "Team Lead" } });
+  fireEvent.change(screen.getByLabelText("Hierarchy Level"), { target: { value: "" } });
+  await pick("Ravi Shah");
+  fireEvent.submit(form);
+  await settle();
+  assert.equal(created[0].department_name, null);
+  assert.equal(created[0].level, null);
+  assert.equal("designation_code" in created[0], false);
+  assert.deepEqual(calls.assigned, [[9, { employee_ids: [21], sync_job_title: true }]]);
+  assert.ok(screen.getByText(/Given to 1 person/));
 });

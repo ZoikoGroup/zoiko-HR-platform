@@ -5071,6 +5071,12 @@ class DesignationSettingsData(BaseModel):
             raise ValueError("The code prefix must be 2 to 6 letters or digits (for example DES).")
         return v
 
+class DesignationAssign(BaseModel):
+    """Give this designation to existing people (Designations → Assign to employees)."""
+    employee_ids:   list[int] = Field(..., min_length=1, max_length=500)
+    sync_job_title: bool = Field(True, description="Also set each person's job title to the designation's title")
+
+
 class DesignationUpdate(BaseModel):
     title:           Optional[str] = None
     department_name: Optional[str] = None

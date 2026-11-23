@@ -73,6 +73,8 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     **_r("GET", "/hr/designations/{designation_id}", "hr.core.designations"),
     **_r("PUT", "/hr/designations/{designation_id}", "hr.core.designations"),
     **_r("DELETE", "/hr/designations/{designation_id}", "hr.core.designations"),
+    **_r("POST", "/hr/designations/{designation_id}/assign", "hr.core.designations"),
+    **_r("GET", "/hr/designations/{designation_id}/employees", "hr.core.designations"),
 
     # hr.core.org_config (router prefix is /hr/config)
     **_r("GET", "/hr/config", "hr.core.org_config"),

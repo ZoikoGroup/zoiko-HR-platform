@@ -87,8 +87,8 @@ export default function DesignationReports() {
 
   const exportCsv = useCallback(() => {
     if (!report) return;
-    const header = ["Designation", "Code", "Department", "Level", "Status", "Active employees", "Min salary", "Max salary"];
-    const lines = [header, ...report.designations.map((r) => [r.title, r.designation_code, r.department, r.level, r.status, r.employees, r.min_salary, r.max_salary])];
+    const header = ["Designation", "Department", "Level", "Status", "Active employees", "Min salary", "Max salary"];
+    const lines = [header, ...report.designations.map((r) => [r.title, r.department, r.level, r.status, r.employees, r.min_salary, r.max_salary])];
     const blob = new Blob([lines.map((l) => l.map(csvCell).join(",")).join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

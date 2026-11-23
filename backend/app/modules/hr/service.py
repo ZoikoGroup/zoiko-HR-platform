@@ -6237,10 +6237,11 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
         payload["status"] = "active"
 
     if organization_id is not None:
-        if settings.auto_generate_codes:
+        if settings.auto_generate_codes or not manual_code:
+            # designation codes are no longer typed or shown: without a typed one it is always generated
             from app.core.code_generation import generate_business_code
             payload["designation_code"] = generate_business_code(db, organization_id, settings.code_prefix, Designation, "designation_code")
-        elif manual_code:
+        else:
             if settings.enforce_unique_codes:
                 dup = db.query(Designation.id).filter(func.upper(Designation.designation_code) == manual_code)
                 if organization_id is not None:
@@ -6248,8 +6249,6 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
                 if dup.first():
                     raise AlreadyExistsException("Designation", "code")
             payload["designation_code"] = manual_code
-        else:
-            raise BadRequestException("Automatic code generation is turned off in Designation Settings: enter a designation code.")
 
     payload["title"] = title
     obj = Designation(**payload)
@@ -6282,12 +6281,70 @@ def update_designation(db: Session, designation_id: int, data: DesignationUpdate
     return obj
 
 
+def designation_holders(db: Session, designation_id: int, organization_id: int, limit: int = 200) -> list:
+    """Who holds this designation (current people first), for the designation's detail panel."""
+    obj = get_designation_by_id(db, designation_id, organization_id)
+    rows = (db.query(Employee).filter(Employee.designation_id == obj.id, Employee.organization_id == organization_id)
+            .order_by(Employee.first_name, Employee.last_name, Employee.id).limit(limit).all())
+    status = lambda e: getattr(e.status, "value", e.status)  # noqa: E731
+    rows.sort(key=lambda e: status(e) != EmployeeStatus.ACTIVE.value)
+    return [{"id": e.id, "name": f"{e.first_name or ''} {e.last_name or ''}".strip() or e.email,
+             "employee_code": e.employee_code, "job_title": e.job_title, "status": status(e)} for e in rows]
+
+
+_NOT_ASSIGNABLE = {EmployeeStatus.TERMINATED, EmployeeStatus.RESIGNED, EmployeeStatus.DEACTIVATED, EmployeeStatus.ARCHIVED}
+
+
+def assign_designation(db: Session, designation_id: int, employee_ids: list, organization_id: int,
+                       sync_job_title: bool = True, actor=None) -> dict:
+    """Give a designation to existing people of the organization (all roles). Refused for a designation that is not
+    active (inactive or awaiting position approval) and for anyone outside the organization or who has left."""
+    from app.modules.employee import service as employee_service
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
+    obj = get_designation_by_id(db, designation_id, organization_id)
+    if (obj.status or "active") != "active" or obj.approval_status == "pending":
+        raise BadRequestException(f"'{obj.title}' is not active, so it can't be given to anyone yet.")
+    ids = list(dict.fromkeys(int(i) for i in employee_ids))
+    people = db.query(Employee).filter(Employee.id.in_(ids), Employee.organization_id == organization_id).all()
+    found = {p.id: p for p in people}
+    if any(i not in found for i in ids):
+        raise BadRequestException("Some of the selected people are not in your organization.")
+    gone = [p for p in people if p.status in _NOT_ASSIGNABLE]
+    if gone:
+        names = ", ".join(employee_service._full_name(p) for p in gone[:3])
+        raise BadRequestException(f"These people have left or are deactivated: {names}. Remove them and try again.")
+
+    changed, unchanged = [], 0
+    for p in (found[i] for i in ids):
+        values = {"designation_id": obj.id}
+        if sync_job_title:
+            values["job_title"] = obj.title
+        if all(getattr(p, k) == v for k, v in values.items()):
+            unchanged += 1
+            continue
+        before = snapshot(p, values.keys())
+        for k, v in values.items():
+            setattr(p, k, v)
+        changed.append((p, changes_from(before, values)))
+    db.commit()
+    for p, changes in changed:
+        employee_service._record(db, "employee.updated", actor, organization_id,
+                                 **employee_service._employee_target(p), changes=changes)
+    return {"designation_id": obj.id, "assigned": len(changed), "unchanged": unchanged,
+            "employees": [{"id": p.id, "name": employee_service._full_name(p)} for p, _ in changed]}
+
+
 def delete_designation(db: Session, designation_id: int, organization_id: int) -> None:
     obj = get_designation_by_id(db, designation_id, organization_id)
     holders = db.query(Employee).filter(Employee.designation_id == obj.id).count()
     if holders:
+        # the list counts active people only, so say how many former / inactive people still hold it
+        active = db.query(Employee).filter(Employee.designation_id == obj.id, Employee.status == EmployeeStatus.ACTIVE).count()
+        others = holders - active
+        parts = ([f"{active} active employee(s)"] if active else []) + ([f"{others} former or inactive employee(s)"] if others else [])
         raise BadRequestException(
-            f"Cannot delete '{obj.title}'. {holders} employee(s) hold this designation; "
+            f"Cannot delete '{obj.title}'. {' and '.join(parts)} hold this designation; "
             "reassign them to another designation first, or mark it inactive instead."
         )
     db.delete(obj)

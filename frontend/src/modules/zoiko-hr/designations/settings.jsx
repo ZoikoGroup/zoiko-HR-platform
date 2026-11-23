@@ -188,19 +188,12 @@ export default function DesignationSettings() {
           <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">General Settings</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <Field label="Default Designation Code Prefix" error={errors["general.code_prefix"]}>
-                <input type="text" value={form.code_prefix} maxLength={6} onChange={(e) => set("code_prefix", e.target.value.toUpperCase())} className={inputCls} />
-              </Field>
               <Field label="Default Status for New Designations">
                 <select value={form.default_status} onChange={(e) => set("default_status", e.target.value)} className={inputCls}>
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
               </Field>
-              <Switch label="Auto-generate Designation Codes" hint="Automatically generate codes for new designations. Turn off to type each code yourself."
-                checked={form.auto_generate_codes} onChange={(v) => set("auto_generate_codes", v)} />
-              <Switch label="Enforce Unique Designation Codes" hint="When on, duplicate designation codes are refused. Turn off to allow reusing a code."
-                checked={form.enforce_unique_codes} onChange={(v) => set("enforce_unique_codes", v)} />
             </div>
           </div>
         )}
