@@ -64,3 +64,35 @@ def test_every_migration_has_its_own_revision_id():
             assert m.group(1) not in seen, f"{f.name} reuses revision {m.group(1)} from {seen.get(m.group(1))}"
             seen[m.group(1)] = f.name
     assert {"c2d3e4f5a6b7", "a9d8c7b6e5f4"} <= set(seen)
+
+
+def test_both_migrations_run_cleanly_when_a_development_boot_already_created_everything():
+    """A development boot runs create_all (new tables) and _ensure_model_columns (is_hidden) before `alembic upgrade`:
+    the migrations must then do nothing and not fail (this broke on the shared database on 2026-11-23)."""
+    from app.modules.hr.documents.models import HrDocumentShare, HrDocumentShareRecipient
+    hidden = _load()
+    spec = importlib.util.spec_from_file_location("document_email_shares_mig2", PATH.parent / "a9d8c7b6e5f4_document_email_shares.py")
+    shares = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shares)
+    engine = sa.create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(sa.text("CREATE TABLE organizations (id INTEGER PRIMARY KEY)"))
+        conn.execute(sa.text("CREATE TABLE employees (id INTEGER PRIMARY KEY)"))
+        conn.execute(sa.text("CREATE TABLE hr_company_document_categories (id INTEGER PRIMARY KEY, name VARCHAR(120), "
+                             "is_hidden BOOLEAN NOT NULL DEFAULT 0)"))
+    md = sa.MetaData()
+    for t in (HrDocumentShare.__table__, HrDocumentShareRecipient.__table__):
+        t.to_metadata(md)
+    sa.Table("organizations", md, sa.Column("id", sa.Integer, primary_key=True), extend_existing=True)
+    sa.Table("employees", md, sa.Column("id", sa.Integer, primary_key=True), extend_existing=True)
+    md.create_all(engine, tables=[md.tables["hr_document_shares"], md.tables["hr_document_share_recipients"]])
+    _run(engine, hidden.upgrade)
+    _run(engine, shares.upgrade)
+    _run(engine, shares.upgrade)                                   # and again: still nothing to do
+    idx = {i["name"] for i in sa.inspect(engine).get_indexes("hr_document_shares")}
+    assert {"ix_hr_document_shares_organization_id", "ix_hds_target"} <= idx
+
+
+def test_the_category_table_is_topped_up_on_a_development_boot():
+    from app import database
+    assert "hr_company_document_categories" in database._SELF_HEALED_TABLES

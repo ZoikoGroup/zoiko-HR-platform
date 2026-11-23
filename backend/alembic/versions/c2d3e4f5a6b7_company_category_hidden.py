@@ -19,11 +19,18 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    return column in {c["name"] for c in sa.inspect(op.get_bind()).get_columns(table)}
+
+
 def upgrade() -> None:
-    op.add_column("hr_company_document_categories",
-                  sa.Column("is_hidden", sa.Boolean(), nullable=False, server_default=sa.false()))
+    # a development boot may already have added it (database._SELF_HEALED_TABLES)
+    if not _has_column("hr_company_document_categories", "is_hidden"):
+        op.add_column("hr_company_document_categories",
+                      sa.Column("is_hidden", sa.Boolean(), nullable=False, server_default=sa.false()))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("hr_company_document_categories") as batch:
-        batch.drop_column("is_hidden")
+    if _has_column("hr_company_document_categories", "is_hidden"):
+        with op.batch_alter_table("hr_company_document_categories") as batch:
+            batch.drop_column("is_hidden")

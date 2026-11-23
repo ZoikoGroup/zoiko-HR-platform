@@ -21,7 +21,32 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_table(name: str) -> bool:
+    return sa.inspect(op.get_bind()).has_table(name)
+
+
+def _has_index(table: str, name: str) -> bool:
+    return name in {i["name"] for i in sa.inspect(op.get_bind()).get_indexes(table)}
+
+
 def upgrade() -> None:
+    # A development boot creates missing model tables (Base.metadata.create_all), so either table may already exist:
+    # create only what is missing.
+    if not _has_table("hr_document_shares"):
+        _create_shares()
+    for name, cols in (("ix_hr_document_shares_organization_id", ["organization_id"]),
+                       ("ix_hds_target", ["organization_id", "target_type", "target_id"])):
+        if not _has_index("hr_document_shares", name):
+            op.create_index(name, "hr_document_shares", cols)
+    if not _has_table("hr_document_share_recipients"):
+        _create_recipients()
+    for name, cols in (("ix_hr_document_share_recipients_share_id", ["share_id"]),
+                       ("ix_hr_document_share_recipients_organization_id", ["organization_id"])):
+        if not _has_index("hr_document_share_recipients", name):
+            op.create_index(name, "hr_document_share_recipients", cols)
+
+
+def _create_shares() -> None:
     op.create_table(
         "hr_document_shares",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -38,8 +63,9 @@ def upgrade() -> None:
         sa.Column("created_by", sa.Integer(), sa.ForeignKey("employees.id"), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
     )
-    op.create_index("ix_hr_document_shares_organization_id", "hr_document_shares", ["organization_id"])
-    op.create_index("ix_hds_target", "hr_document_shares", ["organization_id", "target_type", "target_id"])
+
+
+def _create_recipients() -> None:
     op.create_table(
         "hr_document_share_recipients",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -54,10 +80,9 @@ def upgrade() -> None:
         sa.Column("last_attempt_at", sa.DateTime(), nullable=True),
         sa.Column("sent_at", sa.DateTime(), nullable=True),
     )
-    op.create_index("ix_hr_document_share_recipients_share_id", "hr_document_share_recipients", ["share_id"])
-    op.create_index("ix_hr_document_share_recipients_organization_id", "hr_document_share_recipients", ["organization_id"])
 
 
 def downgrade() -> None:
-    op.drop_table("hr_document_share_recipients")
-    op.drop_table("hr_document_shares")
+    for name in ("hr_document_share_recipients", "hr_document_shares"):
+        if _has_table(name):
+            op.drop_table(name)
