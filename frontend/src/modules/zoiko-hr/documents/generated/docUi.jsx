@@ -6,6 +6,7 @@ import { AlertTriangle, Check, Download, FileText, Loader2, X } from "lucide-rea
 import { Modal } from "../../../../components/billing-ui";
 import { getHrEmployees } from "../../../../service/hrService";
 import { exportGovernance } from "../../../../service/docTemplatesService";
+import { formatDateTime } from "../../../../utils/dateTime";
 
 // ── dates ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // The backend stores UTC without an offset ("2026-10-21T09:00:00"): read such values as UTC, date-only values as a local day.
@@ -22,7 +23,7 @@ export function toDate(value) {
 
 export function fmtDateTime(value) {
   const d = toDate(value);
-  return d ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+  return d ? formatDateTime(d) : "—";
 }
 
 export function fmtDate(value) {

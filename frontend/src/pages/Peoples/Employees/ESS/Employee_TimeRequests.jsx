@@ -8,7 +8,7 @@ import { Clock, Loader2, Send } from "lucide-react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import CorrectionForm, { KIND_LABEL } from "../../../../modules/zoiko-hr/attendance/components/CorrectionForm";
 import { listCorrections, listOvertime, requestOvertime } from "../../../../service/workDocumentsService";
-import { formatDate } from "../../../../utils/dateTime";
+import { formatDate, formatTime12h } from "../../../../utils/dateTime";
 
 const STATUS = { PENDING: "Waiting for a decision", APPROVED: "Approved", REJECTED: "Refused" };
 const input = "mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
@@ -55,7 +55,7 @@ export default function EmployeeTimeRequests() {
             className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
             {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />} Send request</button>
           <ul className="mt-4 divide-y divide-slate-100 text-sm" aria-label="My overtime requests">
-            {overtime.map((o) => <li key={o.id} className="py-1.5">{formatDate(o.date)} · {o.start_time}–{o.end_time} · {STATUS[o.status] || o.status}{o.decision_reason ? ` · ${o.decision_reason}` : ""}</li>)}
+            {overtime.map((o) => <li key={o.id} className="py-1.5">{formatDate(o.date)} · {formatTime12h(o.start_time)}–{formatTime12h(o.end_time)} · {STATUS[o.status] || o.status}{o.decision_reason ? ` · ${o.decision_reason}` : ""}</li>)}
           </ul>
         </section>
         <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Correct attendance">

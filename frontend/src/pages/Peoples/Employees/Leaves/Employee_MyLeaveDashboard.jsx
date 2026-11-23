@@ -5,7 +5,7 @@ import { Calendar, Clock, Plus, AlertCircle, ChevronRight, Briefcase, Filter } f
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import StatCard from "../../../../components/employee/StatCard";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
-import { formatDate } from "../../../../utils/dateTime";
+import { formatDate, formatTime12h } from "../../../../utils/dateTime";
 import { useMyLeaveBalances, useMyLeaveRequests } from "../../../../hooks/useMyLeave";
 import ContactHRDialog from "../../../../components/employee/ContactHRDialog";
 import { formatLeaveType, leaveTypeAccent, leaveTypeColor } from "../../../../utils/leaveTypeUtils";
@@ -158,7 +158,7 @@ export default function MyLeaveDashboard() {
             <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Leave History</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Track previous requests and live status
-              {updatedAt ? ` \u00b7 updated ${updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+              {updatedAt ? ` \u00b7 updated ${formatTime12h(updatedAt)}` : ""}
               {" "}
               <button type="button" onClick={load} className="text-blue-600 dark:text-blue-400 font-semibold hover:underline">Refresh</button>
             </p>

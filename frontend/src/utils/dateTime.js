@@ -80,10 +80,11 @@ export function dayOffset(instant, workDate, timeZone) {
   return Math.round((Date.UTC(+a[1], +a[2] - 1, +a[3]) - Date.UTC(+b[1], +b[2] - 1, +b[3])) / 86400000);
 }
 
+/** "03:08 PM" in the viewer's time zone. Unreadable input is returned as is (old behaviour). */
 export function formatTime(value) {
   const d = new Date(value);
   if (isNaN(d.getTime())) return value ?? "";
-  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true });
+  return formatTime12h(d);
 }
 
 export function formatDateTime(value) {
@@ -100,7 +101,7 @@ function parseTimestamp(value) {
 }
 
 /**
- * "30 Sep 2026, 14:05:32 GMT+1" — the viewer's local time with an explicit zone,
+ * "30 Sep 2026, 02:05:32 PM GMT+1" — the viewer's local time with an explicit zone,
  * so an audit timestamp is never ambiguous. Missing/unparseable input returns
  * "" / the raw value instead of a bogus 1970 date.
  */
@@ -111,8 +112,7 @@ export function formatDateTimeWithZone(value) {
   const datePart = d
     .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     .replace("Sept", "Sep");
-  const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(d);
-  return `${datePart}, ${clock} ${timeZoneLabel(d)}`;
+  return `${datePart}, ${formatTime12h(d, { seconds: true })} ${timeZoneLabel(d)}`;
 }
 
 /**

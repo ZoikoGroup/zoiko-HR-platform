@@ -7,7 +7,8 @@ import ShiftInfoCard from "../../../../modules/zoiko-hr/attendance/components/Sh
 import AttendanceCalendar from "../../../../modules/zoiko-hr/attendance/components/AttendanceCalendar";
 import AttendanceStatusChip from "../../../../modules/zoiko-hr/attendance/components/AttendanceStatusChip";
 import DayDetailDrawer from "../../../../modules/zoiko-hr/attendance/components/DayDetailDrawer";
-import { errorText, formatClockTime, formatMinutes, STATUS } from "../../../../modules/zoiko-hr/attendance/constants";
+import { dayOffset, errorText, formatClockTime, formatMinutes, STATUS } from "../../../../modules/zoiko-hr/attendance/constants";
+import NextDayHint from "../../../../modules/zoiko-hr/attendance/components/NextDayHint";
 import {
   useEndBreak, useMyAttendanceMonth, useMyAttendanceToday, usePunchIn, usePunchOut, useStartBreak,
 } from "../../../../modules/zoiko-hr/attendance/hooks/useMyAttendance";
@@ -74,7 +75,11 @@ export default function EmployeeEssAttendance() {
   const exportCsv = () => {
     const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const head = ["Date", "Status", "Shift", "Check in", "Check out", "Worked", "Breaks", "Late (min)", "Beyond standard"];
-    const body = rows.map((d) => [d.date, STATUS[d.status]?.label || d.status, d.shift || "", d.check_in || "", d.check_out || "",
+    const out = (d) => {
+      const t = formatClockTime(d.check_out, { empty: "" });
+      return t && dayOffset(d.check_out_at, d.date, data?.timezone) > 0 ? `${t} (+1 day)` : t;
+    };
+    const body = rows.map((d) => [d.date, STATUS[d.status]?.label || d.status, d.shift || "", formatClockTime(d.check_in, { empty: "" }), out(d),
       formatMinutes(d.worked_minutes), formatMinutes(d.break_minutes), d.late_minutes || 0, formatMinutes(d.overtime_minutes)]);
     const csv = [head, ...body].map((r) => r.map(cell).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -174,7 +179,10 @@ export default function EmployeeEssAttendance() {
                       <td className="px-4 py-3"><button type="button" className="font-medium text-blue-700 hover:underline" onClick={(e) => { e.stopPropagation(); setSelected(d.date); }}>{formatDate(d.date)}</button></td>
                       <td className="px-4 py-3 text-xs text-slate-600">{d.shift || "—"}</td>
                       <td className="px-4 py-3 font-mono">{formatClockTime(d.check_in)}</td>
-                      <td className="px-4 py-3 font-mono">{formatClockTime(d.check_out)}</td>
+                      <td className="px-4 py-3 font-mono">
+                        {formatClockTime(d.check_out)}
+                        {dayOffset(d.check_out_at, d.date, data?.timezone) > 0 && <NextDayHint />}
+                      </td>
                       <td className="px-4 py-3">{d.worked_minutes ? formatMinutes(d.worked_minutes) : "—"}</td>
                       <td className="px-4 py-3">{d.break_minutes ? formatMinutes(d.break_minutes) : "—"}</td>
                       <td className="px-4 py-3"><AttendanceStatusChip status={d.status} /></td>

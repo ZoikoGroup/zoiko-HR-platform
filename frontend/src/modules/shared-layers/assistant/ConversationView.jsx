@@ -14,6 +14,7 @@ import HandoffPanel from "./HandoffPanel";
 import MyTicketsPanel from "./MyTicketsPanel";
 import HistoryRail from "./HistoryRail";
 import { createPrivacyRequest } from "../../../service/assistantService";
+import { formatTime12h } from "../../../utils/dateTime";
 
 // First-run content follows the Chatbot Detailed Wireframe v1.0 anatomy
 // (intro → 2×2 task cards → welcome → six starter prompts → CTA), with
@@ -337,7 +338,7 @@ export default function ConversationView({
                       <span className="block text-[var(--zhr-text-secondary)]">Here are some popular questions to get you started:</span>
                     </div>
                     <time dateTime={sessionStartedAt.toISOString()} className="mt-1.5 block pl-1 text-xs text-[var(--zhr-text-muted)]">
-                      {sessionStartedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      {formatTime12h(sessionStartedAt)}
                     </time>
                   </div>
                 </div>

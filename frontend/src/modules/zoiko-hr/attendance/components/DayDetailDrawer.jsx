@@ -3,7 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import CorrectionForm from "./CorrectionForm";
 import AttendanceStatusChip from "./AttendanceStatusChip";
-import { formatMinutes, SOURCE_LABEL, timeIn, timeIn24 } from "../constants";
+import { dayOffset, formatMinutes, SOURCE_LABEL, timeIn, timeIn24 } from "../constants";
+import NextDayHint from "./NextDayHint";
 import { useMyAttendanceDay } from "../hooks/useMyAttendance";
 import { formatDate } from "../../../../utils/dateTime";
 
@@ -46,7 +47,8 @@ export default function DayDetailDrawer({ date, onClose }) {
             <div className="flex items-center gap-2"><AttendanceStatusChip status={d.status} />{d.source && <span className="text-xs text-slate-500">via {SOURCE_LABEL[d.source] || d.source}</span>}</div>
             <dl className="grid grid-cols-2 gap-y-1.5">
               <dt className="text-slate-500">Punched in</dt><dd className="font-mono">{timeIn(d.check_in_at, tz)}</dd>
-              <dt className="text-slate-500">Punched out</dt><dd className="font-mono">{timeIn(d.check_out_at, tz)}</dd>
+              <dt className="text-slate-500">Punched out</dt>
+              <dd className="font-mono">{timeIn(d.check_out_at, tz)}{dayOffset(d.check_out_at, d.date, tz) > 0 && <NextDayHint />}</dd>
               <dt className="text-slate-500">Worked (net)</dt><dd className="font-mono">{formatMinutes(d.worked_minutes)}</dd>
               <dt className="text-slate-500">Breaks</dt><dd className="font-mono">{formatMinutes(d.break_minutes)}</dd>
               {d.late_minutes > 0 && (<><dt className="text-slate-500">Late by</dt><dd className="font-mono">{d.late_minutes} min</dd></>)}

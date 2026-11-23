@@ -171,3 +171,22 @@ test("routing: the old pretend clock-in page redirects and admins can open their
     assert.ok(ROLE_ALLOWED_PREFIXES[role].includes("/employee/ess/attendance") || ROLE_ALLOWED_PREFIXES[role].includes("/employee/ess"), role);
   }
 });
+
+test("step 2: an overnight check-out shows '+1 day' in the records table and the day drawer, 12-hour times", async (t) => {
+  const night = structuredClone(MONTH);
+  // 3 Nov: a night shift, in at 21:00 IST (15:30 UTC), out at 06:05 IST on 4 Nov (00:35 UTC)
+  Object.assign(night.days[2], { status: "present", check_in: "21:00", check_out: "06:05",
+    check_in_at: "2026-11-03T15:30:00Z", check_out_at: "2026-11-04T00:35:00Z" });
+  const nightDay = { ...structuredClone(DAY), date: "2026-11-03", check_in_at: "2026-11-03T15:30:00Z", check_out_at: "2026-11-04T00:35:00Z" };
+  mockApi(t, { getMyAttendanceMonth: async () => night, getMyAttendanceDay: async () => nightDay });
+  await renderPage();
+  const row = screen.getAllByRole("row").find((r) => r.textContent.includes("03 Nov 2026"));
+  assert.match(row.textContent, /09:00 PM/);
+  assert.match(row.textContent, /06:05 AM\s*\+1 day/);
+  const other = screen.getAllByRole("row").find((r) => r.textContent.includes("02 Nov 2026"));
+  assert.doesNotMatch(other.textContent, /\+1 day/);
+  fireEvent.click(within(row).getByRole("button", { name: "03 Nov 2026" }));
+  await settle();
+  const drawer = screen.getByRole("dialog");
+  assert.match(drawer.textContent, /Punched out06:05 AM\+1 day/);
+});

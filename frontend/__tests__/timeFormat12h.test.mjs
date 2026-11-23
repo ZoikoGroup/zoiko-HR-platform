@@ -63,3 +63,13 @@ test("dayOffset marks an overnight check-out as the next day, in the person's zo
   assert.equal(dayOffset(null, "2026-11-23", "Asia/Kolkata"), null);
   assert.equal(dayOffset("2026-11-24T00:35:00Z", null, "Asia/Kolkata"), null);
 });
+
+test("step 2: the shared date-time helpers are 12-hour too (upper-case AM/PM, seconds kept where shown)", async () => {
+  const { formatDateTime, formatDateTimeWithZone, formatTime } = await import("../src/utils/dateTime.js");
+  const d = new Date(2026, 10, 23, 15, 8, 9);                 // local time, whatever the test machine's zone
+  assert.equal(formatTime(d), "03:08 PM");
+  assert.equal(formatDateTime(d), "23 Nov 2026, 03:08 PM");
+  assert.match(formatDateTimeWithZone(d), /^23 Nov 2026, 03:08:09 PM \S+/);
+  assert.equal(formatTime(new Date(2026, 10, 23, 0, 0)), "12:00 AM");
+  assert.equal(formatTime("not a date"), "not a date");      // unchanged: unreadable input comes back as is
+});

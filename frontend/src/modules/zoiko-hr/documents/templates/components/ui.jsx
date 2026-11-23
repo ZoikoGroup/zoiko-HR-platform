@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Loader2, Lock, X } from "lucide-react";
 import { useAuth } from "../../../../../context/AuthContext";
 import { Modal } from "../../../../../components/billing-ui";
+import { formatDateTime } from "../../../../../utils/dateTime";
 
 export const TEMPLATES_PATH = "/zoiko-hr/documents/templates";
 export const PACKS_PATH = "/zoiko-hr/documents/jurisdiction-packs";
@@ -41,7 +42,7 @@ export function fmtDate(iso) {
 export function fmtDateTime(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? String(iso) : formatDateTime(d);
 }
 
 export function errorMessage(err) {
