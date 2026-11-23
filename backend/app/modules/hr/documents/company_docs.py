@@ -561,6 +561,10 @@ def add_to_current_round(db: Session, doc, employee_id: int, now: Optional[datet
     return created
 
 
+EMPLOYEE_COMPANY_LINK = "/employee/documents/company"
+ADMIN_COMPANY_LINK = "/zoiko-hr/documents/company-documents"
+
+
 def on_published(db: Session, doc, version, actor=None, *, material_change: bool = True, notify_audience: bool = True) -> None:
     """A version became visible: open an acknowledgement round when one is needed (a minor change keeps the current round);
     otherwise optionally tell the audience a new document is available."""
@@ -571,8 +575,14 @@ def on_published(db: Session, doc, version, actor=None, *, material_change: bool
     if rule.require_ack and (material_change or existing is None):
         open_ack_round(db, doc, version, "initial" if existing is None else "new_version", actor)
     elif notify_audience and rule.visibility != Visibility.ADMIN_ONLY.value:
-        notify.send(db, doc.organization_id, _audience_for(db, doc), "document.issued", title=doc.title,
-                    link="/employee/documents/company", channels=["in_app"], document_id=doc.id)
+        # admins manage company documents in Zoiko HR → Documents; everyone else reads them in the employee portal
+        people = _audience_for(db, doc)
+        admins = [p for p in people if is_document_admin(p)]
+        others = [p for p in people if not is_document_admin(p)]
+        for group, link in ((others, EMPLOYEE_COMPANY_LINK), (admins, ADMIN_COMPANY_LINK)):
+            if group:
+                notify.send(db, doc.organization_id, group, "document.issued", title=doc.title, link=link,
+                            channels=["in_app"], document_id=doc.id)
 
 
 def ack_tracking(db: Session, actor, document_id: int, status: Optional[str] = None, page: int = 1, per_page: int = 50) -> dict:
@@ -789,7 +799,8 @@ def my_company_documents(db: Session, user, category_id: Optional[int] = None, s
         groups.setdefault(key, {"category": item["category"], "items": []})["items"].append(item)
     ordered = sorted(groups.values(), key=lambda g: (getattr(cats.get((g["category"] or {}).get("id")), "sort_order", 999),
                                                      (g["category"] or {}).get("name") or ""))
-    return {"total": sum(len(g["items"]) for g in ordered), "groups": ordered}
+    # an admin sees every published document here; the page says where admins manage them
+    return {"total": sum(len(g["items"]) for g in ordered), "groups": ordered, "viewer_is_admin": is_document_admin(user)}
 
 
 def _folder_paths(db: Session, org: int, folder_ids: set) -> dict:

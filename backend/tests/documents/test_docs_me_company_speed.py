@@ -59,3 +59,26 @@ def test_assigned_documents_are_still_visible_to_their_person_only(api):
     api.db.commit()
     assert _visible_titles(api, "emp") == ["Bank form"]
     assert _visible_titles(api, "emp2") == []
+
+
+# ── admins are sent to where they manage company documents ──────────────────────────────────────────────────────────
+
+def _links(api, who):
+    from app.modules.super_admin.models import Notification, NotificationTarget
+    return [n.link for n in api.db.query(Notification).join(NotificationTarget, NotificationTarget.notification_id == Notification.id)
+            .filter(NotificationTarget.kind == "user", NotificationTarget.ref == str(api.people[who].id))]
+
+
+def test_a_published_company_document_links_admins_to_the_admin_page(api):
+    _share(api, "category", _cat(api, "forms_templates").id)               # all employees, no read confirmation
+    _upload(api, key="forms_templates", title="Leave form")
+    assert "/employee/documents/company" in _links(api, "emp")
+    assert "/zoiko-hr/documents/company-documents" in _links(api, "admin")
+    assert "/employee/documents/company" not in _links(api, "admin")
+
+
+def test_the_employee_page_tells_an_admin_where_to_manage_documents(api):
+    api.as_("emp")
+    assert api.get("/hr/me/company-documents").json()["viewer_is_admin"] is False
+    api.as_("hr")
+    assert api.get("/hr/me/company-documents").json()["viewer_is_admin"] is True
