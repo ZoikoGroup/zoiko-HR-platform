@@ -28,7 +28,7 @@ export default function WorkPolicyTab({ onToast }) {
     }).catch((e) => { onToast?.("error", e?.message || "The work policy could not be loaded."); setV({}); });
     getShifts().then((r) => setShifts(asList(r).filter((s) => s.is_active !== false))).catch(() => setShifts([]));
   }, [onToast]);
-  if (!v) return <div className="h-64 animate-pulse rounded-2xl bg-slate-100" aria-label="Loading the work policy" />;
+  if (!v) return <div className="h-64 motion-safe:animate-pulse rounded-2xl bg-slate-100" aria-label="Loading the work policy" />;
 
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const num = (x) => (x === "" || x === null || x === undefined ? null : Number(x));

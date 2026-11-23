@@ -135,3 +135,22 @@ test("the page has four tabs and Working time requests points to it for notices 
   assert.deepEqual(screen.getAllByRole("tab").map((b) => b.textContent), ["Overtime", "Attendance corrections"]);
   assert.equal(screen.getByRole("link", { name: "Shifts & Work Policy" }).getAttribute("href"), "/zoiko-hr/attendance/shifts");
 });
+
+test("step 7: the tabs follow the arrow keys and only the open tab is a Tab stop", async (t) => {
+  mock(t);
+  await renderPage();
+  const tabs = screen.getAllByRole("tab");
+  assert.deepEqual(tabs.map((b) => b.tabIndex), [0, -1, -1, -1]);
+  tabs[0].focus();
+  fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
+  await settle(2);
+  assert.equal(document.activeElement.textContent, "Assignments");
+  assert.equal(document.activeElement.getAttribute("aria-selected"), "true");
+  fireEvent.keyDown(document.activeElement, { key: "ArrowLeft" });
+  fireEvent.keyDown(document.activeElement, { key: "ArrowLeft" });                   // wraps to the last tab
+  await settle(2);
+  assert.equal(document.activeElement.textContent, "Work policy");
+  fireEvent.keyDown(document.activeElement, { key: "Home" });
+  await settle(2);
+  assert.equal(document.activeElement.textContent, "Shifts");
+});

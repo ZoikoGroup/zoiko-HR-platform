@@ -126,7 +126,7 @@ export default function ShiftsTab({ onToast }) {
       {editing && <ShiftForm key={editing.id || "new"} initial={editing} onCancel={() => setEditing(null)}
         onSaved={(s, updated) => { setEditing(null); onToast("success", `Shift “${s.name}” ${updated ? "saved" : "created"}.`); load(); }} />}
       <ErrorBanner error={error} />
-      {loading ? <div className="h-32 animate-pulse rounded-2xl bg-slate-100" aria-label="Loading shifts" /> : shifts.length === 0 ? (
+      {loading ? <div className="h-32 motion-safe:animate-pulse rounded-2xl bg-slate-100" aria-label="Loading shifts" /> : shifts.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No shifts yet. Create the first one.</p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white dark:border-[#334155] dark:bg-[#1e293b]">
@@ -142,8 +142,8 @@ export default function ShiftsTab({ onToast }) {
                   <td className="px-4 py-3"><span className="font-medium">{s.name}</span>
                     <span className="block text-xs text-slate-500">{SHIFT_TYPES.find(([v]) => v === s.shift_type)?.[1] || s.shift_type}</span></td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">{shiftTiming(s)}</td>
-                  <td className="px-4 py-3">{s.standard_hours ? formatMinutes(Number(s.standard_hours) * 60) : <span className="text-slate-400">Organization's</span>}</td>
-                  <td className="px-4 py-3 text-xs">{s.working_days?.length ? s.working_days.map((d) => d[0].toUpperCase() + d.slice(1)).join(", ") : <span className="text-slate-400">Organization's</span>}</td>
+                  <td className="px-4 py-3">{s.standard_hours ? formatMinutes(Number(s.standard_hours) * 60) : <span className="text-slate-500">Organization's</span>}</td>
+                  <td className="px-4 py-3 text-xs">{s.working_days?.length ? s.working_days.map((d) => d[0].toUpperCase() + d.slice(1)).join(", ") : <span className="text-slate-500">Organization's</span>}</td>
                   <td className="px-4 py-3 text-xs">{s.grace_time_minutes} min / {s.break_duration_minutes} min</td>
                   <td className="px-4 py-3">
                     <button type="button" onClick={() => toggle(s)} aria-label={`${s.is_active ? "Deactivate" : "Activate"} ${s.name}`}

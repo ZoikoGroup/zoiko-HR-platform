@@ -32,13 +32,24 @@ export default function DayDetailDrawer({ date, onClose }) {
   }, []);
   const d = query.data;
   const tz = d?.timezone;
+  // Tab and Shift+Tab cycle inside the panel while it is open (aria-modal)
+  const trapTab = (e) => {
+    if (e.key !== "Tab") return;
+    const nodes = [...e.currentTarget.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!nodes.length) return;
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-label={`Attendance on ${formatDate(date)}`} onClick={(e) => e.stopPropagation()}
+        onKeyDown={trapTab}
         className="h-full w-full max-w-md overflow-auto bg-white p-5 shadow-2xl dark:bg-[#1e293b]">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold">{formatDate(date)}</h2>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X size={18} aria-hidden="true" /></button>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><X size={18} aria-hidden="true" /></button>
         </div>
         {query.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
         {query.isError && <p role="alert" className="text-sm text-rose-700">{query.error?.message || "This day could not be loaded."}</p>}
@@ -56,14 +67,14 @@ export default function DayDetailDrawer({ date, onClose }) {
             </dl>
             {d.breaks?.length > 0 && (
               <div>
-                <h3 className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-400">Breaks</h3>
+                <h3 className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Breaks</h3>
                 <ul className="space-y-1">{d.breaks.map((b, i) => <li key={i} className="font-mono">{timeIn(b.start_at, tz)} – {b.end_at ? timeIn(b.end_at, tz) : "running"}</li>)}</ul>
               </div>
             )}
             {d.notes && <p className="whitespace-pre-line rounded-lg bg-slate-50 p-2 text-slate-700">{d.notes}</p>}
             {d.history?.length > 0 && (
               <div>
-                <h3 className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-400">History</h3>
+                <h3 className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">History</h3>
                 <ol className="space-y-1 text-xs">
                   {d.history.map((h, i) => (
                     <li key={i}><span className="font-mono">{timeIn(h.at, tz)}</span> · {ACTION_LABEL[h.action] || h.action}

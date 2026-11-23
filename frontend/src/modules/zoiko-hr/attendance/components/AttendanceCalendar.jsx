@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { LEGEND, STATUS, dayOffset, formatClockTime, formatMinutes } from "../constants";
 
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -29,15 +29,33 @@ function tooltipText(d, status, timeZone) {
  */
 export default function AttendanceCalendar({ days = [], today, onSelect, selected, timeZone }) {
   const uid = useId();
+  const gridRef = useRef(null);
   if (!days.length) return null;
+  const enabled = days.filter((d) => !d.future).map((d) => d.date);
+  // the one day reachable with Tab: the selected day, else today, else the last day that can be opened
+  const focusDate = [selected, today].find((x) => x && enabled.includes(x)) || enabled[enabled.length - 1];
+  const onKeyDown = (e) => {
+    const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+    const at = days.findIndex((d) => d.date === document.activeElement?.dataset?.date);
+    if (at < 0) return;
+    let to = null;
+    if (e.key in steps) to = at + steps[e.key];
+    else if (e.key === "Home") to = at - ((lead + at) % 7);
+    else if (e.key === "End") to = at + (6 - ((lead + at) % 7));
+    else return;
+    e.preventDefault();
+    to = Math.max(0, Math.min(days.length - 1, to));
+    while (to > 0 && days[to].future) to -= 1;                  // future days can't be opened: stay on the last one that can
+    gridRef.current?.querySelector(`[data-date="${days[to].date}"]`)?.focus();
+  };
   const first = new Date(`${days[0].date}T00:00:00`);
   const lead = (first.getDay() + 6) % 7;                    // blanks before the 1st (Monday = 0)
   const used = new Set(days.map(shownStatus).filter(Boolean));
   const legend = LEGEND.filter((k) => used.has(k));
   return (
     <div>
-      <div role="grid" aria-label="Attendance calendar" className="grid grid-cols-7 gap-1 sm:gap-1.5">
-        {WEEK.map((w) => <div key={w} role="columnheader" className="pb-1 text-center text-[11px] font-bold uppercase text-slate-400">{w}</div>)}
+      <div ref={gridRef} role="grid" aria-label="Attendance calendar" onKeyDown={onKeyDown} className="grid grid-cols-7 gap-1 sm:gap-1.5">
+        {WEEK.map((w) => <div key={w} role="columnheader" className="pb-1 text-center text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400">{w}</div>)}
         {Array.from({ length: lead }).map((_, i) => <div key={`b${i}`} aria-hidden="true" />)}
         {days.map((d) => {
           const status = shownStatus(d);
@@ -49,7 +67,8 @@ export default function AttendanceCalendar({ days = [], today, onSelect, selecte
           return (
             <div key={d.date} className="group relative">
               <button type="button" role="gridcell" aria-label={label} aria-selected={selected === d.date}
-                aria-describedby={tipId} aria-current={isToday ? "date" : undefined}
+                aria-describedby={tipId} aria-current={isToday ? "date" : undefined} data-date={d.date}
+                tabIndex={d.date === focusDate ? 0 : -1}
                 disabled={d.future} onClick={() => onSelect?.(d.date)}
                 className={`flex h-14 w-full flex-col items-center justify-center rounded-xl border text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:h-16 ${
                   selected === d.date ? "border-blue-500 ring-2 ring-blue-200" : isToday ? "border-blue-500 ring-1 ring-blue-500" : "border-slate-200 dark:border-[#334155]"

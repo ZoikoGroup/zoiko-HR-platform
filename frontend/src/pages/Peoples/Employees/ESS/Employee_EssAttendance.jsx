@@ -149,7 +149,7 @@ export default function EmployeeEssAttendance() {
             {today.isError ? (
               <ErrorLine message={today.error?.message || "Today's attendance could not be loaded."} onRetry={() => today.refetch()} />
             ) : today.isLoading ? (
-              <div className="h-full min-h-[13rem] animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" aria-label="Loading today" />
+              <div className="h-full min-h-[13rem] motion-safe:animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" aria-label="Loading today" />
             ) : (
               <PunchCard today={today.data} busy={busy} error={actionError}
                 onPunchIn={act(punchIn)} onPunchOut={act(punchOut)} onStartBreak={act(startBreak)} onEndBreak={act(endBreak)} />
@@ -162,7 +162,7 @@ export default function EmployeeEssAttendance() {
             ) : today.isError ? (
               <p className={`${card} h-full p-5 text-sm text-slate-500`}>Your shift could not be loaded.</p>
             ) : (
-              <div className="h-full min-h-[13rem] animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" aria-label="Loading your shift" />
+              <div className="h-full min-h-[13rem] motion-safe:animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" aria-label="Loading your shift" />
             )}
           </div>
         </div>
@@ -209,7 +209,7 @@ export default function EmployeeEssAttendance() {
           {monthQ.isError && !data ? (
             <ErrorLine message={monthQ.error?.message || "Your month could not be loaded."} onRetry={() => monthQ.refetch()} />
           ) : monthQ.isLoading ? (
-            <div className="h-80 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" aria-label="Loading month" />
+            <div className="h-80 motion-safe:animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" aria-label="Loading month" />
           ) : (
             <AttendanceCalendar days={data?.days} today={data?.today} timeZone={tz} selected={selected} onSelect={setSelected} />
           )}
@@ -231,10 +231,10 @@ export default function EmployeeEssAttendance() {
                 {filterOptions.map((s) => <option key={s} value={s}>{STATUS[s].label}</option>)}
               </select>
             </label>
-            <label className="relative text-xs font-medium text-slate-600 dark:text-slate-300">Search
+            <label className="relative w-full text-xs font-medium text-slate-600 sm:w-auto dark:text-slate-300">Search
               <Search size={15} className="absolute bottom-2.5 left-2.5 text-slate-400" aria-hidden="true" />
               <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Date, status or shift"
-                className="mt-1 block w-48 rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm dark:border-[#334155] dark:bg-[#0f172a]" />
+                className="mt-1 block w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm sm:w-48 dark:border-[#334155] dark:bg-[#0f172a] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
             </label>
           </div>
 
@@ -242,7 +242,7 @@ export default function EmployeeEssAttendance() {
             <div className="p-4"><ErrorLine message="The records could not be loaded." onRetry={() => monthQ.refetch()} /></div>
           ) : monthQ.isLoading ? (
             <div className="space-y-2 p-4" aria-label="Loading records">
-              {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />)}
+              {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-10 motion-safe:animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />)}
             </div>
           ) : rows.length === 0 ? (
             <p className="p-8 text-center text-sm text-slate-500">
@@ -264,7 +264,7 @@ export default function EmployeeEssAttendance() {
                   <tbody className="divide-y divide-slate-100 dark:divide-[#334155]">
                     {shown.map((d) => (
                       <tr key={d.date} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60" onClick={() => setSelected(d.date)}>
-                        <td className="px-4 py-3"><button type="button" className="font-medium text-blue-700 hover:underline dark:text-blue-300" onClick={(e) => { e.stopPropagation(); setSelected(d.date); }}>{formatDate(d.date)}</button></td>
+                        <td className="px-4 py-3"><button type="button" className="rounded font-medium text-blue-700 hover:underline dark:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={(e) => { e.stopPropagation(); setSelected(d.date); }}>{formatDate(d.date)}</button></td>
                         <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">{d.shift || "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3 font-mono">
                           {formatClockTime(d.check_in)}
@@ -287,7 +287,7 @@ export default function EmployeeEssAttendance() {
               <ul aria-label="Attendance records list" className="divide-y divide-slate-100 md:hidden dark:divide-[#334155]">
                 {shown.map((d) => (
                   <li key={d.date}>
-                    <button type="button" onClick={() => setSelected(d.date)} className="flex w-full flex-col gap-1 px-4 py-3 text-left">
+                    <button type="button" onClick={() => setSelected(d.date)} className="flex w-full flex-col gap-1 px-4 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
                       <span className="flex items-center justify-between gap-2">
                         <span className="font-medium text-slate-900 dark:text-white">{formatDate(d.date)}</span>
                         <AttendanceStatusChip status={d.status} />
@@ -312,10 +312,10 @@ export default function EmployeeEssAttendance() {
                     </select>
                   </label>
                   <button type="button" onClick={() => setPage((p) => p - 1)} disabled={page <= 1}
-                    className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40 dark:border-[#334155]">Previous</button>
+                    className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40 dark:border-[#334155] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">Previous</button>
                   <span>Page {page} of {pages}</span>
                   <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page >= pages}
-                    className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40 dark:border-[#334155]">Next</button>
+                    className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40 dark:border-[#334155] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">Next</button>
                 </span>
               </nav>
             </>

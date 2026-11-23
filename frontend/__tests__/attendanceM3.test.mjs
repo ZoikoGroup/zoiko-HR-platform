@@ -322,3 +322,40 @@ test("step 5: the shift card shows the hours required today and the next shift c
   assert.match(shift.textContent, /From 23 Nov 2026:\s*Night · 09:00 PM – 06:00 AM \(next day\)/);
   assert.equal(screen.queryByRole("region", { name: "Shift notice" }), null);
 });
+
+// ── step 7: keyboard and screen-reader behaviour ────────────────────────────────────────────────────────────────────
+
+test("step 7: the calendar is one Tab stop and the arrow keys move between days (never onto a future day)", async (t) => {
+  mockApi(t);
+  await renderPage();
+  const grid = screen.getByRole("grid", { name: "Attendance calendar" });
+  const focusable = within(grid).getAllByRole("gridcell").filter((c) => c.tabIndex === 0);
+  assert.equal(focusable.length, 1);
+  assert.equal(focusable[0].getAttribute("aria-current"), "date");                  // today
+  focusable[0].focus();
+  fireEvent.keyDown(document.activeElement, { key: "ArrowLeft" });
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-17/);
+  fireEvent.keyDown(document.activeElement, { key: "ArrowUp" });
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-10/);
+  fireEvent.keyDown(document.activeElement, { key: "Home" });                      // Monday of that week
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-09/);
+  fireEvent.keyDown(document.activeElement, { key: "ArrowDown" });
+  fireEvent.keyDown(document.activeElement, { key: "ArrowDown" });                 // 23 Nov is in the future: stay on the 18th
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-18/);
+});
+
+test("step 7: Tab stays inside the open day panel", async (t) => {
+  mockApi(t);
+  await renderPage();
+  fireEvent.click(within(screen.getByRole("grid", { name: "Attendance calendar" })).getByRole("gridcell", { name: "2026-11-03: Late" }));
+  await settle();
+  const drawer = screen.getByRole("dialog", { name: /Attendance on 03 Nov 2026/ });
+  const buttons = within(drawer).getAllByRole("button");
+  const close = within(drawer).getByRole("button", { name: "Close" });
+  assert.equal(document.activeElement, close);
+  buttons.at(-1).focus();
+  fireEvent.keyDown(document.activeElement, { key: "Tab" });
+  assert.equal(document.activeElement, close, "from the last control back to the first");
+  fireEvent.keyDown(document.activeElement, { key: "Tab", shiftKey: true });
+  assert.equal(document.activeElement, buttons.at(-1), "and the other way round");
+});

@@ -41,12 +41,12 @@ export default function PunchCard({ today, busy, onPunchIn, onPunchOut, onStartB
   else if (today?.running) { headline = "Working"; timer = formatDuration(workedSec); }
   else if (today?.check_out_at) headline = `Done for the day · ${formatMinutes(today.worked_minutes)}`;
 
-  const btn = "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60";
+  const btn = "inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 sm:flex-none text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60";
   return (
     <section aria-label="Punch in and out" className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Today{tz ? ` · ${tz}` : ""}</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Today{tz ? ` · ${tz}` : ""}</p>
           <p className="mt-1 font-mono text-4xl font-black tabular-nums text-slate-900 dark:text-white" aria-label="Current time">{clock}</p>
           <p className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">
             <span role="status" aria-live="polite">{headline}</span>
