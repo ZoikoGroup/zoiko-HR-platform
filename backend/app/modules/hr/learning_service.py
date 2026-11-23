@@ -173,6 +173,8 @@ def create_enrollment(db: Session, data: EnrollmentCreate, organization_id: Opti
         enrollment.organization_id = organization_id
     db.add(enrollment)
     db.commit()
+    if enrollment.status not in ("completed", "dropped"):             # quizzes passed before enrolling still count
+        sync_learner_progress(db, enrollment.course_id, enrollment.employee_id)
     db.refresh(enrollment)
     return enrollment
 
@@ -256,6 +258,10 @@ def update_enrollment(db: Session, enrollment_id: int, data: EnrollmentUpdate, o
             enrollment.progress_pct = 100
     elif "status" in update_data:
         enrollment.completed_at = None
+        if enrollment.status != "dropped" and "progress_pct" not in update_data:
+            progress = quiz_progress(db, enrollment.course_id, enrollment.employee_id)
+            if progress is not None:                                   # reopened: back to what the quizzes say
+                enrollment.progress_pct = progress["pct"]
     db.commit()
     db.refresh(enrollment)
     # a completed mandatory course gets its completion record (HR-PRF-018); never fails the update
@@ -574,6 +580,7 @@ def create_assessment(db: Session, data: AssessmentCreate, created_by: int, orga
     db.add(assessment)
     db.commit()
     db.refresh(assessment)
+    sync_course_progress(db, assessment.course_id)
     return _assessment_dict(db, assessment)
 
 
@@ -616,10 +623,13 @@ def update_assessment(db: Session, assessment_id: int, data: AssessmentUpdate, o
     course_id = update_data.get("course_id", assessment.course_id)
     if "title" in update_data or "course_id" in update_data:
         _check_assessment_title(db, course_id, update_data.get("title", assessment.title), exclude_id=assessment.id)
+    previous_course = assessment.course_id
     for field, value in update_data.items():
         setattr(assessment, field, value)
     db.commit()
     db.refresh(assessment)
+    for affected in {previous_course, assessment.course_id}:
+        sync_course_progress(db, affected)
     return _assessment_dict(db, assessment)
 
 
@@ -630,13 +640,16 @@ def delete_assessment(db: Session, assessment_id: int, organization_id: Optional
         raise BadRequestException(
             f"This assessment has {attempts} recorded attempt{'s' if attempts != 1 else ''} and cannot be deleted. Set it to Inactive instead."
         )
+    course_id = assessment.course_id
     db.query(LearningAssessmentQuestion).filter(LearningAssessmentQuestion.assessment_id == assessment.id).delete(synchronize_session=False)
     db.delete(assessment)
     db.commit()
+    sync_course_progress(db, course_id)
 
 
 def add_question(db: Session, assessment_id: int, data: QuestionCreate, organization_id: Optional[int] = None) -> LearningAssessmentQuestion:
-    _assessment_row(db, assessment_id, organization_id)
+    assessment = _assessment_row(db, assessment_id, organization_id)
+    first_question = not _has_questions(db, assessment_id)
     values = data.model_dump()
     if values.get("sort_order") is None:
         last = db.query(func.max(LearningAssessmentQuestion.sort_order)).filter(LearningAssessmentQuestion.assessment_id == assessment_id).scalar()
@@ -645,6 +658,9 @@ def add_question(db: Session, assessment_id: int, data: QuestionCreate, organiza
     db.add(question)
     db.commit()
     db.refresh(question)
+    if first_question:                                                 # the quiz now counts toward its course's progress
+        sync_course_progress(db, assessment.course_id)
+        db.refresh(question)
     return question
 
 
@@ -690,8 +706,90 @@ def update_question(db: Session, assessment_id: int, question_id: int, data: Que
 
 def delete_question(db: Session, assessment_id: int, question_id: int, organization_id: Optional[int] = None) -> None:
     question = _question_row(db, assessment_id, question_id, organization_id)
+    course_id = db.query(LearningAssessment.course_id).filter(LearningAssessment.id == assessment_id).scalar()
     db.delete(question)
     db.commit()
+    if not _has_questions(db, assessment_id):                          # the quiz no longer counts toward its course's progress
+        sync_course_progress(db, course_id)
+
+
+# ── Course progress from quizzes ─────────────────────────────────────────────────────────────────────────────────────
+# An enrollment's progress_pct is the share of the course's quizzes the learner has passed:
+#     progress = passed quizzes / quizzes in the course x 100 (rounded)
+# Only quizzes a learner can take count: switched on, with at least one question. Passing the last one completes the
+# enrollment. A course with no such quiz keeps its progress as an admin sets it (marking it Completed gives 100%).
+# A completed or dropped enrollment is never changed by this, so adding a quiz later does not undo a completion.
+
+def _countable_quiz_ids(db: Session, course_id: int) -> list[int]:
+    has_question = db.query(LearningAssessmentQuestion.id).filter(LearningAssessmentQuestion.assessment_id == LearningAssessment.id).exists()
+    rows = db.query(LearningAssessment.id).filter(LearningAssessment.course_id == course_id,
+                                                  LearningAssessment.is_active == True,  # noqa: E712
+                                                  has_question).all()
+    return [r[0] for r in rows]
+
+
+def quiz_progress(db: Session, course_id: int, employee_id: int) -> Optional[dict]:
+    """{"total", "passed", "pct", "attempted"} for one learner on one course, or None when the course has no quiz."""
+    quiz_ids = _countable_quiz_ids(db, course_id)
+    if not quiz_ids:
+        return None
+    mine = LearningQuizAttempt.employee_id == employee_id
+    passed = db.query(func.count(func.distinct(LearningQuizAttempt.assessment_id))).filter(
+        mine, LearningQuizAttempt.assessment_id.in_(quiz_ids),
+        LearningQuizAttempt.status == "completed", LearningQuizAttempt.passed == True,  # noqa: E712
+    ).scalar() or 0
+    attempted = db.query(LearningQuizAttempt.id).filter(mine, LearningQuizAttempt.assessment_id.in_(quiz_ids)).first() is not None
+    return {"total": len(quiz_ids), "passed": passed, "pct": round(passed * 100 / len(quiz_ids)), "attempted": attempted}
+
+
+def _apply_quiz_progress(db: Session, enrollment: LearningEnrollment) -> bool:
+    """Brings one enrollment in line with its learner's quizzes. True when it just became completed."""
+    if enrollment.status in ("completed", "dropped"):
+        return False
+    progress = quiz_progress(db, enrollment.course_id, enrollment.employee_id)
+    if progress is None:
+        return False
+    now = datetime.utcnow()
+    enrollment.progress_pct = progress["pct"]
+    if progress["pct"] >= 100:
+        enrollment.status = "completed"
+        enrollment.started_at = enrollment.started_at or now
+        enrollment.completed_at = enrollment.completed_at or now
+        return True
+    if progress["attempted"] or progress["passed"]:
+        enrollment.status = "in_progress"
+        enrollment.started_at = enrollment.started_at or now
+    return False
+
+
+def _after_auto_completion(db: Session, enrollments: list) -> None:
+    """A course completed through its quizzes gets the same follow-up as one an admin marks completed (HR-PRF-018);
+    it never fails the quiz action."""
+    for enrollment in enrollments:
+        try:
+            from app.modules.hr import learning_documents
+            learning_documents.on_enrollment_updated(db, enrollment)
+        except Exception:
+            db.rollback()
+
+
+def sync_learner_progress(db: Session, course_id: int, employee_id: int) -> None:
+    """After a quiz of this course is opened, submitted or graded for this learner."""
+    enrollments = db.query(LearningEnrollment).filter(LearningEnrollment.course_id == course_id,
+                                                      LearningEnrollment.employee_id == employee_id).all()
+    completed = [e for e in enrollments if _apply_quiz_progress(db, e)]
+    db.commit()
+    _after_auto_completion(db, completed)
+
+
+def sync_course_progress(db: Session, course_id: int) -> None:
+    """After the course's quizzes change (added, removed, switched on or off, a first question added or the last removed):
+    every open enrollment of the course is recalculated."""
+    enrollments = db.query(LearningEnrollment).filter(LearningEnrollment.course_id == course_id,
+                                                      LearningEnrollment.status.notin_(("completed", "dropped"))).all()
+    completed = [e for e in enrollments if _apply_quiz_progress(db, e)]
+    db.commit()
+    _after_auto_completion(db, completed)
 
 
 def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[int] = None) -> LearningQuizAttempt:
@@ -721,6 +819,8 @@ def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[in
             open_attempt.enrollment_id = data.enrollment_id
             db.commit()
             db.refresh(open_attempt)
+        sync_learner_progress(db, assessment.course_id, data.employee_id)
+        db.refresh(open_attempt)
         return open_attempt
 
     if assessment.max_attempts and assessment.max_attempts > 0:
@@ -751,6 +851,7 @@ def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[in
     )
     db.add(attempt)
     db.commit()
+    sync_learner_progress(db, assessment.course_id, data.employee_id)       # opening a quiz starts the course
     db.refresh(attempt)
     return attempt
 
@@ -834,6 +935,7 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit, organizat
     attempt.status = PENDING_REVIEW if needs_review else "completed"
 
     db.commit()
+    sync_learner_progress(db, assessment.course_id, attempt.employee_id)
     db.refresh(attempt)
     return attempt
 
@@ -885,6 +987,7 @@ def grade_quiz_attempt(db: Session, attempt_id: int, essay_points: dict, organiz
     attempt.passed = passed
     attempt.status = "completed"
     db.commit()
+    sync_learner_progress(db, assessment.course_id, attempt.employee_id)
     db.refresh(attempt)
     return attempt
 
