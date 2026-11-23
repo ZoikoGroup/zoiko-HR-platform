@@ -41,8 +41,46 @@ export function statusOptions(current) {
   return [cur, ...nextStatuses(cur)].map((value) => ({ value, label: STATUS_LABELS[value] }));
 }
 
-/** Messages for the schedule / edit form, by field. */
-export function validateInterviewForm(f) {
+// QA-R1-1: the server refuses a schedule that has already passed (recruitment_service._check_interview_not_past).
+export const PAST_INTERVIEW_MESSAGE = "An interview cannot be scheduled in the past. Choose a date and time that has not passed yet.";
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/** Wall-clock "now" in `tz` (IANA; empty → this browser's zone): { day: "YYYY-MM-DD", time: "HH:MM" }. */
+export function nowIn(tz, nowMs = Date.now()) {
+  const at = new Date(nowMs);
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+      timeZone: tz || undefined, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(at).map((p) => [p.type, p.value]));
+    return { day: `${parts.year}-${parts.month}-${parts.day}`, time: `${pad2(Number(parts.hour) % 24)}:${parts.minute}` };
+  } catch {
+    return { day: `${at.getFullYear()}-${pad2(at.getMonth() + 1)}-${pad2(at.getDate())}`, time: `${pad2(at.getHours())}:${pad2(at.getMinutes())}` };
+  }
+}
+
+const scheduleKey = (f) => [f?.interview_date || "", f?.start_time || "", f?.end_time || "", f?.timezone || ""].join("|");
+
+/** Whether the form sets the schedule: a new interview, a changed date / time / zone, or a cancelled one put back on the
+ * calendar. Editing anything else on an interview whose time has passed is allowed (mirrors the server). */
+export function schedulesTime(f, original) {
+  if (!original) return true;
+  if (original.status === "cancelled" && f.status === "scheduled") return true;
+  return scheduleKey(f) !== scheduleKey(original);
+}
+
+/** { interview_date | start_time: message } when the schedule being set has already passed in the interview's zone. */
+export function pastScheduleErrors(f, { original = null, now = Date.now() } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f?.interview_date || "") || !schedulesTime(f, original)) return {};
+  const here = nowIn(f.timezone, now);
+  if (f.interview_date < here.day) return { interview_date: PAST_INTERVIEW_MESSAGE };
+  if (f.interview_date === here.day && f.start_time && String(f.start_time).slice(0, 5) <= here.time) return { start_time: PAST_INTERVIEW_MESSAGE };
+  return {};
+}
+
+/** Messages for the schedule / edit form, by field. Pass `{ now }` (and `original`, the interview as it opened, when editing)
+ * to also refuse a schedule that has already passed. */
+export function validateInterviewForm(f, opts) {
   const errors = {};
   const put = (key, message) => { if (message && !errors[key]) errors[key] = message; };
   // QA report #13 (BUG-12…16): names, positions and places follow the shared field rules (the server's own); a linked
@@ -64,5 +102,8 @@ export function validateInterviewForm(f) {
   if (f.start_time && f.end_time && f.end_time <= f.start_time) errors.end_time = "The end time must be after the start time.";
   const link = String(f.meeting_link ?? "").trim();
   if (link && !/^https:\/\/\S+$/i.test(link)) errors.meeting_link = "Use a full https:// meeting link.";
+  if (opts?.now != null && !errors.interview_date) {
+    for (const [k, v] of Object.entries(pastScheduleErrors(f, opts))) put(k, v);
+  }
   return errors;
 }

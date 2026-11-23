@@ -7,7 +7,7 @@ import { getRequisitionScorecards, submitInterviewScorecard } from "../../../ser
 import InterviewResultDialog from "./InterviewResultDialog";
 import { getEmployees } from "../../../service/employee";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
-import { STATUS_LABELS, cardActions, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
+import { STATUS_LABELS, cardActions, nowIn, pastScheduleErrors, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
 import { searchQuery } from "./recruitmentRules";
 import { Avatar, AvatarStack, Card, DetailPanel, DetailSection, EmptyState, FilterSelect, KpiCard, KpiGrid, Pagination, PersonCell,
   PrimaryButton, QuickAction, RecruitmentLayout, SearchInput, SecondaryButton,SegmentTabs, StatusPill, Table, td, useInsights } from "./ui";
@@ -72,6 +72,9 @@ const personName = (e) => e.full_name || `${e.first_name || ""} ${e.last_name ||
 const pad = (n) => String(n).padStart(2, "0");
 const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const dayOf = (iv) => (iv?.interview_date ? String(iv.interview_date).slice(0, 10) : "");
+/** The schedule an interview opened with in the edit form (QA-R1-1: only a changed schedule must be in the future). */
+const scheduleOf = (iv) => (iv ? { interview_date: dayOf(iv), start_time: iv.start_time || "", end_time: iv.end_time || "",
+  timezone: iv.timezone || BROWSER_TZ, status: iv.status || "scheduled" } : null);
 const parseDay = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1); };
 const daysBetween = (a, b) => Math.round((parseDay(b) - parseDay(a)) / 86400000);
 
@@ -508,9 +511,12 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
     else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
   };
 
+  const original = scheduleOf(editItem);
   const validateField = (key) => {
-    const msg = validateInterviewForm(form)[key];
-    setErrors((prev) => (prev[key] === msg ? prev : { ...prev, [key]: msg }));
+    const found = validateInterviewForm(form, { original, now: Date.now() });
+    // the date and the start time share the "already passed" check, so a fix to one clears the other
+    const keys = key === "interview_date" || key === "start_time" ? ["interview_date", "start_time"] : [key];
+    setErrors((prev) => (keys.every((k) => prev[k] === found[k]) ? prev : { ...prev, ...Object.fromEntries(keys.map((k) => [k, found[k]])) }));
   };
   const err = (k) => errors[k];
   const described = (k, hintId) => [errors[k] ? `${FIELD_IDS[k]}-err` : null, hintId].filter(Boolean).join(" ") || undefined;
@@ -546,6 +552,12 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
   };
   const setDuration = (min) => { if (startMin != null && startMin + min < 1440) setField("end_time", fromMin(startMin + min)); };
   const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(form.interview_date || "");
+  // QA-R1-1: "now" in the interview's own time zone (what the server checks against); a past interview being edited
+  // keeps its date selectable, only a new or moved schedule is held to it
+  const zoneNow = nowIn(form.timezone);
+  const minDay = editing && original?.interview_date && original.interview_date < zoneNow.day ? undefined : zoneNow.day;
+  const minTime = form.interview_date === zoneNow.day ? zoneNow.time : undefined;
+  const pastNow = pastScheduleErrors(form, { original });
   const dayDiff = dateOk ? daysBetween(today, form.interview_date) : null;
   const relative = dayDiff == null ? "" : dayDiff === 0 ? "Today" : dayDiff === 1 ? "Tomorrow" : dayDiff === -1 ? "Yesterday"
     : dayDiff > 0 ? `In ${dayDiff} days` : `${-dayDiff} days ago`;
@@ -678,14 +690,14 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.3fr_1fr_1fr]">
                   <div>
                     <label htmlFor="iv-date" className={labelCls}>Date <span className="text-rose-500">*</span></label>
-                    <input id="iv-date" type="date" min={editing ? undefined : today} value={form.interview_date} aria-invalid={!!err("interview_date")} aria-describedby={described("interview_date")}
+                    <input id="iv-date" type="date" min={minDay} value={form.interview_date} aria-invalid={!!err("interview_date")} aria-describedby={described("interview_date")}
                       onChange={(e) => setField("interview_date", e.target.value)} onBlur={() => form.interview_date && validateField("interview_date")} className={fieldLook(err("interview_date"))} />
                     <FieldError id="iv-date-err">{err("interview_date")}</FieldError>
                   </div>
                   <div>
                     <label htmlFor="iv-time" className={labelCls}>Start</label>
-                    <input id="iv-time" type="time" step={300} value={form.start_time} aria-invalid={!!err("start_time")} aria-describedby={described("start_time")}
-                      onChange={(e) => setStart(e.target.value)} className={fieldLook(err("start_time"))} />
+                    <input id="iv-time" type="time" step={300} min={minTime} value={form.start_time} aria-invalid={!!err("start_time")} aria-describedby={described("start_time")}
+                      onChange={(e) => setStart(e.target.value)} onBlur={() => form.start_time && validateField("start_time")} className={fieldLook(err("start_time"))} />
                     <FieldError id="iv-time-err">{err("start_time")}</FieldError>
                   </div>
                   <div>
@@ -695,8 +707,9 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                     <FieldError id="iv-end-err">{err("end_time")}</FieldError>
                   </div>
                 </div>
-                {!editing && dayDiff != null && dayDiff < 0 && (
-                  <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5" />This date has passed; an interview cannot be scheduled in the past.</p>
+                {(pastNow.interview_date || pastNow.start_time) && !err("interview_date") && !err("start_time") && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5" />
+                    {pastNow.interview_date ? "This date has passed" : "This time has already passed today"}{form.timezone ? ` in ${form.timezone}` : ""}; an interview cannot be scheduled in the past.</p>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Duration">
                   <span className="mr-1 flex items-center gap-1 text-xs font-medium text-gray-600"><Clock className="h-3.5 w-3.5" aria-hidden="true" />Duration</span>
@@ -1116,7 +1129,7 @@ export default function Interviews() {
   };
 
   const handleSave = async () => {
-    const found = validateInterviewForm(form);
+    const found = validateInterviewForm(form, { original: scheduleOf(editItem), now: Date.now() });
     setErrors(found);
     setSaveError("");
     if (Object.keys(found).length) { focusFirstError(found); return; }
