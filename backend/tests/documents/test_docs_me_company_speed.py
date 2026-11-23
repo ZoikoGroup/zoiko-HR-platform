@@ -82,3 +82,26 @@ def test_the_employee_page_tells_an_admin_where_to_manage_documents(api):
     assert api.get("/hr/me/company-documents").json()["viewer_is_admin"] is False
     api.as_("hr")
     assert api.get("/hr/me/company-documents").json()["viewer_is_admin"] is True
+
+
+# ── the Documents tab badges and My Files: one query for all files' latest versions, not one per file ───────────────
+
+def test_badges_and_my_files_cost_the_same_for_one_file_or_many(api):
+    from app.modules.hr.documents.models import HrEmployeeDocumentCategory
+    from test_docs_phase2_flows import _upload as _my_upload
+    api.as_("emp")
+    api.get("/hr/me/documents/categories")                                  # creates the default categories
+    keys = [c.key for c in api.db.query(HrEmployeeDocumentCategory)
+            .filter(HrEmployeeDocumentCategory.organization_id == api.people["emp"].organization_id,
+                    HrEmployeeDocumentCategory.uploader == "employee")]
+    assert _my_upload(api, key=keys[0]).status_code == 201
+    api.as_("emp")
+    small = [_queries(api, p)[0] for p in ("/hr/me/documents/counts", "/hr/me/documents", "/hr/me/documents/categories")]
+    uploaded = 1
+    for key in keys[1:]:
+        if _my_upload(api, key=key, name=f"{key}.pdf").status_code == 201:
+            uploaded += 1
+    assert uploaded >= 4, uploaded
+    api.as_("emp")
+    big = [_queries(api, p)[0] for p in ("/hr/me/documents/counts", "/hr/me/documents", "/hr/me/documents/categories")]
+    assert big == small, f"queries for 1 file {small}, for {uploaded} files {big}"

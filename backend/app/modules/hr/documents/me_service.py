@@ -74,6 +74,24 @@ def serialize_file(db: Session, doc, version=None) -> dict:
     }
 
 
+def latest_versions(db: Session, document_ids) -> dict:
+    """{document_id: latest HrDocumentVersion} for many files in one query (instead of one per file)."""
+    _, _, _, HrDocumentVersion = _models()
+    ids = list(document_ids)
+    if not ids:
+        return {}
+    out = {}
+    for v in (db.query(HrDocumentVersion).filter(HrDocumentVersion.document_id.in_(ids))
+              .order_by(HrDocumentVersion.document_id, HrDocumentVersion.version)):
+        out[v.document_id] = v                          # ordered by version: the last one per file wins
+    return out
+
+
+def _serialize_many(db: Session, docs: list) -> list[dict]:
+    versions = latest_versions(db, [d.id for d in docs])
+    return [serialize_file(db, d, versions.get(d.id)) for d in docs]
+
+
 def _docs_query(db: Session, organization_id: int, employee_id: int):
     HrDocument, _, _, _ = _models()
     return (db.query(HrDocument)
@@ -102,8 +120,9 @@ def containers_for(db: Session, organization_id: int, employee_id: int) -> list[
             .filter(HrEmployeeDocumentCategory.organization_id == organization_id, HrEmployeeDocumentCategory.is_active.is_(True))
             .order_by(HrEmployeeDocumentCategory.sort_order, HrEmployeeDocumentCategory.id).all())
     by_cat: dict = {}
-    for d in _docs_query(db, organization_id, employee_id).all():
-        by_cat.setdefault(d.employee_category_id, []).append(serialize_file(db, d))
+    docs = _docs_query(db, organization_id, employee_id).all()
+    for d, f in zip(docs, _serialize_many(db, docs)):
+        by_cat.setdefault(d.employee_category_id, []).append(f)
     out = []
     for c in cats:
         files = sorted(by_cat.get(c.id, []), key=lambda f: f["uploaded_at"] or "", reverse=True)
@@ -125,7 +144,7 @@ def my_files(db: Session, user, category_id: Optional[int] = None) -> list[dict]
     q = _my_docs_query(db, user)
     if category_id is not None:
         q = q.filter(HrDocument.employee_category_id == category_id)
-    return [serialize_file(db, d) for d in q.order_by(HrDocument.updated_at.desc()).all()]
+    return _serialize_many(db, q.order_by(HrDocument.updated_at.desc()).all())
 
 
 def _parse_expiry(value) -> Optional[date]:

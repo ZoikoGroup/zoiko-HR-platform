@@ -27,7 +27,7 @@ async function flushRender(importPath) {
   render(React.createElement(MemoryRouter, null, React.createElement(mod.default)));
   // Wait until the page has finished loading (Company Documents shows one loader until BOTH of its lists are in), with a
   // cap, instead of a fixed delay that a busy test machine can outrun.
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 400; i++) {                     // up to 8 s on a busy machine; stops as soon as the page is loaded
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     if (i >= 3 && !document.body.textContent.includes("Loading documents...")) break;
   }

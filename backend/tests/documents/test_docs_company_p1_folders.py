@@ -109,7 +109,8 @@ def test_bulk_files_can_skip_the_new_document_notification(api, monkeypatch):
     _upload(api, title="Quiet one", notify=False)
     _upload(api, title="Loud one", notify=True)
     _upload(api, title="Default one")
-    assert [t for e, t in sent if e == "document.issued"] == ["Loud one", "Default one"]
+    # one message per audience (employees and admins get different links), so compare the documents announced
+    assert list(dict.fromkeys(t for e, t in sent if e == "document.issued")) == ["Loud one", "Default one"]
 
 
 def test_quiet_upload_still_asks_for_read_confirmations(api, monkeypatch):
