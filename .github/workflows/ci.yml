@@ -115,6 +115,8 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    # The suite takes ~3 min; a hang or runaway test must fail fast instead of starving the runner (run #239 died at 45 min).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -131,7 +133,8 @@ jobs:
 
       - name: Run frontend unit tests (node:test)
         working-directory: frontend
-        run: npm test
+        # Name the stuck test instead of hanging; cap parallel test processes so memory stays bounded on the runner.
+        run: npm test -- --test-timeout=120000 --test-concurrency=2
 
       - name: Build frontend
         working-directory: frontend
