@@ -4,7 +4,7 @@ A completed day with less net work than this is ABSENT; from here up to the half
 NULL = the organization setting attendance.min_present_hours (organization_configs, default 1 hour).
 
 Revision ID: d030f23705b4
-Revises: c1d2e3f4a5b6
+Revises: e555225b0cf9
 Create Date: 2026-11-23 09:33:51.630362
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'd030f23705b4'
-down_revision: Union[str, Sequence[str], None] = 'c1d2e3f4a5b6'
+down_revision: Union[str, Sequence[str], None] = 'e555225b0cf9'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
