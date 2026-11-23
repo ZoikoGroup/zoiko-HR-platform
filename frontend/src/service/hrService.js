@@ -269,6 +269,13 @@ export const uploadOfferPackageLogo = (file) => {
 };
 export const deleteOfferPackageLogo = () => api.delete("/hr/onboarding/package/logo");
 export const getOfferPackageLogo = () => fetchDocumentFile("/hr/onboarding/package/logo", "logo.png");
+export const uploadOfferPackageSignature = (file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/hr/onboarding/package/signature", fd);
+};
+export const deleteOfferPackageSignature = () => api.delete("/hr/onboarding/package/signature");
+export const getOfferPackageSignature = () => fetchDocumentFile("/hr/onboarding/package/signature", "signature.png");
 export const getOfferPackageTemplateSet = () => fetchDocumentFile("/hr/onboarding/package/template.pdf", "offer-package-template-set.pdf");
 export const getHirePackage = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/package`);
 // Onboarding › Checklists: the state of the 10 package documents for every new hire, in one request

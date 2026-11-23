@@ -429,6 +429,41 @@ def _pdf_chunks(data: bytes, warn) -> list[dict]:
     return chunks
 
 
+_TOKEN_BLANK = re.compile(r"\{\{[^{}\n]{1,80}\}\}")
+_TICK_OR_CHOICE = re.compile(r"^\s*[xX✓✔ ]?\s*$|/")
+
+
+def unfilled_template_blanks(data: bytes, filename: str, limit: int = 6) -> list[str]:
+    """The blanks still in an uploaded document ("{{worker.full_name}}", "[DD Month YYYY]", "[Address]"), read from a Word
+    file (body, tables, header and footer) or a PDF's text: a template uploaded as a hire's own document would reach them
+    with its placeholders unfilled. [] when there are none or the text cannot be read (tick boxes and "[Yes / No]" choices
+    are not blanks)."""
+    name = (filename or "").lower()
+    texts: list[str] = []
+    try:
+        if name.endswith(".docx"):
+            texts = [c["text"] for c in _docx_chunks(data)]
+            from docx import Document
+            doc = Document(io.BytesIO(data))
+            for section in doc.sections:
+                for part in (section.header, section.footer):
+                    texts += [p.text for p in part.paragraphs]
+                    texts += [c.text for t in part.tables for r in t.rows for c in r.cells]
+        elif name.endswith(".pdf"):
+            from pypdf import PdfReader
+            texts = [(p.extract_text() or "") for p in PdfReader(io.BytesIO(data)).pages[:40]]
+    except Exception:
+        return []
+    found: dict = {}
+    for t in texts:
+        for m in _TOKEN_BLANK.finditer(t):
+            found.setdefault(m.group(0), None)
+        for m in list(_BRACKET.finditer(t)) + list(_LONG_BRACKET.finditer(t)):
+            if not _TICK_OR_CHOICE.search(m.group(1)):
+                found.setdefault(m.group(0) if len(m.group(0)) <= 60 else m.group(0)[:57] + "…]", None)
+    return list(found)[:limit]
+
+
 def _pdf_paragraphs(text: str) -> list[str]:
     """PDF text comes as lines: a paragraph ends at a blank line, after a line ending a sentence, and around a heading
     (a short line with no closing full stop)."""
@@ -711,9 +746,11 @@ def _detect(chunks: list[dict], kind: str, out: _Collector, org_defaults: dict) 
             cand = lines[1:] + [ln for n_ in nxt for ln in n_.splitlines() if ln.strip()]
             title_re = re.compile(r"(?i)\b(director|manager|head|chief|ceo|cfo|coo|founder|partner|hr|human resources|officer|"
                                   r"authori[sz]ed signatory|president)\b")
+            from app.modules.hr.onboarding_package import real_person_name
             for i, ln in enumerate(cand[:4]):
+                # a label of the signature block ("Candidate Signature", "Name") is not the signatory
                 if re.fullmatch(r"[A-Z][a-zA-Z.'-]+(?: [A-Z][a-zA-Z.'-]+){1,3}", ln) and not title_re.search(ln) \
-                        and not COMPANY_RE.search(ln):
+                        and not COMPANY_RE.search(ln) and real_person_name(ln):
                     src = next((c for c in [ch] + whole[idx + 1: idx + 4] if ln in c["text"]), ch)
                     out.add("company_profile", "signatory_name", ln, src, ln, 0.6, "Signatory name")
                     if i + 1 < len(cand) and title_re.search(cand[i + 1]) and len(cand[i + 1]) < 80:
@@ -1465,6 +1502,29 @@ _BLANK_RULES = [
     (r"for the company|on behalf of|authori[sz]ed signatory|signed by|issued by", r".*", "employer.signatory_name"),
     (r"", r"authori[sz]ed signatory|signatory( name)?|hr manager name|issuer", "employer.signatory_name"),
     (r"designation of signatory|signatory title", r".*", "employer.signatory_title"),
+    # the company's own details left blank in a template ("[Registered Office Address]", "[Website]", "[Company Name]")
+    (r"", r"registered (office )?address|office address|company('s)? address|employer('s)? address", "company.address_inline"),
+    (r"registered office|office (is )?at|principal place of business", r"address", "company.address_inline"),
+    (r"", r"^(company )?(web ?site|url|web address)$", "company.website"),
+    (r"", r"^(company|employer)('s)?( legal)? name$|^legal name$", "company.legal_name"),
+    # dates written as their format ("[DD Month YYYY]"): the start date where the words say so, else the document's date
+    (r"start|commenc|join|first day|effective from", r"^(dd|d)[ ./-]*(mm|mmm|month)[ ./-]*(yyyy|yy)$", "employment.start_date_long"),
+    (r"", r"^(dd|d)[ ./-]*(mm|mmm|month)[ ./-]*(yyyy|yy)$", "document.issue_date"),
+    (r"resid|living at|lives at|home address", r"address", "worker.address_inline"),
+    # the next stage of a programme ("Phase 2: [Title]") and the end of the first one ("Period: [Start] - [End Date]")
+    (r"", r"phase ?\d+ (title|name|role|designation)|next (stage|phase|role)( title| name)?|(title|name) of (the )?(next )?(phase|stage)",
+     "employment.next_stage_title"),
+    (r"phase ?[2-9]|next (stage|phase)|stage ?[2-9]", r"title|name|role|designation", "employment.next_stage_title"),
+    (r"", r"(assessment|probation|phase ?1|trial|live-fire)('s)? end( date)?|end of (the )?(assessment|probation|phase ?1|trial)",
+     "employment.assessment_end_date"),
+    (r"assessment|probation|phase|period|trial|live-fire", r"\bend( date)?\b|last (working )?day|\buntil\b", "employment.assessment_end_date"),
+    # the candidate's education
+    (r"", r"^(degree|qualification|highest qualification|degree( name| title)?|course( name)?|programme of study)$", "worker.degree"),
+    (r"degree|qualification", r"^(name|title|details?|value|course)$", "worker.degree"),
+    (r"", r"institution|university|college|institute", "worker.institution"),
+    (r"institution|university|college", r"^(name|details?|value)$", "worker.institution"),
+    # where the new hire signs
+    (r"", r"^place( of signing)?$|^city$|^town$", "worker.place"),
     (r"", r"(candidate|employee|new hire|applicant)('s)? (full )?name|full name|name of (the )?(candidate|employee)", "worker.full_name"),
     (r"^dear|acceptance|accepted by|employee name|candidate name|full (legal )?name|^name\s*:?$|^to\s*:?$",
      r"name|candidate|employee", "worker.full_name"),
@@ -1477,7 +1537,7 @@ _BLANK_RULES = [
     (r"", r"(start|joining|commencement) date", "employment.start_date_long"),
     (r"^\s*date\s*:?\s*$|dated|letter date|issue date", r"date", "document.issue_date"),
     (r"job title|position|designation|role|offer of employment|subject", r"title|position|designation|role", "employment.position_title"),
-    (r"", r"job title|position( title)?|designation", "employment.position_title"),
+    (r"", r"job title|position( title)?|designation|^(job )?role( title| name)?$", "employment.position_title"),
     (r"department|team|function", r".*", "employment.department"),
     (r"", r"department", "employment.department"),
     (r"report(ing|s)? (manager|to)|line manager|manager|supervisor", r".*", "employment.reports_to"),
@@ -1494,6 +1554,9 @@ _BLANK_RULES = [
     (r"employment type|type of employment|engagement", r".*", "employment.employment_type"),
 ]
 _BRACKET = re.compile(r"\[([A-Za-z][^\]\n]{0,40})\]")
+# a longer bracketed instruction left in a template ("[Role-specific focus areas, e.g. test execution, …]"): a blank too
+_LONG_BRACKET = re.compile(r"\[([A-Za-z][^\]\n]{41,400})\]")
+_NUMBER_BRACKET = re.compile(r"\[(\d{1,4})\]")
 _NOT_THE_HIRE = re.compile(r"emergency|contact (name|number|person)|relationship|verified|verification|coordinator|reviewer|"
                            r"witness|bank|account|branch|ifsc|routing|nominee|father|mother|spouse|guardian|reference|referee|"
                            r"previous employer|other\s*:")
@@ -1531,10 +1594,15 @@ def blank_placeholders(chunks: list[dict]) -> list[dict]:
             else:
                 if last_key == "employer.signatory_name" and re.fullmatch(r"(title|designation)\s*:?", low_label) :
                     key = "employer.signatory_title"
+                elif last_key in ("employment.start_date_long", "employment.start_date") and \
+                        re.fullmatch(r"(-|–|—|to|until|till)\s*", low_label) and re.search(r"date|end|day", low_inner):
+                    key = "employment.assessment_end_date"          # "Period: [Start Date] - [End Date]"
                 for lab, blank, k in _BLANK_RULES if key is None else []:
                     if (not lab or re.search(lab, low_label)) and re.search(blank, low_inner):
                         key = k
                         break
+                if key == "worker.place" and (last_key or "").startswith("employer."):
+                    key = None                                      # the company's place of signing is not the hire's
                 ph = {"text": m.group(0), "before": label, "key": key} if key else None
             last_end, last_key = m.end(), (ph or {}).get("key")
             if not ph or ph["key"] not in C.FIELDS:
@@ -1651,14 +1719,44 @@ def _apply_placeholders(blocks: list, placeholders: list) -> list:
     confirmed = sorted([p for p in placeholders or [] if p.get("confirmed") and p.get("key") and p.get("text")],
                        key=lambda p: -len((p.get("before") or "") + p["text"]))
 
-    def fix(text: str) -> str:
+    def fix(text: str, prefix: str = "") -> str:
         for p in confirmed:
             before = p.get("before") or ""
-            if before:      # a template blank: replaced only where it follows its own label
-                text = text.replace(before + p["text"], before + "{{%s}}" % p["key"])
-            else:
-                text = text.replace(p["text"], "{{%s}}" % p["key"])
+            token = "{{%s}}" % p["key"]
+            if not before:
+                text = text.replace(p["text"], token)
+                continue
+            # a template blank: replaced only where it follows its own label. The label was read from the plain text of the
+            # file (no bold marks; a table row's cells joined by " | "), so it is compared the same way: a label in bold, or in
+            # the cell to the left ("Position | [Role]"), still finds its blank
+            want, start = _plain_label(before), 0
+            while True:
+                i = text.find(p["text"], start)
+                if i < 0:
+                    break
+                if _plain_label(prefix + " " + text[:i]).endswith(want):
+                    text = text[:i] + token + text[i + len(p["text"]):]
+                    start = i + len(token)
+                else:
+                    start = i + len(p["text"])
         return text
+
+    def table(o: dict) -> dict:
+        rows = [list(o.get("columns") or [])] + [list(r or []) for r in o.get("rows") or []]
+        out_rows = []
+        for r in rows:
+            done, seen = [], []
+            for c in r:
+                if isinstance(c, str):
+                    done.append(fix(c, " | ".join(seen) + " | " if seen else ""))
+                    pc = _plain_label(c)
+                    if pc and pc not in seen:
+                        seen.append(pc)
+                else:
+                    done.append(walk(c))
+            out_rows.append(done)
+        rest = {k: (v if k in _KEEP_KEYS else walk(v)) for k, v in o.items() if k not in ("columns", "rows")}
+        return {**rest, "columns": out_rows[0], "rows": out_rows[1:]} if "columns" in o else {**rest, "rows": out_rows[1:]}
 
     def walk(o):
         if isinstance(o, str):
@@ -1666,10 +1764,81 @@ def _apply_placeholders(blocks: list, placeholders: list) -> list:
         if isinstance(o, list):
             return [walk(x) for x in o]
         if isinstance(o, dict):
-            return {k: (v if k in ("type", "id", "locked", "include_when", "key", "items_from", "style", "level") else walk(v))
-                    for k, v in o.items()}
+            if o.get("type") == "table":
+                return table(o)
+            return {k: (v if k in _KEEP_KEYS else walk(v)) for k, v in o.items()}
         return o
     return walk(blocks)
+
+
+_KEEP_KEYS = ("type", "id", "locked", "include_when", "key", "items_from", "style", "level")
+
+
+def _plain_label(text: str) -> str:
+    """Text as the analysis read it: no bold marks or line-break tags, spaces collapsed."""
+    return re.sub(r"\s+", " ", (text or "").replace("**", "").replace("<br/>", " ")).strip()
+
+
+# ── blanks drawn as lines ("Name: ________") in signature blocks: whose they are comes from the party above them ────────
+_COMPANY_PARTY = re.compile(r"\bFor (and on behalf of )?\S|(?i:\bfor the company\b|on behalf of|authori[sz]ed signatory|"
+                            r"\bemployer\b)")
+_HIRE_PARTY = re.compile(r"(?i)\b(recipient|employee|candidate|associate|new hire|accepted( and agreed)? by|acceptance|"
+                         r"the undersigned)\b")
+_LINE_FIELD = re.compile(r"(?i)\b(name|place)(\s*:\s*)(_{3,})")
+_SIGN_OFF = re.compile(r"(?i)^\s*(\*\*)?\s*(warm regards|kind regards|best regards|regards|yours (sincerely|faithfully|truly)|"
+                       r"sincerely|for and on behalf of\b.*)[,.]?\s*(\*\*)?\s*$")
+
+
+def _party_line_blanks(blocks: list, *, signed: bool = True) -> list:
+    """"Name: ____" / "Place: ____" under the new hire's heading print their name and town; under the company's heading
+    the signatory's name. A date line is left for the day it is signed. A line on its own under the letter's sign-off
+    ("Warm regards," then "________") is where the signatory signs: it prints the signature from the Company Profile."""
+    def fix(text: str, party: Optional[str]) -> tuple[str, Optional[str]]:
+        out, pos = [], 0
+        # walk the text in order, so "For X … Name: ___ | Recipient … Name: ___" in one string resolves each name to its party
+        marks = sorted([(m.start(), "company") for m in _COMPANY_PARTY.finditer(text)] +
+                       [(m.start(), "hire") for m in _HIRE_PARTY.finditer(text)])
+        for m in _LINE_FIELD.finditer(text):
+            for at, who in marks:
+                if at < m.start():
+                    party = who
+            what = m.group(1).lower()
+            key = None
+            if party == "hire":
+                key = "worker.full_name" if what == "name" else ("worker.place" if signed else None)
+            elif party == "company" and what == "name":
+                key = "employer.signatory_name"
+            out.append(text[pos:m.end(2)])
+            out.append("{{%s}}" % key if key else m.group(3))
+            pos = m.end()
+        out.append(text[pos:])
+        for at, who in marks:
+            party = who
+        return "".join(out), party
+
+    out, party, after_sign_off = [], None, False
+    for b in blocks:
+        b = dict(b)
+        t = b.get("type")
+        if t == "paragraph":
+            text = b.get("text") or ""
+            if after_sign_off and re.fullmatch(r"\s*_{3,}\s*", text):
+                b["text"] = "{{employer.signature}}"
+                after_sign_off = False
+                out.append(b)
+                continue
+            after_sign_off = bool(_SIGN_OFF.match(text))
+            b["text"], party = fix(text, party)
+        elif t == "table":
+            after_sign_off = False
+            b["columns"] = [fix(c, None)[0] if isinstance(c, str) else c for c in b.get("columns") or []]
+            b["rows"] = [[fix(c, None)[0] if isinstance(c, str) else c for c in r] for r in b.get("rows") or []]
+        elif t == "heading":
+            after_sign_off = False
+            party = "company" if _COMPANY_PARTY.search(b.get("text") or "") else (
+                "hire" if _HIRE_PARTY.search(b.get("text") or "") else party)
+        out.append(b)
+    return out
 
 
 def _blanks_as_lines(blocks: list) -> list:
@@ -1681,7 +1850,8 @@ def _blanks_as_lines(blocks: list) -> list:
             if "/" in inner and len(inner.split("/")) <= 4:
                 return " / ".join(o.strip() for o in inner.split("/"))
             return "____________________"
-        return _BRACKET.sub(one, text)
+        text = _LONG_BRACKET.sub("____________________", _BRACKET.sub(one, text))
+        return _NUMBER_BRACKET.sub(r"\1", text)        # a suggested number ("for [3] years") is printed as the number
 
     def walk(o):
         if isinstance(o, str):
@@ -1763,11 +1933,19 @@ def editable_blocks(db, f: DocsSetupFile) -> list:
     else:
         blocks, _w = _file_blocks(db, f)
         blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
+        blocks = _party_line_blanks(blocks, signed=_signed(m))
     blocks = _unknown_placeholders_cleared(blocks)
     blocks = _blanks_as_lines(blocks)
     for b in blocks:
         b.pop("locked", None)
     return blocks
+
+
+def _signed(m: dict) -> bool:
+    """Whether the mapped document is one the new hire signs (its blanks may then hold their town of signing)."""
+    if m.get("action") == "variant_of":
+        return (C.DOCS.get(m.get("category")) or {}).get("mode") == "SIGN"
+    return (m.get("mode") or "ACKNOWLEDGE") == "SIGN"
 
 
 def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
@@ -1780,6 +1958,7 @@ def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
     else:
         blocks, warnings = _file_blocks(db, f)
         blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
+        blocks = _party_line_blanks(blocks, signed=_signed(m))
         blocks = _unknown_placeholders_cleared(blocks)
         blocks = _blanks_as_lines(blocks)
         for b in blocks:

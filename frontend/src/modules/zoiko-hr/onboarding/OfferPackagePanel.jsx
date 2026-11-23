@@ -333,7 +333,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
                       placeholder="2–3 sentences on why the role exists" onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
                   ) : (
                     <input id={`pkg-in-${f.key}`} className={fieldCls} value={inputs[f.key] || ""} maxLength={f.org_wide ? 255 : 300}
-                      type={f.key === "employment.start_date" ? "date" : "text"}
+                      type={DATE_INPUTS.includes(f.key) ? "date" : "text"}
                       inputMode={f.key === "employment.base_pay" ? "decimal" : undefined}
                       placeholder={PLACEHOLDERS[f.key] || (f.key.includes("_url") ? "https://…" : "")}
                       onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
@@ -490,6 +490,8 @@ function Stat({ label, value, tone }) {
   );
 }
 
+// per-hire values typed as a date (the documents print them in the organisation's date format)
+export const DATE_INPUTS = ["employment.start_date", "employment.assessment_end_date"];
 const PLACEHOLDERS = {
   "employment.work_location": "e.g. Leeds office, 1 Sample Street",
   "employment.working_hours": "e.g. 37.5 hours per week",
@@ -498,4 +500,8 @@ const PLACEHOLDERS = {
   "employment.employment_type": "e.g. Full-time, permanent",
   "employment.leave_entitlement": "e.g. 25 days plus public holidays",
   "worker.postal_address": "Street, town, postcode",
+  "worker.degree": "e.g. B.Tech, Computer Science",
+  "worker.institution": "e.g. Osmania University",
+  "worker.place": "e.g. Hyderabad",
+  "employment.next_stage_title": "e.g. Full-Time Associateship",
 };

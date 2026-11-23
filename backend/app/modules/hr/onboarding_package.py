@@ -117,6 +117,7 @@ def _defaults(org) -> dict:
         "hr_contact_email": "",
         "response_days": 7, "leave_entitlement": "", "post_employment_period": "", "pay_frequency": "",
         "kpi_review_cycle": "", "benefits_reference": "", "effective_date": "", "clauses": {}, "logo_key": "",
+        "signature_key": "",
         # clause wording proposed by "Set up docs for your organisation": never printed until counsel approves it
         "clauses_pending": {},
     }
@@ -245,18 +246,18 @@ def _write_config(db, organization_id: int, cfg: dict) -> None:
     db.commit()
 
 
-def save_logo(db, actor, data: bytes) -> dict:
-    """Validate an uploaded logo (PNG, JPEG or WebP, max 2 MB), strip metadata by re-encoding it as PNG, scale it down, store it."""
+def _clean_png(data: bytes, what: str, max_px: tuple) -> bytes:
+    """Validate an uploaded image (PNG, JPEG or WebP, max 2 MB), strip metadata by re-encoding it as PNG, scale it down."""
     if not data:
-        raise HTTPException(422, "Choose a logo image to upload.")
+        raise HTTPException(422, f"Choose {what} image to upload.")
     if len(data) > LOGO_MAX_BYTES:
-        raise HTTPException(422, "The logo must be 2 MB or smaller.")
+        raise HTTPException(422, f"The {what.split(' ', 1)[-1]} must be 2 MB or smaller.")
     from PIL import Image, UnidentifiedImageError
     import io as _io
     try:
         probe = Image.open(_io.BytesIO(data))
         if probe.format not in ("PNG", "JPEG", "WEBP"):
-            raise HTTPException(422, "Upload the logo as a PNG, JPG or WebP image.")
+            raise HTTPException(422, f"Upload the {what.split(' ', 1)[-1]} as a PNG, JPG or WebP image.")
         probe.verify()
         img = Image.open(_io.BytesIO(data))
         img.load()
@@ -265,11 +266,17 @@ def save_logo(db, actor, data: bytes) -> dict:
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         raise HTTPException(422, "The file is not a readable image.")
     img = img.convert("RGBA")
-    img.thumbnail(LOGO_MAX_PX)
+    img.thumbnail(max_px)
     out = _io.BytesIO()
     img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def save_logo(db, actor, data: bytes) -> dict:
+    """Validate an uploaded logo (PNG, JPEG or WebP, max 2 MB), strip metadata by re-encoding it as PNG, scale it down, store it."""
+    png = _clean_png(data, "a logo", LOGO_MAX_PX)
     cfg = get_config(db, actor.organization_id)
-    cfg["logo_key"] = storage.get_store().put(actor.organization_id, f"org-logo-{secrets.token_hex(6)}.png", out.getvalue())
+    cfg["logo_key"] = storage.get_store().put(actor.organization_id, f"org-logo-{secrets.token_hex(6)}.png", png)
     _write_config(db, actor.organization_id, cfg)
     return settings_view(db, actor.organization_id)
 
@@ -281,15 +288,62 @@ def remove_logo(db, actor) -> dict:
     return settings_view(db, actor.organization_id)
 
 
-def logo_bytes(db, organization_id: int, cfg: Optional[dict] = None) -> Optional[bytes]:
-    key = (cfg or get_config(db, organization_id)).get("logo_key")
+def _stored_image(db, organization_id: int, key_name: str, cfg: Optional[dict] = None) -> Optional[bytes]:
+    key = (cfg or get_config(db, organization_id)).get(key_name)
     if not key:
         return None
     try:
         return storage.get_store().get(key)
     except Exception:
-        logger.warning("offer package logo for org %s is missing from storage", organization_id)
+        logger.warning("offer package image %s for org %s is missing from storage", key_name, organization_id)
         return None
+
+
+def logo_bytes(db, organization_id: int, cfg: Optional[dict] = None) -> Optional[bytes]:
+    return _stored_image(db, organization_id, "logo_key", cfg)
+
+
+def public_branding(db, organization_id: int) -> tuple:
+    """(legal name, logo as a data: URI) shown on public pages a candidate opens (the signing page): the Company Profile's
+    full legal name and the logo uploaded in Onboarding settings; ("", None) for what is not set."""
+    from app.core.privacy import context as privacy_ctx
+    try:
+        with privacy_ctx.tenant_context(organization_id):        # a public page: no signed-in user, read as that organisation
+            cfg = get_config(db, organization_id)
+            logo = logo_bytes(db, organization_id, cfg)
+    except Exception:
+        logger.warning("branding for org %s could not be read", organization_id)
+        return "", None
+    name = (cfg.get("legal_name") or "").strip()
+    if not logo:
+        return name, None
+    import base64
+    return name, "data:image/png;base64," + base64.b64encode(logo).decode("ascii")
+
+
+# ── the authorised signatory's signature (printed in the employer's signature cell of documents generated from now on) ──
+SIGNATURE_MAX_PX = (600, 200)
+
+
+def save_signature(db, actor, data: bytes) -> dict:
+    """The authorised signatory's signature image. Uploading it is the organisation's choice to have it printed on the
+    documents it issues (as a facsimile under the signatory's name); without it the signature cell stays blank."""
+    png = _clean_png(data, "a signature", SIGNATURE_MAX_PX)
+    cfg = get_config(db, actor.organization_id)
+    cfg["signature_key"] = storage.get_store().put(actor.organization_id, f"org-signature-{secrets.token_hex(6)}.png", png)
+    _write_config(db, actor.organization_id, cfg)
+    return settings_view(db, actor.organization_id)
+
+
+def remove_signature(db, actor) -> dict:
+    cfg = get_config(db, actor.organization_id)
+    cfg["signature_key"] = ""
+    _write_config(db, actor.organization_id, cfg)
+    return settings_view(db, actor.organization_id)
+
+
+def signature_bytes(db, organization_id: int, cfg: Optional[dict] = None) -> Optional[bytes]:
+    return _stored_image(db, organization_id, "signature_key", cfg)
 
 
 def settings_view(db, organization_id: int) -> dict:
@@ -304,8 +358,9 @@ def settings_view(db, organization_id: int) -> dict:
                 "standard_text": C.STANDARD_CLAUSES.get(k), "pending": (cfg.get("clauses_pending") or {}).get(k),
                 **{f: (cfg["clauses"].get(k) or {}).get(f) for f in ("text", "not_applicable", "counsel_reference", "updated_at")}}
                for k, (t, n, req) in C.CLAUSES.items()]
-    settings_out = {k: v for k, v in cfg.items() if k not in ("clauses", "logo_key", "clauses_pending")}
+    settings_out = {k: v for k, v in cfg.items() if k not in ("clauses", "logo_key", "signature_key", "clauses_pending")}
     settings_out["has_logo"] = bool(cfg.get("logo_key"))
+    settings_out["has_signature"] = bool(cfg.get("signature_key"))
     from app.modules.hr import company_profile as CP
     company = CP.profile_view(db, organization_id)
     return {"settings": settings_out, "clauses": clauses,
@@ -536,7 +591,61 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
                                 getattr(offer, "hours_per_week", None) if offer else None))
     if any((details.get(k) or "").strip() for k in ("house", "building", "street", "landmark", "locality", "district")):
         values["worker.postal_address"] = values.get("worker.address_inline") or values.get("worker.postal_address")
+    values.update(_template_blank_values(hire, cfg, offer, values))
     return values
+
+
+def _add_months(d: date, months: int) -> date:
+    import calendar
+    m = d.month - 1 + months
+    y, m = d.year + m // 12, m % 12 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+# a "name" that is really a label copied out of a template's signature block ("Candidate Signature", "Name", "Recipient")
+_LABEL_WORDS = re.compile(r"(?i)\b(signature|signed|candidate|recipient|employee|witness|name|date|place|seal|stamp|"
+                          r"designation|for the company)\b")
+
+
+def real_person_name(value) -> Optional[str]:
+    """The signatory name, or None when what is stored is a template label and not a person (the document is then held
+    until Company Profile has a real name, instead of printing the label)."""
+    v = " ".join(str(value or "").split())
+    if not v or _LABEL_WORDS.search(v) or not re.search(r"[A-Za-z]", v):
+        return None
+    return v
+
+
+def _template_blank_values(hire, cfg: dict, offer, values: dict) -> dict:
+    """Values for the blanks an organisation's own templates leave for each hire (degree, institution, place of signing,
+    end of the assessment, the next stage's title). HR's entry for this hire wins; there is no other record of a degree or
+    a next-stage title, so those come only from HR (the package panel lists them as missing until typed)."""
+    from app.modules.hr import doc_formatting as F
+    inputs = hire_inputs(hire)
+    details = hire.profile_details or {}
+    fmt = cfg.get("date_format") or "DMY"
+    out = {
+        "worker.degree": inputs.get("worker.degree") or None,
+        "worker.institution": inputs.get("worker.institution") or (getattr(offer, "academic_institution", None) if offer else None),
+        "worker.place": (inputs.get("worker.place") or str(details.get("city_display") or details.get("city") or "").strip()
+                         or None),
+        "employment.next_stage_title": inputs.get("employment.next_stage_title") or None,
+        "employer.signatory_name": real_person_name(values.get("employer.signatory_name")),
+        "employer.signature": "",
+    }
+    end = F.to_date(inputs.get("employment.assessment_end_date"))
+    if end is None:                      # the engagement profile's assessment length, counted from the start date
+        start = F.to_date(hire.joining_date or (offer.joining_date if offer else None)
+                          or inputs.get("employment.start_date"))
+        months = values.get("engagement.assessment_months")
+        try:
+            months = int(months) if months not in (None, "") else None
+        except (TypeError, ValueError):
+            months = None
+        if start is not None and months:
+            end = _add_months(start, months) - timedelta(days=1)
+    out["employment.assessment_end_date"] = (F.format_date_long(end, fmt) or None) if end else None
+    return out
 
 
 # ── v2 values: Company Profile, Engagement / Role Profiles, per-hire choices, computed text ─────────────────────────
@@ -773,6 +882,8 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         company_lines = F.address_lines(parts, profile.get("country"))
     else:
         company_lines = CP.address_parts(profile)
+    if not company_lines and (cfg.get("registered_address") or "").strip():     # saved before the Company Profile existed
+        company_lines = [ln.strip() for ln in re.split(r"[\n]", cfg["registered_address"]) if ln.strip()]
     # Keep the package's existing counsel-clause setting as a compatibility source
     # for organisations that have not yet migrated this wording into Company Profile.
     clause_law = ((cfg.get("clauses") or {}).get("governing_law") or {}).get("text")
@@ -1107,6 +1218,8 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
                           accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                           effective_date=values.get("document.effective_date") or "", esign=esign,
                           logo_png=_cached(db, ("logo", hire.organization_id), lambda: logo_bytes(db, hire.organization_id, cfg)),
+                          signature_png=_cached(db, ("signature", hire.organization_id),
+                                                lambda: signature_bytes(db, hire.organization_id, cfg)),
                           content=content, source=source, meta=meta)
     if source.get("kind") == "variant":
         ctx.version = f"{C.PACKAGE_VERSION} (organisation v{source.get('variant_version')})"
