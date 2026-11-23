@@ -1,14 +1,16 @@
 import { useState, useEffect, useMemo } from "react";
-import { getAssets, createAsset, updateAsset, deleteAsset, getAssetCategories, getHrEmployees, transferAsset, assignAsset, returnAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
+import { getAssets, createAsset, updateAsset, getAssetCategories, getHrEmployees, transferAsset, assignAsset, returnAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
+import { DeleteAssetDialog } from "../../organization-admin/AssetActionDialogs";
+import {
+  ASSET_CONDITION_OPTIONS, ASSET_STATUS_OPTIONS, EMPTY_ASSET_FORM, assetFormPayload, assetStatusOptions, assetToForm,
+  categoryChoices, isAssetAssigned, validateAssetForm,
+} from "../../../utils/assetForm";
 
 const ITEMS_PER_PAGE = 15;
 
-const initialForm = {
-  name: "", assetTag: "", category: "", serialNumber: "", employeeName: "", department: "",
-  assignedDate: "", status: "available", condition: "new", purchaseDate: "", purchasePrice: "", notes: "",
-};
-const STATUS_OPTIONS = ["available", "assigned", "maintenance", "retired", "lost"];
-const CONDITION_OPTIONS = ["new", "good", "fair", "poor", "damaged"];
+const initialForm = EMPTY_ASSET_FORM;
+const STATUS_OPTIONS = ASSET_STATUS_OPTIONS;
+const CONDITION_OPTIONS = ASSET_CONDITION_OPTIONS;
 
 const STATUS_COLORS = {
   available: "bg-green-100 text-green-800", assigned: "bg-blue-100 text-blue-800",
@@ -39,6 +41,8 @@ export default function Inventory() {
   const [showAssign, setShowAssign] = useState(null);
   const [assignEmployeeId, setAssignEmployeeId] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   const fetchData = async (params = {}) => {
     setLoading(true);
@@ -101,24 +105,12 @@ export default function Inventory() {
 
   const openEdit = (asset) => {
     setEditAsset(asset);
-    setForm({
-      name: asset.name || asset.itemName || "", assetTag: asset.assetTag || asset.asset_tag || "",
-      category: asset.category || "", serialNumber: asset.serialNumber || asset.serial_number || "",
-      employeeName: asset.employeeName || "", department: asset.department || asset.department_name || "",
-      assignedDate: asset.assignedDate || asset.assigned_date || "", status: asset.status || "available",
-      condition: asset.condition || "new", purchaseDate: asset.purchaseDate || "",
-      purchasePrice: (asset.purchasePrice || asset.purchase_price || "").toString(), notes: asset.notes || "",
-    });
+    setForm(assetToForm(asset));
     setFormErrors({});
     setShowModal(true);
   };
 
-  const validate = (d) => {
-    const e = {};
-    if (!d.name?.trim()) e.name = "Name is required";
-    if (!d.assetTag?.trim()) e.assetTag = "Asset tag is required";
-    return e;
-  };
+  const validate = (d) => validateAssetForm(d, { assets, editingId: editAsset?.id ?? null });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -127,20 +119,16 @@ export default function Inventory() {
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      const payload = {
-        name: form.name.trim(), asset_tag: form.assetTag.trim(),
-        category: form.category || null, serial_number: form.serialNumber || null,
-        employee_id: null, department: form.department || null,
-        assigned_date: form.assignedDate || null, status: form.status, condition: form.condition,
-        purchase_date: form.purchaseDate || null, purchase_cost: form.purchasePrice ? Number(form.purchasePrice) : null,
-        notes: form.notes || null,
-      };
+      // Edit never sends employee_id / assigned_date: who holds the asset changes only via Assign, Transfer or Return.
       if (editAsset) {
-        await updateAsset(editAsset.id, payload);
+        await updateAsset(editAsset.id, assetFormPayload(form, { mode: "edit" }));
+        setNotice(`Asset "${form.name.trim()}" updated.`);
       } else {
-        await createAsset(payload);
+        await createAsset(assetFormPayload(form, { mode: "create" }));
+        setNotice(`Asset "${form.name.trim()}" added.`);
       }
       setShowModal(false);
+      setEditAsset(null);
       await fetchData();
     } catch (err) {
       setFormErrors({ submit: err.message || "Failed to save asset" });
@@ -149,15 +137,6 @@ export default function Inventory() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this asset?")) return;
-    try {
-      await deleteAsset(id);
-      await fetchData();
-    } catch (err) {
-      setError(err.message || "Failed to delete asset");
-    }
-  };
 
   if (loading && assets.length === 0) {
     return (
@@ -172,6 +151,12 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
+      {notice && (
+        <div role="status" className="px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded-lg flex justify-between items-center">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="text-green-600 hover:text-green-800 font-bold">&times;</button>
+        </div>
+      )}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-center">
           <span>{error}</span>
@@ -249,7 +234,7 @@ export default function Inventory() {
                   const tag = a.assetTag || a.asset_tag || "";
                   const name = a.name || a.itemName || "";
                   const cat = a.category || "";
-                  const emp = a.employeeName || "";
+                  const emp = a.employeeName || a.employee_name || "";
                   const dept = a.department || a.department_name || "";
                   const cond = a.condition || "new";
                   const status = a.status || "available";
@@ -264,7 +249,7 @@ export default function Inventory() {
                       <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[status] || "bg-gray-100 text-gray-800"}`}>{status.replace(/_/g, " ")}</span></td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => openEdit(a)} className="p-1.5 text-gray-400 hover:text-amber-600 transition-colors rounded hover:bg-amber-50" title="Edit">&#9998;</button>
+                          <button onClick={() => openEdit(a)} aria-label={`Edit ${name || "asset"}`} className="p-1.5 text-gray-400 hover:text-amber-600 transition-colors rounded hover:bg-amber-50" title="Edit">&#9998;</button>
                           {a.status === "available" && (
                             <button onClick={() => { setShowAssign(a); setAssignEmployeeId(""); }} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded hover:bg-blue-50" title="Assign">&#8594;</button>
                           )}
@@ -282,7 +267,9 @@ export default function Inventory() {
                               }} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors rounded hover:bg-green-50" title="Unassign">&#8617;</button>
                             </>
                           )}
-                          <button onClick={() => handleDelete(a.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors rounded hover:bg-red-50" title="Delete">&#10005;</button>
+                          <button onClick={() => setDeleteTarget(a)} aria-label={`Delete ${name || "asset"}`}
+                            className="p-1.5 text-gray-400 hover:text-red-600 transition-colors rounded hover:bg-red-50"
+                            title={isAssetAssigned(a) ? "Return this asset before deleting it" : "Delete"}>&#10005;</button>
                         </div>
                       </td>
                     </tr>
@@ -342,20 +329,23 @@ export default function Inventory() {
                   <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">Select category</option>
-                    {categoryOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
+                    {categoryChoices(categoryOptions, form.category).map((v) => (<option key={v} value={v}>{v}</option>))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Serial Number</label>
                   <input type="text" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className={`w-full border ${formErrors.serialNumber ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
+                  {formErrors.serialNumber && <p className="text-red-500 text-xs mt-1">{formErrors.serialNumber}</p>}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>
-                  <input type="text" value={form.employeeName} onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
+                  <p className="px-3 py-2 text-sm text-gray-600 border border-gray-100 rounded-lg bg-gray-50">
+                    {(editAsset && (editAsset.employee_name || editAsset.employeeName)) || "Not assigned"}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">Use Assign, Transfer or Unassign from the list.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
@@ -367,8 +357,10 @@ export default function Inventory() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
+                    disabled={!!editAsset && isAssetAssigned(editAsset)}
+                    title={editAsset && isAssetAssigned(editAsset) ? "Return the asset to change its status" : undefined}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60">
+                    {assetStatusOptions(editAsset).map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
                   </select>
                 </div>
                 <div>
@@ -381,20 +373,16 @@ export default function Inventory() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Date</label>
-                  <input type="date" value={form.assignedDate} onChange={(e) => setForm({ ...form, assignedDate: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Price ($)</label>
+                  <input type="number" min="0" step="0.01" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
+                    className={`w-full border ${formErrors.purchasePrice ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
+                  {formErrors.purchasePrice && <p className="text-red-500 text-xs mt-1">{formErrors.purchasePrice}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Price ($)</label>
-                  <input type="number" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
+                  <input type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
-                <input type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
@@ -459,6 +447,18 @@ export default function Inventory() {
             </div>
           </div>
         </div>
+      )}
+
+      {deleteTarget && (
+        <DeleteAssetDialog
+          asset={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async (gone) => {
+            setDeleteTarget(null);
+            setNotice(`Asset "${gone.name || gone.asset_tag}" deleted.`);
+            await fetchData();
+          }}
+        />
       )}
     </div>
   );

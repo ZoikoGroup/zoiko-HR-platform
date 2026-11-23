@@ -17,7 +17,7 @@ from app.modules.hr.schemas import (
     AssetCategoryCreate,
     AssetReportGenerate,
 )
-from app.core.exceptions import NotFoundException, AlreadyExistsException, BadRequestException
+from app.core.exceptions import NotFoundException, AlreadyExistsException, BadRequestException, ZoikoException
 from app.core.sanitize import sanitize_input, sanitize_dict
 from app.core.spreadsheet import safe_cell, safe_row
 from app.modules.employee.ownership import filter_ids, get_org_employee_or_404
@@ -61,6 +61,8 @@ def get_asset_dashboard(db: Session, organization_id: Optional[int] = None) -> d
     if organization_id:
         req_filter.append(AssetRequest.organization_id == organization_id)
         maint_filter.append(AssetMaintenanceRequest.organization_id == organization_id)
+    # a deleted asset's open maintenance is not work anyone still has to do
+    maint_filter.append(AssetMaintenanceRequest.asset_id.in_(db.query(Asset.id).filter(Asset.deleted_at.is_(None))))
 
     pending_requests = db.query(func.count(AssetRequest.id)).filter(*req_filter).scalar() or 0
     open_maintenance = db.query(func.count(AssetMaintenanceRequest.id)).filter(*maint_filter).scalar() or 0
@@ -80,37 +82,85 @@ def get_asset_dashboard(db: Session, organization_id: Optional[int] = None) -> d
     }
 
 
-def create_asset(db: Session, data: AssetCreate, organization_id: int = None) -> Asset:
-    raw = data.model_dump()
-    safe = sanitize_dict(raw)
-    name = str(safe.get("name", ""))
-    asset_tag = str(safe.get("asset_tag", ""))
-    if not name.strip():
-        raise BadRequestException("Asset name is required")
-    if not asset_tag.strip():
-        raise BadRequestException("Asset tag is required")
-    safe["name"] = name
-    safe["asset_tag"] = asset_tag
+# ── Create / edit share one set of rules (QA R1-20) ─────────────────────────────
+# Who holds an asset (employee_id, status "assigned") changes only through Assign / Transfer / Return, which also issue the
+# equipment form and keep the assignment dates right. Editing an asset changes what it is, never who has it.
 
-    tag_conflict(db, organization_id, asset_tag)
-    if safe.get("employee_id") is not None:
-        get_org_employee_or_404(db, organization_id, safe["employee_id"])        # only someone working in this organization
+ASSIGNMENT_MANAGED_MESSAGE = "Use Assign, Transfer or Return to change who holds this asset."
+RETURN_BEFORE_STATUS_MESSAGE = "This asset is assigned. Return it before changing its status."
+ASSIGN_NEEDS_EMPLOYEE_MESSAGE = "Choose an employee to assign this asset to, or leave its status as Available."
+RETURN_BEFORE_DELETE_MESSAGE = "This asset is assigned to an employee. Return it before deleting it."
 
-    # Ensure enum fields use Python enum instances, not plain strings
-    enum_fields = {
-        "condition": AssetCondition,
-        "status": AssetStatus,
-    }
-    for fld, enum_cls in enum_fields.items():
-        if fld in safe and isinstance(safe[fld], str):
+_ENUM_FIELDS = {"condition": AssetCondition, "status": AssetStatus}
+_AUDIT_FIELDS = ("name", "asset_tag", "category", "serial_number", "department", "assigned_date", "purchase_date",
+                 "purchase_cost", "condition", "status", "notes", "employee_id")
+
+
+def _clean_asset_fields(db: Session, organization_id: Optional[int], fields: dict, *, asset: Optional[Asset] = None) -> dict:
+    """Validate and normalise asset fields for a create (asset=None, every field) or an edit (only the fields sent).
+
+    The same rules both ways: name and tag are required and trimmed, the tag is unique among the organization's assets that
+    are not deleted, an employee must work in this organization, and enum values become enum members."""
+    safe = sanitize_dict(fields)
+    for key in ("name", "asset_tag"):
+        if key in safe or asset is None:
+            value = str(safe.get(key) or "").strip()
+            if not value:
+                raise BadRequestException("Asset name is required" if key == "name" else "Asset tag is required")
+            safe[key] = value
+    for key in ("category", "serial_number", "department", "notes"):
+        if key in safe and isinstance(safe[key], str):
+            safe[key] = safe[key].strip() or None
+    for fld, enum_cls in _ENUM_FIELDS.items():
+        if isinstance(safe.get(fld), str):
             safe[fld] = enum_cls(safe[fld])
 
+    if "asset_tag" in safe and (asset is None or safe["asset_tag"] != asset.asset_tag):
+        tag_conflict(db, organization_id, safe["asset_tag"], exclude_id=asset.id if asset is not None else None)
+    if safe.get("employee_id") is not None and (asset is None or safe["employee_id"] != asset.employee_id):
+        get_org_employee_or_404(db, organization_id, safe["employee_id"])        # only someone working in this organization
+
+    if asset is None:
+        if safe.get("status") == AssetStatus.ASSIGNED and safe.get("employee_id") is None:
+            raise BadRequestException(ASSIGN_NEEDS_EMPLOYEE_MESSAGE)
+    else:
+        if "employee_id" in safe and safe["employee_id"] != asset.employee_id:
+            raise BadRequestException(ASSIGNMENT_MANAGED_MESSAGE)
+        new_status = safe.get("status")
+        if new_status is not None and new_status != asset.status:
+            if asset.employee_id is not None or asset.status == AssetStatus.ASSIGNED:
+                raise BadRequestException(RETURN_BEFORE_STATUS_MESSAGE)
+            if new_status == AssetStatus.ASSIGNED:
+                raise BadRequestException(ASSIGN_NEEDS_EMPLOYEE_MESSAGE)
+    return safe
+
+
+def _record_asset_activity(db: Session, action_type: str, actor, asset: Asset, *, changes=None, details=None) -> None:
+    """One row in the platform audit ledger (super_admin_audit_logs) for an asset change. Never fails the change itself."""
+    from app.modules.super_admin import activity_service
+    from app.modules.hr.models import Organization
+
+    actor_row = db.get(Employee, actor) if isinstance(actor, int) else actor
+    org = db.get(Organization, asset.organization_id) if asset.organization_id else None
+    activity_service.record_activity(
+        db, action_type=action_type, actor=actor_row, organization_id=asset.organization_id,
+        organization_name=(org.organization_name or org.display_name) if org else None,
+        target_name=asset.name, target_code=asset.asset_tag, entity_type="Asset", entity_id=asset.id,
+        changes=changes, details=details,
+    )
+
+
+def create_asset(db: Session, data: AssetCreate, organization_id: int = None, actor=None) -> Asset:
+    safe = _clean_asset_fields(db, organization_id, data.model_dump())
     asset = Asset(**safe)
     if organization_id:
         asset.organization_id = organization_id
     db.add(asset)
     commit_or_conflict(db)
     db.refresh(asset)
+    if actor is not None:
+        _record_asset_activity(db, "asset.created", actor, asset)
+        db.refresh(asset)
     return asset
 
 
@@ -224,30 +274,34 @@ def get_asset_by_id(db: Session, asset_id: int, organization_id: Optional[int] =
     return asset
 
 
-def update_asset(db: Session, asset_id: int, data: AssetUpdate, updated_by: int = None, organization_id: Optional[int] = None) -> Asset:
+def update_asset(db: Session, asset_id: int, data: AssetUpdate, updated_by: int = None, organization_id: Optional[int] = None,
+                 actor=None) -> Asset:
     asset = get_asset_by_id(db, asset_id, organization_id)
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
-    if "name" in update_data and not str(update_data["name"]).strip():
-        raise BadRequestException("Asset name cannot be empty")
-    if "asset_tag" in update_data and not str(update_data["asset_tag"]).strip():
-        raise BadRequestException("Asset tag cannot be empty")
-    if update_data.get("asset_tag") and update_data["asset_tag"] != asset.asset_tag:
-        tag_conflict(db, asset.organization_id, update_data["asset_tag"], exclude_id=asset.id)
-    if update_data.get("employee_id") is not None and update_data["employee_id"] != asset.employee_id:
-        get_org_employee_or_404(db, asset.organization_id, update_data["employee_id"])
+    update_data = _clean_asset_fields(db, asset.organization_id, data.model_dump(exclude_unset=True), asset=asset)
+    from app.modules.super_admin import activity_service
+    before = activity_service.snapshot(asset, _AUDIT_FIELDS)
     for field, value in update_data.items():
         setattr(asset, field, value)
-    if updated_by is not None:
-        asset.updated_by = updated_by
     commit_or_conflict(db)
     db.refresh(asset)
+    changes = activity_service.changes_from(before, update_data)
+    if changes and (actor is not None or updated_by is not None):
+        _record_asset_activity(db, "asset.updated", actor if actor is not None else updated_by, asset, changes=changes)
+        db.refresh(asset)
     return asset
 
 
-def delete_asset(db: Session, asset_id: int, organization_id: Optional[int] = None) -> None:
+def delete_asset(db: Session, asset_id: int, organization_id: Optional[int] = None, actor=None) -> None:
+    """Soft delete: the row stays (maintenance history and the equipment forms point at it) with deleted_at set, so every
+    list, count, export and lookup skips it and its tag can be reused. An asset someone still holds cannot be deleted."""
     asset = get_asset_by_id(db, asset_id, organization_id)
+    if asset.employee_id is not None or asset.status == AssetStatus.ASSIGNED:
+        raise ZoikoException(status_code=409, error_code="ASSET_ASSIGNED", message=RETURN_BEFORE_DELETE_MESSAGE)
     asset.deleted_at = datetime.utcnow()
     db.commit()
+    if actor is not None:
+        _record_asset_activity(db, "asset.deleted", actor, asset,
+                               details={"status": getattr(asset.status, "value", asset.status), "category": asset.category})
 
 
 def assign_asset(db: Session, asset_id: int, employee_id: int, assigned_by: int, organization_id: Optional[int] = None) -> Asset:

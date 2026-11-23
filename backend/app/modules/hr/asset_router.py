@@ -159,7 +159,7 @@ def list_assets(
 )
 @limiter.limit("30/hour")
 def create_asset(request: Request, data: AssetCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return asset_service.create_asset(db, data, organization_id=current_user.organization_id)
+    return asset_service.create_asset(db, data, organization_id=current_user.organization_id, actor=current_user)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -611,15 +611,18 @@ def get_asset(
     dependencies=[Depends(get_current_admin)],
 )
 def update_asset(asset_id: int, data: AssetUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return asset_service.update_asset(db, asset_id, data, updated_by=current_user.id, organization_id=current_user.organization_id)
+    return asset_service.update_asset(db, asset_id, data, updated_by=current_user.id, organization_id=current_user.organization_id,
+                                      actor=current_user)
 
 
 @asset_router.delete(
     "/{asset_id}",
     response_model=SuccessResponse,
     summary="Delete an asset",
+    description="Soft delete, recorded in the audit log. An asset that is assigned to someone answers 409 ASSET_ASSIGNED: "
+                "return it first.",
     dependencies=[Depends(get_current_admin)],
 )
 def delete_asset(asset_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    asset_service.delete_asset(db, asset_id, current_user.organization_id)
+    asset_service.delete_asset(db, asset_id, current_user.organization_id, actor=current_user)
     return {"message": f"Asset {asset_id} has been deleted successfully."}

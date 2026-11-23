@@ -3,11 +3,16 @@ import { useAuth } from "../../context/AuthContext";
 import PageHeader from "../../components/PageHeader";
 import { employeeName, employeeInitials, employeeEmail } from "../../utils/fieldAccess";
 import {
-  getAssets, createAsset, getAssetCategories, getHrEmployees, assignAsset,
+  getAssets, createAsset, updateAsset, getAssetCategories, getHrEmployees, assignAsset,
 } from "../../service/hrService";
 import {
-  Package, Search, Plus, X, Loader2, CheckCircle, Clock, AlertCircle, User, ChevronDown,
+  Package, Search, Plus, X, Loader2, CheckCircle, AlertCircle, User, ChevronDown, Pencil, Trash2,
 } from "lucide-react";
+import { DeleteAssetDialog } from "./AssetActionDialogs";
+import {
+  ASSET_CONDITION_OPTIONS, EMPTY_ASSET_FORM, assetFormPayload, assetStatusOptions, assetToForm, categoryChoices,
+  isAssetAssigned, validateAssetForm,
+} from "../../utils/assetForm";
 
 const STATUS_COLORS = {
   available: "bg-green-100 text-green-800",
@@ -17,14 +22,8 @@ const STATUS_COLORS = {
   lost: "bg-red-100 text-red-800",
 };
 
-const STATUS_OPTIONS = ["available", "assigned", "maintenance", "retired", "lost"];
-const CONDITION_OPTIONS = ["new", "good", "fair", "poor", "damaged"];
-
-const initialForm = {
-  name: "", assetTag: "", category: "", serialNumber: "",
-  status: "available", condition: "new", purchaseDate: "", purchasePrice: "",
-  notes: "", employee_id: "",
-};
+const CONDITION_OPTIONS = ASSET_CONDITION_OPTIONS;
+const initialForm = EMPTY_ASSET_FORM;
 
 export default function OrgAdminAssetsPage() {
   const { user } = useAuth();
@@ -39,6 +38,9 @@ export default function OrgAdminAssetsPage() {
   const [form, setForm] = useState({ ...initialForm });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [editAsset, setEditAsset] = useState(null);       // null = the modal adds a new asset
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -91,17 +93,20 @@ export default function OrgAdminAssetsPage() {
   }, [assets, search, selectedEmployee]);
 
   const openCreate = () => {
+    setEditAsset(null);
     setForm({ ...initialForm });
     setFormErrors({});
     setShowModal(true);
   };
 
-  const validate = (d) => {
-    const e = {};
-    if (!d.name?.trim()) e.name = "Name is required";
-    if (!d.assetTag?.trim()) e.assetTag = "Asset tag is required";
-    return e;
+  const openEdit = (asset) => {
+    setEditAsset(asset);
+    setForm(assetToForm(asset));
+    setFormErrors({});
+    setShowModal(true);
   };
+
+  const validate = (d) => validateAssetForm(d, { assets, editingId: editAsset?.id ?? null });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -110,25 +115,20 @@ export default function OrgAdminAssetsPage() {
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      const payload = {
-        name: form.name.trim(),
-        asset_tag: form.assetTag.trim(),
-        category: form.category || null,
-        serial_number: form.serialNumber || null,
-        status: form.status,
-        condition: form.condition,
-        purchase_date: form.purchaseDate || null,
-        purchase_cost: form.purchasePrice ? Number(form.purchasePrice) : null,
-        notes: form.notes || null,
-      };
-      const created = await createAsset(payload);
-      const assetId = created?.id || created?.data?.id;
-
-      if (assetId && form.employee_id) {
-        await assignAsset(assetId, { employee_id: parseInt(form.employee_id) });
+      if (editAsset) {
+        await updateAsset(editAsset.id, assetFormPayload(form, { mode: "edit" }));
+        setNotice(`Asset "${form.name.trim()}" updated.`);
+      } else {
+        const created = await createAsset(assetFormPayload(form, { mode: "create" }));
+        const assetId = created?.id || created?.data?.id;
+        if (assetId && form.employee_id) {
+          await assignAsset(assetId, { employee_id: parseInt(form.employee_id) });
+        }
+        setNotice(`Asset "${form.name.trim()}" added.`);
       }
 
       setShowModal(false);
+      setEditAsset(null);
       await fetchData();
     } catch (err) {
       setFormErrors({ submit: err.message || "Failed to save asset" });
@@ -156,6 +156,13 @@ export default function OrgAdminAssetsPage() {
         title="Assets"
         description="Manage your organization's assets and assign them to employees"
       />
+
+      {notice && (
+        <div role="status" className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-700 flex items-center justify-between">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="text-green-600 hover:text-green-800 font-bold">&times;</button>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
@@ -259,18 +266,30 @@ export default function OrgAdminAssetsPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        {status === "available" && (
-                          <AssignDropdown
-                            employees={employees}
-                            asset={a}
-                            onAssign={handleAssign}
-                          />
-                        )}
-                        {status === "assigned" && (
-                          <span className="text-xs text-slate-400 flex items-center justify-end gap-1">
-                            <CheckCircle size={12} className="text-blue-500" /> Assigned
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {status === "available" && (
+                            <AssignDropdown
+                              employees={employees}
+                              asset={a}
+                              onAssign={handleAssign}
+                            />
+                          )}
+                          {status === "assigned" && (
+                            <span className="text-xs text-slate-400 flex items-center justify-end gap-1 mr-1">
+                              <CheckCircle size={12} className="text-blue-500" /> Assigned
+                            </span>
+                          )}
+                          <button type="button" onClick={() => openEdit(a)} title="Edit asset" aria-label={`Edit ${a.name || "asset"}`}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition">
+                            <Pencil size={14} />
+                          </button>
+                          <button type="button" onClick={() => setDeleteTarget(a)}
+                            title={isAssetAssigned(a) ? "Return this asset before deleting it" : "Delete asset"}
+                            aria-label={`Delete ${a.name || "asset"}`}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -286,8 +305,10 @@ export default function OrgAdminAssetsPage() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <div>
-                <h2 className="text-lg font-bold text-slate-800">Add Asset</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Create and optionally assign to an employee</p>
+                <h2 className="text-lg font-bold text-slate-800">{editAsset ? "Edit Asset" : "Add Asset"}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {editAsset ? "Change the asset's details. Use Assign or Return to change who holds it." : "Create and optionally assign to an employee"}
+                </p>
               </div>
               <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition">
                 <X size={18} />
@@ -319,25 +340,43 @@ export default function OrgAdminAssetsPage() {
                   <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition">
                     <option value="">Select category</option>
-                    {categories.map((v) => (<option key={v} value={v}>{v}</option>))}
+                    {categoryChoices(categories, form.category).map((v) => (<option key={v} value={v}>{v}</option>))}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Serial Number</label>
                   <input type="text" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition" />
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition ${formErrors.serialNumber ? "border-red-300" : "border-slate-200"}`} />
+                  {formErrors.serialNumber && <p className="text-xs text-red-500 mt-1">{formErrors.serialNumber}</p>}
                 </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Assign to Employee</label>
-                <EmployeeSelectModal employees={employees} value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Department</label>
+                  <input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">
+                    {editAsset ? "Assigned To" : "Assign to Employee"}
+                  </label>
+                  {editAsset ? (
+                    <p className="px-3 py-2.5 text-sm text-slate-600 border border-slate-100 rounded-xl bg-slate-50">
+                      {editAsset.employee_name || editAsset.employeeName || "Not assigned"}
+                    </p>
+                  ) : (
+                    <EmployeeSelectModal employees={employees} value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Status</label>
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition">
-                    {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
+                    disabled={!!editAsset && isAssetAssigned(editAsset)}
+                    title={editAsset && isAssetAssigned(editAsset) ? "Return the asset to change its status" : undefined}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition disabled:opacity-60">
+                    {assetStatusOptions(editAsset).map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
                   </select>
                 </div>
                 <div>
@@ -351,8 +390,9 @@ export default function OrgAdminAssetsPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Purchase Price ($)</label>
-                  <input type="number" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition" />
+                  <input type="number" min="0" step="0.01" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition ${formErrors.purchasePrice ? "border-red-300" : "border-slate-200"}`} />
+                  {formErrors.purchasePrice && <p className="text-xs text-red-500 mt-1">{formErrors.purchasePrice}</p>}
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Purchase Date</label>
@@ -372,12 +412,24 @@ export default function OrgAdminAssetsPage() {
                 </button>
                 <button type="submit" disabled={submitting}
                   className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold transition shadow-sm flex items-center gap-2">
-                  {submitting ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : "Create Asset"}
+                  {submitting ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : editAsset ? "Save Changes" : "Create Asset"}
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {deleteTarget && (
+        <DeleteAssetDialog
+          asset={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async (gone) => {
+            setDeleteTarget(null);
+            setNotice(`Asset "${gone.name || gone.asset_tag}" deleted.`);
+            await fetchData();
+          }}
+        />
       )}
     </div>
   );
