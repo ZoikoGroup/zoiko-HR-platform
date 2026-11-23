@@ -130,8 +130,11 @@ export default function EmployeeEssAttendance() {
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6" aria-label="This month">
-          <Kpi label="Present days" value={k ? `${k.attended_days} / ${k.working_days}` : "—"} hint={k?.attendance_rate != null ? `${k.attendance_rate}% of working days` : "No working days yet"} />
-          <Kpi label="Punctuality" value={k?.punctuality_rate != null ? `${k.punctuality_rate}%` : "—"} hint={k ? `${k.present + k.remote} on time` : null} />
+          {/* B4/B5: attended working days of the days you were expected (approved leave excused); on-time punch-ins */}
+          <Kpi label="Present days" value={k ? `${k.attended_days} / ${k.expected_days ?? k.working_days}` : "—"}
+            hint={k?.attendance_rate != null ? `${k.attendance_rate}% of expected days${k.on_leave ? ` · ${k.on_leave} on leave` : ""}` : "No working days yet"} />
+          <Kpi label="Punctuality" value={k?.punctuality_rate != null ? `${k.punctuality_rate}%` : "—"}
+            hint={k?.punched_days ? `${k.on_time_days} of ${k.punched_days} punch-ins on time` : null} />
           <Kpi label="Late arrivals" value={k ? k.late : "—"} tone={k?.late ? "text-amber-700" : "text-slate-900"} />
           <Kpi label="Absent days" value={k ? k.absent : "—"} tone={k?.absent ? "text-rose-700" : "text-slate-900"}
             hint={k?.missed_punch ? `${k.missed_punch} missed punch-out` : null} />

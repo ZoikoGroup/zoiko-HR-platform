@@ -1,5 +1,6 @@
-"""End-of-day close (attendance plan M8): once a work day is over in the organization's time zone (00:30 the next
-morning, so night shifts and late punch-outs finish first), every person employed that day gets a final, stored status:
+"""End-of-day close (attendance plan M8): once a work day is over for everyone in the organization (00:30 the next
+morning in each person's own time zone, so night shifts and late punch-outs finish first, and nobody working in a later
+time zone is closed mid-shift), every person employed that day gets a final, stored status:
 
     no record, working day, no leave  -> ABSENT
     approved leave                    -> ON_LEAVE (work-from-home leave: REMOTE)
@@ -18,6 +19,7 @@ Safety:
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from types import SimpleNamespace
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -62,10 +64,21 @@ def uses_attendance(db: Session, org: int, today: date) -> bool:
                                                 AttendanceRecord.date >= today - timedelta(days=IN_USE_WINDOW_DAYS)).first() is not None
 
 
+def _zones(db: Session, org: int) -> list:
+    """The organization's time zone plus every distinct personal time zone of its people (B7)."""
+    organization = db.get(Organization, org)
+    zones = {clock.tz_for(None, organization)}
+    for (name,) in (db.query(Employee.timezone).filter(Employee.organization_id == org, Employee.timezone.isnot(None))
+                    .distinct()):
+        zones.add(clock.tz_for(SimpleNamespace(timezone=name), organization))
+    return sorted(zones, key=lambda z: z.key)
+
+
 def closable_days(db: Session, org: int, now_utc: datetime) -> list[date]:
     tz = _tz(db, org)
     local_now = clock.to_local(now_utc, tz)
-    last = last_closable_day(local_now)
+    # a day closes only once it is over in every time zone the organization's people work in (B7): the latest zone decides
+    last = min(last_closable_day(clock.to_local(now_utc, z)) for z in _zones(db, org))
     if not uses_attendance(db, org, local_now.date()):
         return []
     closed = {d for (d,) in db.query(AttendanceDayClosure.work_date).filter(AttendanceDayClosure.organization_id == org,
@@ -118,7 +131,7 @@ def _apply(rec: AttendanceRecord, res, shift, tz) -> None:
 def close_day(db: Session, org: int, day: date, *, now_utc: Optional[datetime] = None) -> DayCloseResult:
     from app.modules.hr.attendance.dashboard_today import _shifts_on
     now_utc = now_utc or clock.utcnow()
-    tz = _tz(db, org)
+    organization = db.get(Organization, org)
     pol = policy_mod.get_policy(db, org)
     people = _people(db, org, day)
     ids = [p.id for p in people]
@@ -138,6 +151,7 @@ def close_day(db: Session, org: int, day: date, *, now_utc: Optional[datetime] =
                        AttendanceCorrectionRequest.status == "PENDING")}
     result = DayCloseResult(work_date=day)
     for emp in people:
+        tz = clock.tz_for(emp, organization)              # each person's punches are read in their own time zone (B7)
         shift = shifts.get(emp.id)
         rec = records.get(emp.id)
         if rec is not None:

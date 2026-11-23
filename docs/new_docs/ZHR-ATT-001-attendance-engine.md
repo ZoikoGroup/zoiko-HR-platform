@@ -50,6 +50,20 @@ The rules live in one pure function (`hr/attendance/status_engine.py: resolve`).
 - **Beyond the standard day** = net time − standard day (shift, else organization setting, else 8 h). It counts as
   overtime only when an overtime request is approved (`overtime_authorized_hours`).
 - **No shift assigned** = nobody is late; hours count against the standard day.
+
+**My Attendance KPIs** (`me_service.month_view`, revised 2026-11-23, B4/B5):
+
+| KPI | Formula |
+|---|---|
+| Working days (due) | Working days up to yesterday, plus today once punched in (holidays and weekly offs never count) |
+| Expected days | Due working days − approved leave days |
+| Present days | Attended due working days (present, late, remote = 1, half day = ½) / expected days. Work on a weekly off or holiday is not attendance, so the rate never exceeds 100% |
+| Punctuality | Punch-ins on due working days with no late minutes / all such punch-ins (leave without a punch is not "on time") |
+| Average daily hours | Worked minutes / days with a punch-out (holiday and weekly-off work excluded; missed punch-outs excluded) |
+
+**Leave decided after the day closed** (B6): approving, cancelling, re-dating or deleting leave recalculates the stored
+days it covers up to today (`hr/attendance/leave_sync.py`), so Absent becomes On leave and back. HR-locked statuses
+are kept; each change is audited as `auto_marked` with the reason.
 - **Which shift applies:** that date's roster entry → the person's assigned shift for the period (`employee_shifts`)
   → the organization's default shift → none.
 
@@ -144,7 +158,8 @@ overtime adds an `overtime_approved` entry. The originals stay on the request.
 ## 8. The end-of-day job
 
 `hr_attendance_end_of_day` runs every 30 minutes on the scheduler leader (`hr/attendance/jobs.py`, registered from
-`doc_templates/jobs.register`). For each organization, once its local time is past **00:30 the next morning**, it closes
+`doc_templates/jobs.register`). For each organization, once the day is past **00:30 the next morning in every time zone
+its people work in** (the organization's own and each person's personal time zone, B7), it closes
 the finished day: Absent / On leave / Remote / Holiday / Weekly off rows for people without a record, Missed punch-out for
 open days (one in-app notice, none if a correction is already waiting), and a final recalculation of complete days.
 

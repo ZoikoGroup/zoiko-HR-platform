@@ -27,7 +27,8 @@ const MONTH = {
   month: "2026-11", timezone: "Asia/Kolkata", today: "2026-11-18",
   policy: { grace_minutes: 10, half_day_min_minutes: 240, standard_minutes: 480, working_days: ["mon", "tue", "wed", "thu", "fri"] },
   kpis: { working_days: 12, present: 6, late: 2, absent: 1, half_day: 1, on_leave: 1, remote: 0, holiday: 1, weekly_off: 5, missed_punch: 1,
-    attended_days: 8.5, attendance_rate: 71, punctuality_rate: 75, avg_worked_minutes: 505, overtime_minutes: 130, approved_overtime_minutes: 60 },
+    expected_days: 11, punched_days: 8, on_time_days: 6,
+    attended_days: 8.5, attendance_rate: 77, punctuality_rate: 75, avg_worked_minutes: 505, overtime_minutes: 130, approved_overtime_minutes: 60 },
   days: Array.from({ length: 30 }, (_, i) => {
     const day = i + 1;
     const date = `2026-11-${String(day).padStart(2, "0")}`;
@@ -122,9 +123,11 @@ test("KPIs count working days only", async (t) => {
   mockApi(t);
   await renderPage();
   const kpis = screen.getByLabelText("This month");
-  assert.ok(within(kpis).getByText("8.5 / 12"));
-  assert.ok(within(kpis).getByText("71% of working days"));
+  // B4: attended of the days you were expected (1 day of approved leave excused); B5: on-time punch-ins
+  assert.ok(within(kpis).getByText("8.5 / 11"));
+  assert.ok(within(kpis).getByText("77% of expected days · 1 on leave"));
   assert.ok(within(kpis).getByText("75%"));
+  assert.ok(within(kpis).getByText("6 of 8 punch-ins on time"));
   assert.ok(within(kpis).getByText("1 missed punch-out"));
   assert.ok(within(kpis).getByText("8h 25m"));
   // QA R2-2: the Overtime card and its note read the same figure; approved overtime is named as such

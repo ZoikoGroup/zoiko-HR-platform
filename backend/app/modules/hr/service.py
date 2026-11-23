@@ -1765,6 +1765,7 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
                                         update_data.pop("decision_reason", None) or record.decision_reason,
                                         update_data.pop("alternative_dates", None))
     before = snapshot(record, update_data.keys())
+    old_range = (record.start_date, record.end_date)
     for key, value in update_data.items():
         setattr(record, key, value)
     if "status" in update_data:
@@ -1773,6 +1774,8 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
             record.reviewed_by = actor.id
     db.commit()
     db.refresh(record)
+    if {"status", "start_date", "end_date"} & set(update_data):
+        _refresh_attendance_for_leave(db, record, old_range, "Leave updated: day recalculated.")
     if decision is not None:
         leave_documents.after_decided(db, record, actor)
     _activity_record(
@@ -1792,9 +1795,12 @@ def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) ->
     record = get_leave_request(db, leave_id, org_id)
     target = _leave_target(db, record)  # read before the row is gone
     record_id, record_org = record.id, record.organization_id
+    leave_days = (record.organization_id, record.employee_id, record.start_date, record.end_date)
     _release_pending_days(db, record)
     db.delete(record)
     db.commit()
+    from app.modules.hr.attendance.leave_sync import refresh_days_for_leave
+    refresh_days_for_leave(db, *leave_days, why="Leave deleted: day recalculated.")
     _activity_record(
         db, "leave.deleted", _actor_of(db, actor), record_org,
         entity_type="LeaveRequest", entity_id=record_id, **target,
@@ -1802,6 +1808,17 @@ def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) ->
 
 
 _OPEN_LEAVE = (RequestStatus.PENDING, RequestStatus.IN_PROGRESS)
+
+
+def _refresh_attendance_for_leave(db: Session, record: LeaveRequest, old_range, why: str) -> None:
+    """My Attendance plan B6: stored attendance days covered by the leave (and by its old dates, if they moved) follow
+    the decision. Never raises."""
+    from app.modules.hr.attendance.leave_sync import refresh_days_for_leave
+    ranges = {(record.start_date, record.end_date)}
+    if old_range and all(old_range):
+        ranges.add(tuple(old_range))
+    for start, end in ranges:
+        refresh_days_for_leave(db, record.organization_id, record.employee_id, start, end, why=why)
 
 
 def _release_pending_days(db: Session, record: LeaveRequest) -> None:
@@ -1870,6 +1887,8 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
             balance.pending_days = max((balance.pending_days or 0) - record.days, 0)
         db.commit()
         approved = record.status == RequestStatus.APPROVED
+        if approved:
+            _refresh_attendance_for_leave(db, record, None, "Leave approved: day recalculated.")
         _activity_record(
             db, "leave.approved" if approved else "leave.rejected", _actor_of(db, reviewer_id), record.organization_id,
             entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
