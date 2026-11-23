@@ -11,10 +11,24 @@ function EnrollControl({ course, enrollment, onEnroll }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (enrollment) {
+    const pct = Math.max(0, Math.min(100, Number(enrollment.progress_pct) || 0));
     return (
-      <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold">
-        {ENROLLMENT_LABELS[enrollment.status] || "Enrolled"}
-      </span>
+      <div>
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold">
+          {ENROLLMENT_LABELS[enrollment.status] || "Enrolled"}
+        </span>
+        {enrollment.status !== "dropped" && (
+          // progress = the course's quizzes passed (set by the server; a course without quizzes is updated by an admin)
+          <div className="mt-2" aria-label={`Progress ${pct}%`}>
+            <div className="flex justify-between text-[11px] text-gray-500 dark:text-[#94a3b8] mb-1">
+              <span>Progress</span><span className="font-semibold text-gray-700 dark:text-[#e2e8f0]">{pct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-100 dark:bg-[#334155] overflow-hidden">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
   if (!onEnroll) return null;

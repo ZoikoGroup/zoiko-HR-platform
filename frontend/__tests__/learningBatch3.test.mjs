@@ -29,7 +29,9 @@ test("L16: admins see every Learning tab; a manager gets no admin-only links", (
   assert.equal(learningTabHref("/hr-admin/learning", "courses"), "/hr-admin/learning?tab=courses");
   assert.equal(learningTabHref("/zoiko-hr/learning/courses", "reports"), "/zoiko-hr/learning/reports");
   assert.equal(learningTabHref("/zoiko-hr/learning", "dashboard"), "/zoiko-hr/learning");
-  assert.equal(learningTabHref("/zoiko-hr/learning/courses", "enrollments"), "/zoiko-hr/learning?tab=enrollments");
+  assert.equal(learningTabHref("/zoiko-hr/learning/courses", "enrollments"), "/zoiko-hr/learning/enrollments");
+  assert.equal(learningTabHref("/zoiko-hr/learning", "skills"), "/zoiko-hr/learning/skills");
+  assert.equal(activeLearningTab("/zoiko-hr/learning/certifications", "", all), "certifications");
 });
 
 function Where() {

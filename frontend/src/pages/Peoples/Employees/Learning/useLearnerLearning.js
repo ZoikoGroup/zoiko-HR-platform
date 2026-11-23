@@ -87,6 +87,18 @@ export default function useLearnerLearning() {
     const all = Object.values(assessmentsByCourse).flat();
     const fresh = await loadAttempts(all, profile?.id ?? null);
     if (mounted.current) setAttemptsByAssessment(fresh);
+    // a submitted quiz moves the course's progress (the server recalculates it): read my enrollments again
+    if (profile?.id != null) {
+      try {
+        const mine = {};
+        asList(await fetchAllPages(getEnrollments, { employee_id: profile.id }))
+          .filter((e) => e.employee_id === profile.id)
+          .forEach((e) => { mine[e.course_id] = e; });
+        if (mounted.current) setEnrollmentsByCourse(mine);
+      } catch {
+        // keep what is shown; the next full load reads them again
+      }
+    }
   }, [assessmentsByCourse, profile, loadAttempts]);
 
   /** Enroll the signed-in person in a course from the catalogue (the API enrolls a learner only themselves, only in an
