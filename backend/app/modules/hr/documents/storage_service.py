@@ -6,6 +6,7 @@ scripts/encrypt_hr_documents.py moves them; open_for_read() serves both. Files a
 check, inline through the API or through a short-lived signed link (core/privacy/files). There are no public URLs.
 """
 import hashlib
+import logging
 import os
 import secrets
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ from app.core.crypto import fernet_for
 from app.core.exceptions import ZoikoException
 from app.modules.doc_templates.storage import LocalDocumentStore
 from app.modules.hr.documents.precheck import EMPLOYEE_EXTENSIONS, PrecheckResult, extension_of, run_prechecks
+
+logger = logging.getLogger("zoiko.documents.storage")
 
 _PURPOSE = b"zoiko-hr-uploaded-document-v1"
 ENC_SUFFIX = ".henc"
@@ -85,6 +88,43 @@ def read_key(key: str) -> bytes:
     return fernet_for(_PURPOSE).decrypt(data) if str(key).endswith(ENC_SUFFIX) else data
 
 
+def _legacy_path(obj) -> Optional[str]:
+    from app.core.privacy.files import belongs_to_tenant
+    from app.modules.hr.file_storage import resolve_stored_file
+    path = resolve_stored_file(getattr(obj, "file_path", None))
+    org = getattr(obj, "organization_id", None)
+    if not path or (org is not None and not belongs_to_tenant(path, org)):
+        return None
+    return path
+
+
+def is_available(obj) -> bool:
+    """Whether the bytes of a document or version are on this server, without reading or decrypting them (list views use
+    it to flag "file missing, upload it again" before anyone clicks Preview)."""
+    key = getattr(obj, "storage_key", None)
+    if key:
+        try:
+            if get_store().exists(key):
+                return True
+        except (OSError, ValueError):
+            pass
+    return _legacy_path(obj) is not None
+
+
+def storage_config_problems() -> list[str]:
+    """Why uploaded files may vanish on this deployment (logged at startup). Files live on the local disk under
+    UPLOAD_BASE_DIR / HR_DOCUMENT_UPLOAD_DIR; on a container platform that disk is wiped on every redeploy and is not
+    shared between instances, so a record can outlive its file (QA R1-17 / R1-22: "file not available on the server")."""
+    env = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "").strip().lower()
+    if env not in ("production", "prod", "staging"):
+        return []
+    root = os.path.abspath(upload_root()).replace("\\", "/")
+    if root.startswith("/tmp/") or not (os.environ.get("UPLOAD_BASE_DIR") or os.environ.get("HR_DOCUMENT_UPLOAD_DIR")):
+        return [f"uploaded documents are stored under {root}, which is not persistent storage. Point UPLOAD_BASE_DIR at a "
+                "mounted volume shared by every instance, or uploaded files will be lost on redeploy."]
+    return []
+
+
 def encrypt_existing(organization_id: int, plain: bytes, original_name: str) -> tuple[str, str]:
     """(storage_key, sha256) for bytes moved from a legacy path (scripts/encrypt_hr_documents.py)."""
     ext = extension_of(original_name) or ".bin"
@@ -95,19 +135,22 @@ def encrypt_existing(organization_id: int, plain: bytes, original_name: str) -> 
 
 def open_for_read(obj) -> Optional[bytes]:
     """The plain bytes of a document or version (new encrypted store first, then the legacy path). None if missing."""
+    from cryptography.fernet import InvalidToken
     key = getattr(obj, "storage_key", None)
     if key:
         try:
             return read_key(key)
+        except InvalidToken:
+            # the file is there but cannot be decrypted: SECRET_KEY changed since it was written
+            logger.error("document file %s cannot be decrypted with the current SECRET_KEY", key)
         except (OSError, ValueError):
-            return None
-    from app.core.privacy.files import belongs_to_tenant
-    from app.modules.hr.file_storage import resolve_stored_file
-    path = resolve_stored_file(getattr(obj, "file_path", None))
+            pass
+        # a row encrypted by scripts/encrypt_hr_documents.py keeps its original path: still served if the copy is gone
+    path = _legacy_path(obj)
     if not path:
         return None
-    org = getattr(obj, "organization_id", None)
-    if org is not None and not belongs_to_tenant(path, org):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
         return None
-    with open(path, "rb") as fh:
-        return fh.read()

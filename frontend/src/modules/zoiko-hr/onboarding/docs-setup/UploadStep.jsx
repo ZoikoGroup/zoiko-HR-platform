@@ -138,7 +138,8 @@ function Section({ icon: Icon, title, help, choices, defaultChoice, files, accep
 export default function UploadStep({ session, onSession, locked }) {
   const [errors, setErrors] = useState([]);
   const limits = session.limits || { files: 20, file_mb: 20, total_mb: 100 };
-  const kinds = session.file_types?.length ? session.file_types : ["docx"];
+  // the server says which kinds it takes (Word and PDF unless the deployment narrows it)
+  const kinds = session.file_types?.length ? session.file_types : ["docx", "pdf"];
   const wordOnly = kinds.length === 1 && kinds[0] === "docx";
   const accept = kinds.map((k) => ACCEPT_BY_KIND[k]).filter(Boolean).join(",");
   const allowedExt = kinds.flatMap((k) => (k === "docx" ? ["docx", "dotx"] : [k]));
@@ -194,7 +195,8 @@ export default function UploadStep({ session, onSession, locked }) {
   };
 
   const dropHelp = wordOnly ? "Word documents (.docx). An old .doc file? Open it in Word and use Save As › Word Document."
-    : `${kinds.map((k) => KIND_NAME[k]).join(", ")} files.`;
+    : `${kinds.map((k) => KIND_NAME[k]).join(", ")} files.${kinds.includes("pdf") && kinds.includes("docx")
+      ? " A PDF template becomes plain paragraphs and headings; upload the Word file to keep lists, tables and bold text." : ""}`;
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">

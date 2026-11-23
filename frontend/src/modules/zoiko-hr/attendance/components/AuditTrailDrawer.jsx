@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { useAttendanceRecordAudit } from "../hooks/useAttendanceAdmin";
 import { formatDateTime } from "../../../../utils/dateTime";
+import { formatClockTime } from "../constants";
 
 const ACTION = {
   punch_in: "Punched in", punch_out: "Punched out", break_start: "Break started", break_end: "Break ended", created: "Record added",
@@ -14,7 +15,9 @@ const FIELD = {
   source: "Source", shift_id: "Shift", status_locked: "Status set by HR", notes: "Notes", is_deleted: "Removed",
 };
 const SKIP = new Set(["check_in_at", "check_out_at"]);       // the local times say the same thing in a readable way
-const show = (v) => (v === null || v === undefined || v === "" ? "—" : typeof v === "string" && v.includes("T") ? v.replace("T", " ").slice(0, 16) : String(v));
+// a stored local date-time ("2026-11-18T09:40:00") reads as "2026-11-18 09:40 AM", in the attendance time format
+const show = (v) => (v === null || v === undefined || v === "" ? "—"
+  : typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v) ? `${v.slice(0, 10)} ${formatClockTime(v)}` : String(v));
 
 /** Who changed an attendance record, when, what (before → after) and why. */
 export default function AuditTrailDrawer({ record, onClose }) {

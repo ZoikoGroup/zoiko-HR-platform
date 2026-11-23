@@ -6,6 +6,8 @@ import SectionState from "../components/SectionState";
 import ApprovalRow from "../components/ApprovalRow";
 import DecisionDialog from "../components/DecisionDialog";
 import FilePreviewDrawer from "../components/FilePreviewDrawer";
+import CompanyFileDialog from "../components/CompanyFileDialog";
+import { useUploadCompanyVersion } from "../hooks/useCompanyDocuments";
 import PrecheckBadge from "../components/PrecheckBadge";
 import AuditLogTab from "./AuditLogTab";
 import Pager from "../components/Pager";
@@ -44,6 +46,7 @@ export default function ApprovalWorkflowPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
   const [dialog, setDialog] = useState(null);      // { mode, item }
+  const [replacing, setReplacing] = useState(null); // a company document whose file is missing: upload it again
   const [bulkResult, setBulkResult] = useState(null);
   const debouncedSearch = useDebounced(search);
 
@@ -64,6 +67,7 @@ export default function ApprovalWorkflowPage() {
   const reject = useRejectDocument();
   const reupload = useRequestReupload();
   const bulk = useBulkApprove();
+  const uploadVersion = useUploadCompanyVersion();
 
   const items = list.data?.items || [];
   const previewItem = useMemo(() => items.find((i) => i.document_id === itemParam) || null, [items, itemParam]);
@@ -234,7 +238,15 @@ export default function ApprovalWorkflowPage() {
                   {lock.lockedBy && <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{lock.lockedBy} is reviewing this document.</p>}
                   {previewItem.status === "pending_approval" && <PrecheckBadge precheck={previewItem.precheck} />}
                   <div className="min-h-0 flex-1">
-                    <FilePreviewDrawer open inline documentId={previewItem.document_id} title={previewItem.title} onClose={() => set({ item: null })} />
+                    <FilePreviewDrawer key={`${previewItem.document_id}:${previewItem.version_id}`} open inline documentId={previewItem.document_id}
+                      title={previewItem.title} onClose={() => set({ item: null })}
+                      missingActions={{
+                        // employee documents: admins never upload for the person, they ask for a new copy (QA R1-17)
+                        request_reupload: previewItem.scope === "employee" && (previewItem.can_decide || previewItem.status === "approved")
+                          ? { label: "Ask for a new copy", onClick: () => setDialog({ mode: "reupload", item: previewItem }) } : undefined,
+                        upload_version: previewItem.scope === "company"
+                          ? { label: "Upload it again", onClick: () => setReplacing({ id: previewItem.document_id, title: previewItem.title }) } : undefined,
+                      }} />
                   </div>
                 </div>
               )}
@@ -243,6 +255,9 @@ export default function ApprovalWorkflowPage() {
         )}
       </div>
 
+      <CompanyFileDialog open={Boolean(replacing)} mode="version" document={replacing} onClose={() => setReplacing(null)}
+        onSubmit={(v) => uploadVersion.mutateAsync({ ...v, changeNotes: v.changeNotes || "File uploaded again (it was missing on the server)" })
+          .then(() => list.refetch())} />
       <DecisionDialog open={Boolean(dialog)} mode={dialog?.mode} item={dialog?.item || null} onSubmit={decide} onClose={() => setDialog(null)} />
     </OrganizationDocumentsLayout>
   );

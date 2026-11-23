@@ -2,7 +2,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../../../service/queryKeys";
 import {
-  createEmployeeCategory, deleteEmployeeCategory, getDocumentEmployee, getDocumentEmployeesSummary, getEmployeeCategoryFiles,
+  cancelScheduledReminder, createEmployeeCategory, deleteEmployeeCategory, getDocumentEmployee, getDocumentEmployeesSummary, getEmployeeCategoryFiles,
   listDocumentEmployees, listEmployeeCategories, sendBulkReminders, sendEmployeeReminder, updateEmployeeCategory,
 } from "../../../../service/documentsService";
 
@@ -28,6 +28,10 @@ export function useSendReminder() {
 export function useSendBulkReminders() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: sendBulkReminders, onSettled: () => qc.invalidateQueries({ queryKey: keys.documents.employees.all }) });
+}
+export function useCancelScheduledReminder() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: cancelScheduledReminder, onSettled: () => qc.invalidateQueries({ queryKey: keys.documents.employees.all }) });
 }
 export function useEmployeeCategories() {
   return useQuery({ queryKey: keys.documents.employeeCategories(), queryFn: listEmployeeCategories });

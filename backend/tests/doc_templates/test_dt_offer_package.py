@@ -122,7 +122,8 @@ def test_supplied_clause_replaces_hook_and_us_spelling():
                           clauses={"remedies": {"text": REMEDIES}}, spelling="US", draft=False, status_text="ISSUED")
     html = R.render_html("nda", ctx)
     assert GOVERNING_LAW in html and REMEDIES in html and "{{clause:remedies}}" not in html
-    assert "{{clause:confidentiality_and_ip}}" in html, "a hook without counsel wording stays visible"
+    # a hook without counsel wording stays visible on a hire's document, as what is missing (never the raw "{{…}}" token)
+    assert f"Missing: {C.CLAUSES['confidentiality_and_ip'][0]}" in html and "{{clause:confidentiality_and_ip}}" not in html
     assert "DRAFT – NOT FOR ISSUE" not in html
     assert "unless authorized" in html and "authorised" not in html
     app_form = R.render_html("job_application", ctx)

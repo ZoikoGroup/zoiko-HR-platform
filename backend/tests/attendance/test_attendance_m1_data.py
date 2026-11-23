@@ -61,6 +61,24 @@ def test_policy_defaults_and_organization_settings(db, people):
     assert policy.is_working_day(p, None, date(2026, 11, 20)) is False      # Friday
 
 
+def test_minimum_worked_time_setting_defaults_to_an_hour_and_may_not_exceed_the_half_day_threshold(db, people):
+    """QA R1-24: attendance.min_present_hours (default 1 h) sits below the half-day threshold."""
+    from fastapi import HTTPException
+    assert policy.get_policy(db, 1).min_present_minutes == 60
+    actor = SimpleNamespace(id=people["hr"].id, organization_id=1, role=people["hr"].role)
+    work_settings.save(db, actor, {"min_present_hours": "0.5"}, "attendance")
+    assert policy.get_policy(db, 1).min_present_minutes == 30
+    with pytest.raises(HTTPException) as err:
+        work_settings.save(db, actor, {"min_present_hours": "5"}, "attendance")           # half day is 4 h
+    assert err.value.status_code == 422
+    with pytest.raises(HTTPException):
+        work_settings.save(db, actor, {"half_day_min_hours": "0.25"}, "attendance")       # below the 0.5 h minimum
+    p = policy.get_policy(db, 1)
+    assert (p.min_present_minutes, p.half_day_min_minutes) == (30, 240)                  # nothing half-saved
+    work_settings.save(db, actor, {"min_present_hours": "4", "half_day_min_hours": "4"}, "attendance")   # equal is fine
+    assert policy.get_policy(db, 1).min_present_minutes == 240
+
+
 def _shift(db, name, start="09:00", end="18:00", org=1, **kw):
     s = Shift(name=name, shift_type=ShiftType.GENERAL, start_time=start, end_time=end, organization_id=org, **kw)
     db.add(s)

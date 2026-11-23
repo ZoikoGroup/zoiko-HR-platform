@@ -46,6 +46,11 @@ export default function ApprovalRow({ item, selectable, selected, active, onSele
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {pending && <PrecheckBadge precheck={item.precheck} compact />}
+          {item.file_available === false && (
+            <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900" title="The record exists but its file is not on the server">
+              File missing
+            </span>
+          )}
           {item.lock && !item.lock.mine && (
             <span className="inline-flex items-center gap-1 text-xs text-slate-500"><Lock size={12} aria-hidden="true" /> Being reviewed by {item.lock.by}</span>
           )}

@@ -78,7 +78,8 @@ test("punch in, start a break and punch out update the card", async (t) => {
   fireEvent.click(within(card).getByRole("button", { name: /Punch in/ }));
   await settle();
   assert.equal(calls.punchIn, 1);
-  assert.match(within(card).getByRole("status").textContent, /Working · 1h 05m/);
+  assert.equal(within(card).getByRole("status").textContent, "Working");
+  assert.match(within(card).getByRole("timer", { name: "Worked time" }).textContent, /^01:05:0\d$/);   // HH:MM:SS (QA R1-25)
   assert.ok(within(card).getByText("Late"));
   assert.ok(within(card).getByText("15 min"));
   assert.equal(within(card).queryByRole("button", { name: /Punch in/ }), null);
@@ -109,7 +110,7 @@ test("the shift card, and the message when no shift is assigned", async (t) => {
   await renderPage();
   const shift = screen.getByRole("region", { name: "My shift" });
   assert.ok(within(shift).getByText("General"));
-  assert.ok(within(shift).getByText("09:00 – 18:00"));
+  assert.ok(within(shift).getByText("09:00 AM – 06:00 PM"));
   assert.ok(within(shift).getByText(/10 min grace/));
   cleanup();
   mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), shift: null }) });
@@ -126,7 +127,9 @@ test("KPIs count working days only", async (t) => {
   assert.ok(within(kpis).getByText("75%"));
   assert.ok(within(kpis).getByText("1 missed punch-out"));
   assert.ok(within(kpis).getByText("8h 25m"));
-  assert.ok(within(kpis).getByText("1h 00m"));
+  // QA R2-2: the Overtime card and its note read the same figure; approved overtime is named as such
+  assert.ok(within(kpis).getByText("2h 10m"));
+  assert.ok(within(kpis).getByText("Beyond the standard day · 1h 00m approved"));
 });
 
 test("the calendar opens a day with its breaks and history", async (t) => {
@@ -137,7 +140,7 @@ test("the calendar opens a day with its breaks and history", async (t) => {
   fireEvent.click(within(grid).getByRole("gridcell", { name: "2026-11-03: Late" }));
   await settle();
   const drawer = screen.getByRole("dialog", { name: /Attendance on 03 Nov 2026/ });
-  assert.ok(within(drawer).getByText("13:00 – 13:30"));                                         // the break, in Kolkata time
+  assert.ok(within(drawer).getByText("01:00 PM – 01:30 PM"));                                         // the break, in Kolkata time
   assert.ok(within(drawer).getByText(/Badge reader fault/));
   assert.match(within(drawer).getByText(/Badge reader fault/).textContent, /by HR/);
   assert.ok(within(drawer).getByRole("button", { name: /Request a correction/ }));                // the form itself: attendanceM4
@@ -152,7 +155,7 @@ test("the records table filters, and the month can be changed", async (t) => {
   fireEvent.click(within(table).getByRole("tab", { name: "Late" }));
   const rows = within(table).getAllByRole("row").slice(1);
   assert.equal(rows.length, 1);
-  assert.ok(within(rows[0]).getByText("09:40"));
+  assert.ok(within(rows[0]).getByText("09:40 AM"));
   assert.equal(screen.getByRole("button", { name: "Next month" }).disabled, true);            // no future months
   fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
   await settle();

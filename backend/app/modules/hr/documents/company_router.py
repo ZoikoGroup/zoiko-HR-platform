@@ -39,6 +39,10 @@ class AccessIn(BaseModel):
     employee_ids: Optional[list[int]] = None
 
 
+class BulkAccessIn(AccessIn):
+    document_ids: list[int] = Field(..., min_length=1, max_length=200)
+
+
 class PublishIn(BaseModel):
     publish_at: Optional[str] = None
 
@@ -157,6 +161,12 @@ def get_access(target_type: str, target_id: int, db: Session = Depends(get_db),
 def put_access(target_type: str, target_id: int, body: AccessIn, db: Session = Depends(get_db),
                user=Depends(require_doc_permission(DocAction.COMPANY_SHARE)), ctx: RequestCtx = Depends(request_ctx)):
     return svc.put_access(db, user, target_type, target_id, body.model_dump(), ctx)
+
+
+@router.put("/access/bulk", summary="Share several company documents in one action (the same rule on each)")
+def put_access_bulk(body: BulkAccessIn, db: Session = Depends(get_db),
+                    user=Depends(require_doc_permission(DocAction.COMPANY_SHARE)), ctx: RequestCtx = Depends(request_ctx)):
+    return svc.bulk_put_access(db, user, body.document_ids, body.model_dump(exclude={"document_ids"}), ctx)
 
 
 @router.post("/access/preview", summary="How many people a rule would reach (nothing is saved)")

@@ -81,11 +81,25 @@ def _settings_logo(organization) -> Optional[bytes]:
         return None
 
 
+def _profile_legal_name(organization) -> str:
+    from sqlalchemy.orm import object_session
+    db = object_session(organization) if organization is not None else None
+    if db is None or getattr(organization, "id", None) is None:
+        return ""
+    try:
+        from app.modules.hr import company_profile
+        return (company_profile.get_profile(db, organization.id).get("legal_name") or "").strip()
+    except Exception:
+        logger.warning("company profile legal name could not be read for org %s", getattr(organization, "id", None))
+        return ""
+
+
 def letterhead(entity, organization) -> dict:
     """Letterhead of a generated document. Logo: the one uploaded in Onboarding settings, else the employer entity's own."""
     logo_bytes = _settings_logo(organization)
-    if entity is None:
-        return {"legal_name": getattr(organization, "organization_name", ""), "logo_bytes": logo_bytes}
+    if entity is None:          # no employer entity: the Company Profile's full legal name, as the onboarding documents print it
+        return {"legal_name": _profile_legal_name(organization) or getattr(organization, "organization_name", ""),
+                "logo_bytes": logo_bytes}
     from app.core import business_ids
     reg = None
     if entity.registration_number:

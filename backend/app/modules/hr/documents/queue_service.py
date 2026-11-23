@@ -13,6 +13,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.pagination import Page
+from app.modules.hr.documents import storage_service
 from app.modules.hr.documents.models import (
     HrCompanyDocumentCategory, HrDocumentAuditLog, HrEmployeeDocumentCategory, VersionStatus,
 )
@@ -156,6 +157,8 @@ def serialize_item(db: Session, actor, doc, version, people: dict, cats: tuple[d
                    "status": getattr(s.status, "value", s.status), "by": _name(people.get(s.approved_by)),
                    "at": s.approved_at.isoformat() + "Z" if s.approved_at else None} for s in steps],
         "lock": lock, "can_decide": pending and reason is None, "cannot_decide_reason": reason if pending else None,
+        # False: the record outlived its file; the preview offers "request a new copy" / "upload again" (QA R1-17)
+        "file_available": storage_service.is_available(version) or storage_service.is_available(doc),
     }
 
 

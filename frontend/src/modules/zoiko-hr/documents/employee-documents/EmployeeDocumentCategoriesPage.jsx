@@ -7,10 +7,11 @@ import StatusChip from "../components/StatusChip";
 import CompletionBadge from "../components/CompletionBadge";
 import DocsBreadcrumb from "../components/DocsBreadcrumb";
 import ReminderDialog from "../components/ReminderDialog";
-import { useDocumentEmployee, useSendReminder } from "../hooks/useEmployeeDocuments";
+import { useCancelScheduledReminder, useDocumentEmployee, useSendReminder } from "../hooks/useEmployeeDocuments";
 import { downloadEmployeeZip } from "../../../../service/documentsService";
 import { saveBlobAs } from "../../../../utils/documents";
 import { formatDateTime } from "../../../../utils/dateTime";
+import { reminderNotice } from "../constants";
 
 /**
  * Admin → Employee Documents, level 2 (docs/new_docs/ZHR-DOCS-ARCH-001 §17 A2): one employee's category containers.
@@ -20,6 +21,7 @@ export default function EmployeeDocumentCategoriesPage() {
   const { employeeId } = useParams();
   const query = useDocumentEmployee(employeeId);
   const remind = useSendReminder();
+  const cancelScheduled = useCancelScheduledReminder();
   const [dialog, setDialog] = useState(null);          // { categoryIds?, what }
   const [notice, setNotice] = useState(null);
   const [zipping, setZipping] = useState(false);
@@ -66,6 +68,19 @@ export default function EmployeeDocumentCategoriesPage() {
                 </button>
               </div>
               {notice && <p role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">{notice}</p>}
+              {(data.scheduled_reminders || []).length > 0 && (
+                <ul aria-label="Scheduled reminders" className="space-y-2">
+                  {data.scheduled_reminders.map((r) => (
+                    <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900">
+                      <span>Reminder scheduled for {formatDateTime(r.scheduled_for)}{r.category_ids?.length
+                        ? ` (${data.categories.filter((c) => r.category_ids.includes(c.id)).map((c) => c.name).join(", ")})` : ""}</span>
+                      <button type="button" disabled={cancelScheduled.isPending}
+                        onClick={() => cancelScheduled.mutateAsync(r.id).then(() => setNotice("Scheduled reminder cancelled."), (e) => setNotice(e?.message || "That didn't work."))}
+                        className="text-xs font-semibold text-blue-800 underline disabled:opacity-60">Cancel</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {data.categories.map((c) => (
                   <li key={c.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
@@ -78,7 +93,10 @@ export default function EmployeeDocumentCategoriesPage() {
                       </div>
                       <StatusChip status={c.status} />
                     </div>
-                    {c.is_required && c.can_upload && c.status === "not_uploaded" && data.employee.is_active && (
+                    {c.is_required && c.can_upload && c.status === "not_uploaded" && data.employee.is_active && c.reminded_at && (
+                      <p className="text-xs text-slate-500">Reminded {formatDateTime(c.reminded_at)}. The next reminder about this document can go 24 hours later.</p>
+                    )}
+                    {c.is_required && c.can_upload && c.status === "not_uploaded" && data.employee.is_active && !c.reminded_at && (
                       <button type="button" onClick={() => setDialog({ categoryIds: [c.id], what: `They will be asked to upload their ${c.name}.` })}
                         className="inline-flex items-center gap-1.5 self-start text-xs font-semibold text-blue-700 hover:underline">
                         <BellRing size={14} aria-hidden="true" /> Send reminder
@@ -92,9 +110,9 @@ export default function EmployeeDocumentCategoriesPage() {
         </SectionState>
       </div>
       <ReminderDialog open={Boolean(dialog)} who={name} what={dialog?.what} onClose={() => setDialog(null)}
-        onSubmit={async ({ message }) => {
-          const r = await remind.mutateAsync({ employeeId: Number(employeeId), categoryIds: dialog?.categoryIds, message });
-          setNotice(r.sent ? "Reminder sent." : "Nothing is missing, so no reminder was sent.");
+        onSubmit={async ({ message, scheduledFor }) => {
+          const r = await remind.mutateAsync({ employeeId: Number(employeeId), categoryIds: dialog?.categoryIds, message, scheduledFor });
+          setNotice(reminderNotice(r));
         }} />
     </OrganizationDocumentsLayout>
   );

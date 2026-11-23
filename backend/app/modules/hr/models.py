@@ -305,6 +305,7 @@ class Shift(Base):
     standard_hours        = Column(Numeric(4, 2), nullable=True)   # overrides attendance.standard_workday_hours for this shift
     working_days          = Column(JSON, nullable=True)            # e.g. ["mon","tue","wed","thu","fri"]; None = the org's working days
     half_day_min_minutes  = Column(Integer, nullable=True)         # None = attendance.half_day_min_hours
+    min_present_minutes   = Column(Integer, nullable=True)         # None = attendance.min_present_hours
     description           = Column(Text, nullable=True)
     is_active             = Column(Boolean, default=True)
     organization_id       = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)

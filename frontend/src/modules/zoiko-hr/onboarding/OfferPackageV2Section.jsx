@@ -4,6 +4,7 @@
  * and every value that will be printed, grouped, so HR can check each personal detail before sending.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, ChevronDown, ListChecks, Save } from "lucide-react";
 import { SecondaryButton } from "../recruitment/ui";
 import { getOnboardingProfiles, saveHirePackageInputs } from "../../../service/hrService";
@@ -28,8 +29,32 @@ export function autoEngagementLabel(eng) {
   return `Organisation default: ${eng.name}`;
 }
 
-export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError }) {
+/** The "Match the position" choice, saying which role profile it resolves to (or that none matches). */
+export function autoRoleLabel(role) {
+  if (!role || role.source === "chosen") return "Match the position";
+  if (role.source === "position" && role.title) return `Match the position: ${role.title}`;
+  if (role.source === "generated") return `Match the position${role.title ? ` (no profile for “${role.title}”: built from the job details)` : ""}`;
+  return "Match the position";
+}
+
+/**
+ * Every role profile the organisation configured: the package's own list (sent with the package, so it is there even
+ * when the profiles call fails), merged with the Settings list, sorted by title; a chosen profile that no longer exists
+ * stays visible so the select never shows a blank.
+ */
+export function roleOptions(pkg, profiles, chosenSlug) {
+  const seen = new Map();
+  [...(pkg?.role_profiles || []), ...(profiles?.role_profiles || [])].forEach((p) => {
+    if (p?.slug && !seen.has(p.slug)) seen.set(p.slug, { slug: p.slug, title: p.title || p.slug });
+  });
+  const list = [...seen.values()].sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  if (chosenSlug && !seen.has(chosenSlug)) list.push({ slug: chosenSlug, title: `${chosenSlug} (deleted)` });
+  return list;
+}
+
+export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError, onNotice }) {
   const [profiles, setProfiles] = useState(null);
+  const [profilesError, setProfilesError] = useState("");
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [openValues, setOpenValues] = useState(false);
@@ -40,7 +65,11 @@ export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError })
   useEffect(() => { setForm(current); }, [current]);
   useEffect(() => {
     let live = true;
-    getOnboardingProfiles().then((res) => live && setProfiles(res)).catch(() => live && setProfiles({ engagement_profiles: [], role_profiles: [] }));
+    getOnboardingProfiles().then((res) => live && setProfiles(res)).catch((e) => {
+      if (!live) return;
+      setProfiles({ engagement_profiles: [], role_profiles: [] });
+      setProfilesError(e?.message || "The profiles could not be loaded.");
+    });
     return () => { live = false; };
   }, []);
 
@@ -51,13 +80,17 @@ export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError })
     try {
       const values = Object.fromEntries(KEYS.filter((k) => (form[k] || "") !== (current[k] || "")).map((k) => [k, form[k] || ""]));
       onSaved?.(await saveHirePackageInputs(hireId, values));
+      onNotice?.("success", "Choices saved");
     } catch (e) {
-      onError?.(e?.message || "The choices could not be saved.");
+      const msg = e?.message || "The choices could not be saved.";
+      onError?.(msg);
+      onNotice?.("error", msg);
     } finally {
       setSaving(false);
     }
   };
 
+  const roles = roleOptions(pkg, profiles, form.role_profile_slug);
   const warnings = pkg?.warnings || [];
   const groups = pkg?.printed_values || [];
   const set = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }));
@@ -87,9 +120,15 @@ export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError })
           <div>
             <label htmlFor="pkg-role" className="mb-1 block text-sm font-medium text-gray-700">Role profile</label>
             <select id="pkg-role" className={fieldCls} value={form.role_profile_slug || ""} onChange={set("role_profile_slug")}>
-              <option value="">Match the position</option>
-              {(profiles?.role_profiles || []).map((p) => <option key={p.slug} value={p.slug}>{p.title}</option>)}
+              <option value="">{autoRoleLabel(pkg?.role)}</option>
+              {roles.map((p) => <option key={p.slug} value={p.slug}>{p.title}</option>)}
             </select>
+            {profiles !== null && roles.length === 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                {profilesError ? `${profilesError} ` : "No role profiles yet. "}
+                <Link to="/zoiko-hr/onboarding/settings#onboarding-profiles" className="font-semibold text-blue-600 underline">Add role profiles in Settings</Link>
+              </p>
+            )}
           </div>
           <div>
             <label htmlFor="pkg-issue" className="mb-1 block text-sm font-medium text-gray-700">Issue date <span className="text-xs font-normal text-gray-400">(today when blank)</span></label>

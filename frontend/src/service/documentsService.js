@@ -59,10 +59,13 @@ export const getDocumentEmployeesSummary = () => api.get("/hr/documents/employee
 export const getDocumentEmployee = (employeeId) => api.get(`/hr/documents/employees/${employeeId}`);
 export const getEmployeeCategoryFiles = (employeeId, categoryId) =>
   api.get(`/hr/documents/employees/${employeeId}/categories/${categoryId}/files`);
-export const sendEmployeeReminder = ({ employeeId, categoryIds, message, channel }) =>
-  api.post(`/hr/documents/employees/${employeeId}/reminders`, { category_ids: categoryIds || null, message: message || null, channel: channel || "both" });
-export const sendBulkReminders = ({ employeeIds, message }) =>
-  api.post("/hr/documents/reminders/bulk", { employee_ids: employeeIds, message: message || null });
+/** `scheduledFor`: an ISO date-time in UTC ("…Z") to send it later; empty sends it now (QA R1-15). */
+export const sendEmployeeReminder = ({ employeeId, categoryIds, message, channel, scheduledFor }) =>
+  api.post(`/hr/documents/employees/${employeeId}/reminders`, { category_ids: categoryIds || null, message: message || null,
+    channel: channel || "both", scheduled_for: scheduledFor || null });
+export const sendBulkReminders = ({ employeeIds, message, scheduledFor }) =>
+  api.post("/hr/documents/reminders/bulk", { employee_ids: employeeIds, message: message || null, scheduled_for: scheduledFor || null });
+export const cancelScheduledReminder = (reminderId) => api.delete(`/hr/documents/reminders/${reminderId}`);
 export async function downloadEmployeeZip(employeeId, approvedOnly = true) {
   const { fetchAuthenticatedFile } = await import("./hrService");
   return fetchAuthenticatedFile(`/hr/documents/employees/${employeeId}/export.zip?approved_only=${approvedOnly}`, `employee-${employeeId}-documents.zip`);
@@ -112,6 +115,8 @@ export const createCompanyFolder = ({ name, categoryId, parentId }) => {
 export const getAccessRule = (targetType, targetId) => api.get(`/hr/documents/access/${targetType}/${targetId}`);
 export const putAccessRule = (targetType, targetId, rule) => api.put(`/hr/documents/access/${targetType}/${targetId}`, rule);
 export const previewAccessRule = (rule) => api.post("/hr/documents/access/preview", rule);
+/** Share several company documents in one action: the same rule on each, all or nothing (QA R1-21). */
+export const putBulkAccessRule = (documentIds, rule) => api.put("/hr/documents/access/bulk", { ...rule, document_ids: documentIds });
 export const getAckTracking = (documentId, params) => api.get(`/hr/documents/company/${documentId}/acknowledgements`, { params: clean(params) });
 export const remindAcks = (documentId, employeeIds) => api.post(`/hr/documents/company/${documentId}/acknowledgements/remind`, { employee_ids: employeeIds || null });
 

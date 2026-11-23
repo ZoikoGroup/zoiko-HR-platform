@@ -102,6 +102,25 @@ def test_a_full_day_with_a_break(api, shift, clock_at):
         ["punch_in", "break_start", "break_end", "punch_out"]
 
 
+@pytest.mark.parametrize("minutes,status", [(1, "absent"), (13, "absent"), (60, "half_day")])
+def test_a_punch_out_minutes_after_the_punch_in_does_not_count_as_a_half_day(api, shift, clock_at, minutes, status):
+    """QA R1-24: below attendance.min_present_hours (default 1 h) the finished day is absent, the punches kept."""
+    api.as_("emp")
+    api.post("/hr/me/attendance/punch-in")
+    clock_at(ist(9, 0) + timedelta(minutes=minutes))
+    body = api.post("/hr/me/attendance/punch-out").json()
+    assert (body["status"], body["worked_minutes"]) == (status, minutes)
+    assert body["check_in_at"] and body["check_out_at"]
+
+
+def test_the_today_answer_says_when_its_live_totals_were_taken(api, shift, clock_at):
+    """QA R1-25: the second-by-second timer starts from the server's `as_of` instant."""
+    api.as_("emp")
+    api.post("/hr/me/attendance/punch-in")
+    clock_at(ist(10, 5))
+    body = api.get("/hr/me/attendance/today").json()
+    assert (body["as_of"], body["worked_minutes"], body["running"]) == ("2026-11-18T04:35:00Z", 65, True)
+
 def test_punching_out_ends_a_running_break(api, shift, clock_at):
     api.as_("emp")
     api.post("/hr/me/attendance/punch-in")

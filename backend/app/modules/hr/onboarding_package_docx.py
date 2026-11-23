@@ -141,6 +141,16 @@ class _Docx:
                     run.font.highlight_color = WD_COLOR_INDEX.YELLOW
         return notes
 
+    def signature(self, paragraph, width_cm: float) -> bool:
+        """The authorised signatory's signature image in this paragraph; False when there is none."""
+        if not self.ctx.signature_png:
+            return False
+        try:
+            paragraph.add_run().add_picture(io.BytesIO(self.ctx.signature_png), width=Cm(width_cm))
+            return True
+        except Exception:
+            return False
+
     def para(self, text: str, style=None, **kw):
         p = self.doc.add_paragraph(style=style)
         notes = self.runs(p, text, **kw)
@@ -157,7 +167,7 @@ class _Docx:
         res = self.ctx.clause_value(key)
         add = container.add_paragraph if container is not None else self.doc.add_paragraph
         if res is None:
-            r = add().add_run(R._hook_token(key))
+            r = add().add_run(R.placeholder_text(R._hook_token(key).strip("{}"), self.ctx))
             r.font.highlight_color = WD_COLOR_INDEX.YELLOW
             self.note(C.CLAUSES[key][1])
             return
@@ -172,6 +182,9 @@ class _Docx:
     def _cell_text(self, cell, value):
         cell.text = ""
         p = cell.paragraphs[0]
+        if isinstance(value, dict) and value.get("sig"):
+            self.signature(p, width_cm=3.2)
+            return
         if isinstance(value, dict) and "ex" in value:
             r = p.add_run(self.ctx.spell(value["ex"]))
             r.italic, r.font.color.rgb = True, GREY
@@ -185,8 +198,7 @@ class _Docx:
         for i, h in enumerate(headers):
             c = t.rows[0].cells[i]
             c.text = ""
-            r = c.paragraphs[0].add_run(self.ctx.spell(h))
-            r.bold, r.font.size, r.font.color.rgb = True, Pt(9.5), RGBColor(0xFF, 0xFF, 0xFF)
+            self.runs(c.paragraphs[0], str(h or ""), bold=True, size=9.5, colour=RGBColor(0xFF, 0xFF, 0xFF))
             _shade(c, self.ctx.primary)
         tr_pr = t.rows[0]._tr.get_or_add_trPr()
         rep = OxmlElement("w:tblHeader")                    # the header row repeats on every page
@@ -239,7 +251,12 @@ class _Docx:
         if t in ("h1", "h2", "h3"):
             self.para(b["text"], style={"h1": "Heading 1", "h2": "Heading 2", "h3": "Heading 3"}[t])
         elif t == "p":
-            self.para(b["text"])
+            if R.is_signature_line(b["text"]) and ctx.mode != "template":
+                p = self.doc.add_paragraph()
+                if not self.signature(p, width_cm=4.5):
+                    p.add_run(R.SIGN_LINE)
+            else:
+                self.para(b["text"])
         elif t == "center":
             p = self.para(b["text"], bold=True, size=14, colour=self.primary)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -289,9 +306,10 @@ class _Docx:
             for party, name, title, dt in b["rows"]:
                 note = ""
                 if ctx.esign and ctx.mode == "issue":
-                    note = ("Issued electronically by the employer" if party.startswith("For ")
+                    note = ("Issued electronically by the employer" if R.is_employer_party(party)
                             else "Electronic signature – see execution certificate")
-                rows.append([party, name, title, {"ex": note}, dt])
+                sig = bool(ctx.signature_png) and R.is_employer_party(party) and ctx.mode == "issue"
+                rows.append([party, name, title, {"sig": True, "ex": note} if sig else {"ex": note}, dt])
             self.table(["Party", "Name", "Title", "Signature", "Date"], rows)
         elif t == "clause":
             num = b["num"]

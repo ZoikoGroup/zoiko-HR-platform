@@ -10,15 +10,38 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Download, FileText, ImagePlus, Loader2, Save, Scale, ShieldAlert, Trash2 } from "lucide-react";
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
-import { deleteOfferPackageLogo, getOfferPackageLogo, getOfferPackageSettings, getOfferPackageTemplateSet, saveOfferPackageSettings,
-  uploadOfferPackageLogo } from "../../../service/hrService";
+import { deleteOfferPackageLogo, deleteOfferPackageSignature, getOfferPackageLogo, getOfferPackageSettings, getOfferPackageSignature,
+  getOfferPackageTemplateSet, saveOfferPackageSettings, uploadOfferPackageLogo, uploadOfferPackageSignature } from "../../../service/hrService";
 import { decidePendingClause } from "../../../service/docsSetupService";
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const LOGO_MAX_MB = 2;
 
-/** The company logo printed in every package document's header and in the offer letterhead. */
-function LogoCard({ hasLogo, onChanged, onMessage }) {
+/** The images the documents print: the company logo, and the authorised signatory's signature. */
+export const IMAGE_CARDS = {
+  logo: {
+    title: "Company logo", noun: "logo", empty: "No logo yet", alt: "Company logo", file: "Company logo file",
+    help: `Printed in the header of every page and in the offer letterhead. PNG, JPG or WebP, up to ${LOGO_MAX_MB} MB; a wide logo on a transparent background works best. Applies to documents generated from now on; documents already sent are not changed.`,
+    saved: "Logo saved. New documents print it in the header and the offer letterhead.",
+    removed: "Logo removed.",
+    confirmRemove: "Remove the company logo? Documents generated from now on will have no logo.",
+    get: getOfferPackageLogo, upload: uploadOfferPackageLogo, remove: deleteOfferPackageLogo,
+  },
+  signature: {
+    title: "Authorised signatory's signature", noun: "signature", empty: "No signature yet", alt: "Signatory's signature",
+    file: "Signatory's signature file",
+    help: `Printed above the signatory's name in the employer's signature cell, and on the line under the sign-off of your own templates. Sign on plain white paper and upload a PNG, JPG or WebP of up to ${LOGO_MAX_MB} MB. Applies to documents generated from now on; documents already sent are not changed.`,
+    saved: "Signature saved. New documents print it in the employer's signature cell.",
+    removed: "Signature removed.",
+    confirmRemove: "Remove the signatory's signature? Documents generated from now on leave the employer's signature cell blank.",
+    get: getOfferPackageSignature, upload: uploadOfferPackageSignature, remove: deleteOfferPackageSignature,
+  },
+};
+
+/** An image the documents print: preview, upload or replace, remove. */
+function ImageCard({ kind, hasImage, onChanged, onMessage }) {
+  const cfg = IMAGE_CARDS[kind];
+  const hasLogo = hasImage;
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [inputKey, setInputKey] = useState(0);
@@ -28,23 +51,23 @@ function LogoCard({ hasLogo, onChanged, onMessage }) {
     let live = true;
     let objectUrl = "";
     if (!hasLogo) { setUrl(""); return undefined; }
-    getOfferPackageLogo()
+    cfg.get()
       .then((res) => { if (live && res?.blob) { objectUrl = URL.createObjectURL(res.blob); setUrl(objectUrl); } })
       .catch(() => live && setUrl(""));
     return () => { live = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [hasLogo, rev]);
+  }, [hasLogo, rev, cfg]);
 
   const upload = async (file) => {
     if (!file) return;
-    if (!LOGO_TYPES.includes(file.type)) { onMessage({ tone: "error", text: "Upload the logo as a PNG, JPG or WebP image." }); return; }
-    if (file.size > LOGO_MAX_MB * 1024 * 1024) { onMessage({ tone: "error", text: `The logo must be ${LOGO_MAX_MB} MB or smaller.` }); return; }
+    if (!LOGO_TYPES.includes(file.type)) { onMessage({ tone: "error", text: `Upload the ${cfg.noun} as a PNG, JPG or WebP image.` }); return; }
+    if (file.size > LOGO_MAX_MB * 1024 * 1024) { onMessage({ tone: "error", text: `The ${cfg.noun} must be ${LOGO_MAX_MB} MB or smaller.` }); return; }
     setBusy(true);
     try {
-      onChanged(await uploadOfferPackageLogo(file));
+      onChanged(await cfg.upload(file));
       setRev((r) => r + 1);
-      onMessage({ tone: "ok", text: "Logo saved. New documents print it in the header and the offer letterhead." });
+      onMessage({ tone: "ok", text: cfg.saved });
     } catch (e) {
-      onMessage({ tone: "error", text: e?.message || "The logo could not be uploaded." });
+      onMessage({ tone: "error", text: e?.message || `The ${cfg.noun} could not be uploaded.` });
     } finally {
       setBusy(false);
       setInputKey((k) => k + 1);
@@ -52,13 +75,13 @@ function LogoCard({ hasLogo, onChanged, onMessage }) {
   };
 
   const remove = async () => {
-    if (!window.confirm("Remove the company logo? Documents generated from now on will have no logo.")) return;
+    if (!window.confirm(cfg.confirmRemove)) return;
     setBusy(true);
     try {
-      onChanged(await deleteOfferPackageLogo());
-      onMessage({ tone: "ok", text: "Logo removed." });
+      onChanged(await cfg.remove());
+      onMessage({ tone: "ok", text: cfg.removed });
     } catch (e) {
-      onMessage({ tone: "error", text: e?.message || "The logo could not be removed." });
+      onMessage({ tone: "error", text: e?.message || `The ${cfg.noun} could not be removed.` });
     } finally {
       setBusy(false);
     }
@@ -67,21 +90,18 @@ function LogoCard({ hasLogo, onChanged, onMessage }) {
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-4 sm:flex-row sm:items-center">
       <div className="grid h-20 w-44 shrink-0 place-items-center overflow-hidden rounded-xl border border-dashed border-gray-300 bg-white">
-        {hasLogo && url ? <img src={url} alt="Company logo" className="max-h-16 max-w-[160px] object-contain" />
-          : hasLogo ? <Loader2 className="h-5 w-5 animate-spin text-gray-400" aria-label="Loading logo" />
-            : <span className="px-2 text-center text-xs text-gray-400">No logo yet</span>}
+        {hasLogo && url ? <img src={url} alt={cfg.alt} className="max-h-16 max-w-[160px] object-contain" />
+          : hasLogo ? <Loader2 className="h-5 w-5 animate-spin text-gray-400" aria-label={`Loading ${cfg.noun}`} />
+            : <span className="px-2 text-center text-xs text-gray-400">{cfg.empty}</span>}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-gray-900">Company logo</p>
-        <p className="text-xs text-gray-500">
-          Printed in the header of every page and in the offer letterhead. PNG, JPG or WebP, up to {LOGO_MAX_MB} MB; a wide logo on a
-          transparent background works best. Applies to documents generated from now on; documents already sent are not changed.
-        </p>
+        <p className="text-sm font-semibold text-gray-900">{cfg.title}</p>
+        <p className="text-xs text-gray-500">{cfg.help}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 ${busy ? "pointer-events-none opacity-50" : ""}`}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
-            {hasLogo ? "Replace logo" : "Upload logo"}
-            <input key={inputKey} type="file" accept={LOGO_TYPES.join(",")} className="sr-only" aria-label="Company logo file"
+            {hasLogo ? `Replace ${cfg.noun}` : `Upload ${cfg.noun}`}
+            <input key={inputKey} type="file" accept={LOGO_TYPES.join(",")} className="sr-only" aria-label={cfg.file}
               onChange={(e) => upload(e.target.files?.[0])} disabled={busy} />
           </label>
           {hasLogo && (
@@ -238,8 +258,10 @@ export default function OfferPackageSettings() {
             </div>
           )}
 
-          <LogoCard hasLogo={!!data.settings.has_logo} onMessage={setMsg}
+          <ImageCard kind="logo" hasImage={!!data.settings.has_logo} onMessage={setMsg}
             onChanged={(res) => setData((d) => ({ ...d, settings: { ...d.settings, has_logo: !!res?.settings?.has_logo } }))} />
+          <ImageCard kind="signature" hasImage={!!data.settings.has_signature} onMessage={setMsg}
+            onChanged={(res) => setData((d) => ({ ...d, settings: { ...d.settings, has_signature: !!res?.settings?.has_signature } }))} />
 
           <div className="grid gap-4 sm:grid-cols-2">
             {TEXT_FIELDS.map(([key, label, hint]) => (

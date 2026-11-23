@@ -293,6 +293,10 @@ ACTION_CATALOG: dict = {
     "settings.bulk_updated":      ("updated organization settings for", "Settings", "none"),
     "settings.deleted":           ("deleted setting for", "Settings", "target"),
     "settings.reset":             ("reset organization settings for", "Settings", "none"),
+    # ── Assets ─────────────────────────────────────────────────────────────
+    "asset.created":              ("added asset", "Asset", "target"),
+    "asset.updated":              ("updated asset", "Asset", "target"),
+    "asset.deleted":              ("deleted asset", "Asset", "target"),
 }
 
 
@@ -312,7 +316,7 @@ def action_groups() -> list:
 
 
 _ADDING_ACTIONS = {"employee.added", "employee.invited", "payroll.compensation_added", "payroll.benefit_added",
-                  "leave.type_created"}
+                  "leave.type_created", "asset.created"}
 
 
 def build_sentence(*, action_type: str, actor_name: Optional[str], role_label_text: Optional[str],
@@ -385,6 +389,9 @@ DEFAULT_ACTION = {
     "settings.bulk_updated": AuditAction.CONFIG_CHANGE,
     "settings.deleted": AuditAction.CONFIG_CHANGE,
     "settings.reset": AuditAction.CONFIG_CHANGE,
+    "asset.created": AuditAction.CREATE,
+    "asset.updated": AuditAction.UPDATE,
+    "asset.deleted": AuditAction.DELETE,
 }
 
 ENTITY_TYPES = {
@@ -392,6 +399,7 @@ ENTITY_TYPES = {
     "leave": "LeaveRequest",
     "payroll": "EmployeeCompensation",
     "settings": "OrganizationConfig",
+    "asset": "Asset",
 }
 
 

@@ -1,5 +1,5 @@
 import { Clock3 } from "lucide-react";
-import { timeIn } from "../constants";
+import { formatClockTime, timeIn } from "../constants";
 
 /** The person's shift today: timing, grace and break allowance, and when the day is expected to end. */
 export default function ShiftInfoCard({ shift, timezone, policy }) {
@@ -9,7 +9,7 @@ export default function ShiftInfoCard({ shift, timezone, policy }) {
       {shift ? (
         <>
           <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{shift.name}</p>
-          <p className="font-mono text-sm text-slate-700 dark:text-slate-200">{shift.start} – {shift.end}{shift.crosses_midnight ? " (next day)" : ""}</p>
+          <p className="font-mono text-sm text-slate-700 dark:text-slate-200">{formatClockTime(shift.start)} – {formatClockTime(shift.end)}{shift.crosses_midnight ? " (next day)" : ""}</p>
           <ul className="mt-3 space-y-1 text-xs text-slate-600 dark:text-slate-300">
             <li>{shift.grace_minutes} min grace before you count as late</li>
             {shift.break_minutes > 0 && <li>{shift.break_minutes} min break allowance</li>}

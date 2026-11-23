@@ -8,7 +8,7 @@ import AuditTrailDrawer from "./components/AuditTrailDrawer";
 import DateRangeFilter from "./components/DateRangeFilter";
 import RecordFormDialog from "./components/RecordFormDialog";
 import Pager from "../documents/components/Pager";
-import { formatMinutes, SOURCE_LABEL, STATUS } from "./constants";
+import { formatClockTime, formatMinutes, SOURCE_LABEL, STATUS } from "./constants";
 import {
   useAttendanceRecords, useCreateAttendanceRecord, useDeleteAttendanceRecord, useUpdateAttendanceRecord,
 } from "./hooks/useAttendanceAdmin";
@@ -164,8 +164,8 @@ export default function DailyAttendanceRecords() {
                     <td className="px-4 py-3"><p className="font-medium text-slate-900">{r.employee_name}</p><p className="font-mono text-xs text-slate-500">{r.employee_code}</p></td>
                     <td className="px-4 py-3 text-slate-600">{r.department || "—"}</td>
                     <td className="px-4 py-3">{formatDate(r.date)}</td>
-                    <td className="px-4 py-3 font-mono">{r.check_in_time || "—"}{r.late_minutes > 0 && <span className="ml-1 text-xs text-amber-700">+{r.late_minutes}m</span>}</td>
-                    <td className="px-4 py-3 font-mono">{r.check_out_time || "—"}</td>
+                    <td className="px-4 py-3 font-mono">{formatClockTime(r.check_in_time)}{r.late_minutes > 0 && <span className="ml-1 text-xs text-amber-700">+{r.late_minutes}m</span>}</td>
+                    <td className="px-4 py-3 font-mono">{formatClockTime(r.check_out_time)}</td>
                     <td className="px-4 py-3">{r.break_minutes ? formatMinutes(r.break_minutes) : "—"}</td>
                     <td className="px-4 py-3">{r.worked_minutes ? formatMinutes(r.worked_minutes) : "—"}</td>
                     <td className="px-4 py-3">{r.overtime_minutes ? formatMinutes(r.overtime_minutes) : "—"}</td>

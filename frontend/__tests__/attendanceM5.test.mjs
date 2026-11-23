@@ -64,7 +64,7 @@ test("the log asks the server with today's preset and shows the new columns", as
   assert.equal(calls.list[0].preset, "today");
   assert.equal(calls.list[0].per_page, 25);
   const row = screen.getByText("Asha Rao").closest("tr");
-  for (const text of ["Engineering", "09:40", "+30m", "18:30", "0h 45m", "8h 05m", "0h 05m", "Late", "Web"]) assert.ok(within(row).getByText(text), text);
+  for (const text of ["Engineering", "09:40 AM", "+30m", "06:30 PM", "0h 45m", "8h 05m", "0h 05m", "Late", "Web"]) assert.ok(within(row).getByText(text), text);
 });
 
 test("filters and presets are sent to the server, and paging resets", async (t) => {
@@ -142,7 +142,7 @@ test("the history shows who changed what and why", async (t) => {
   assert.ok(within(drawer).getByText("Record changed"));
   assert.ok(within(drawer).getByText(/Hr Person/));
   assert.ok(within(drawer).getByText("“Reader lag”"));
-  assert.match(drawer.textContent, /Check-in: 2026-11-18 09:40 → 2026-11-18 09:00/);
+  assert.match(drawer.textContent, /Check-in: 2026-11-18 09:40 AM → 2026-11-18 09:00 AM/);
   assert.ok(items.length >= 2);
 });
 

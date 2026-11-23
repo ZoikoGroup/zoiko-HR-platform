@@ -218,11 +218,18 @@ def test_withdrawal_needs_reason_and_approval_and_an_accepted_offer_needs_an_adm
     assert world.db.get(GeneratedDocument, o.get("document_id") or world.db.get(RecruitmentOffer, o["id"]).document_id).status == "CANCELLED"
 
 
-def test_withdrawing_an_accepted_offer_is_approved_only_by_an_admin(world):
+def test_withdrawing_an_accepted_offer_is_approved_only_by_an_admin(world, caplog):
     cand, o = _ready_offer(world)
     activate(world.db, "HR-HIR-018")
     _, token = _issue(world, o)
-    _sign(world, token)
+    with caplog.at_level("ERROR", logger="zoiko.doc_templates"):
+        _sign(world, token)
+    # Signing accepts the offer through the "executed" hook, and hooks.dispatch only logs a failing hook. Say why the
+    # offer was not accepted instead of failing later on the withdrawal's status code (seen once in CI, not reproduced).
+    offer = world.db.get(RecruitmentOffer, o["id"])
+    world.db.refresh(offer)
+    hook_errors = [r.getMessage() + ("\n" + r.exc_text if r.exc_text else "") for r in caplog.records]
+    assert offer.status == OfferStatus.ACCEPTED, f"signing did not accept the offer (status {offer.status}); hook errors: {hook_errors}"
     body = {"category": "condition_not_met", "statement": "The reference check could not be completed.", "condition": "two references"}
     r = world.post("a_hr", f"/hr/recruitment/offers/{o['id']}/withdrawal", json=body)
     assert r.status_code == 422 and r.json()["detail"]["code"] == "LEGAL_REVIEW_NOTE_REQUIRED"

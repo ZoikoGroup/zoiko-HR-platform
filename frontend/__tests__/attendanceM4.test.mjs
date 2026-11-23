@@ -116,8 +116,8 @@ test("the server's refusal is shown in the form", async (t) => {
 
 test("review pages describe each kind of correction in words", async () => {
   const { correctionSummary } = await import("../src/modules/zoiko-hr/attendance/constants.js");
-  assert.equal(correctionSummary({ kind: "missed_punch", requested_check_in: "2026-11-17T09:00:00", requested_check_out: "2026-11-17T18:30:00" }), "Missed punch: 09:00–18:30");
+  assert.equal(correctionSummary({ kind: "missed_punch", requested_check_in: "2026-11-17T09:00:00", requested_check_out: "2026-11-17T18:30:00" }), "Missed punch: 09:00 AM–06:30 PM");
   assert.equal(correctionSummary({ kind: "wrong_status", requested_status: "remote" }), "Wrong status: Remote");
-  assert.equal(correctionSummary({ kind: "break", requested_breaks: [{ start: "13:00", end: "13:30" }] }), "Breaks: 13:00–13:30");
-  assert.equal(correctionSummary({ requested_check_in: "09:05", requested_check_out: "17:00" }), "Missed punch: 09:05–17:00");   // older requests
+  assert.equal(correctionSummary({ kind: "break", requested_breaks: [{ start: "13:00", end: "13:30" }] }), "Breaks: 01:00 PM–01:30 PM");
+  assert.equal(correctionSummary({ requested_check_in: "09:05", requested_check_out: "17:00" }), "Missed punch: 09:05 AM–05:00 PM");   // older requests
 });

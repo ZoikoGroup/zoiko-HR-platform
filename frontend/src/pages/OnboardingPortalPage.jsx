@@ -26,6 +26,7 @@ import OutsideActivitiesForm from "../components/documents/OutsideActivitiesForm
 import OnboardingSubmitted from "../components/documents/OnboardingSubmitted";
 import DetailsSubmitted from "../components/documents/DetailsSubmitted";
 import PhoneField from "../components/PhoneField";
+import FileInput from "../components/FileInput";
 import { validateFields } from "../utils/fieldRules";
 import { formatDate } from "../utils/dateTime";
 import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructuredForms";
@@ -384,16 +385,17 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
 
       {open && showUpload && !filling && (
         <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
-          <input
-            type="file"
+          <FileInput
             accept={(doc.accepted_types?.length ? doc.accepted_types : ALLOWED_EXT).map((t) => `.${t}`).join(",")}
-            aria-label={`File for ${doc.title}`}
-            onChange={(e) => {
-              const f = e.target.files?.[0] || null;
+            ariaLabel={`File for ${doc.title}`}
+            file={file}
+            invalid={!!fileError}
+            size="sm"
+            className="w-full"
+            onChange={(f) => {
               setFile(f);
               setFileError(f ? validateFile(f, doc) : null);
             }}
-            className="block w-full min-w-0 text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
           />
           <button
             onClick={upload}

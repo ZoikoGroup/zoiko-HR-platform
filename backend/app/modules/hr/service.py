@@ -7487,8 +7487,22 @@ def create_document_folder(db: Session, name: str, organization_id: int, parent_
     if parent_id is not None and not db.query(HrDocumentFolder.id).filter(
             HrDocumentFolder.id == parent_id, HrDocumentFolder.organization_id == organization_id).first():
         raise NotFoundException("HrDocumentFolder", parent_id)
+    clean = " ".join((name or "").split())
+    if not clean:
+        raise BadRequestException("Give the folder a name.")
+    if len(clean) > 255:
+        raise BadRequestException("Folder names can be at most 255 characters.")
+    from sqlalchemy import func as _func
+    siblings = db.query(HrDocumentFolder.id).filter(
+        HrDocumentFolder.organization_id == organization_id,
+        HrDocumentFolder.parent_id.is_(None) if parent_id is None else HrDocumentFolder.parent_id == parent_id,
+        HrDocumentFolder.company_category_id.is_(None) if company_category_id is None
+        else HrDocumentFolder.company_category_id == company_category_id,
+        _func.lower(HrDocumentFolder.name) == clean.lower())
+    if siblings.first():
+        raise AlreadyExistsException("A folder with this name", None)
     folder = HrDocumentFolder(
-        name=name.strip(),
+        name=clean,
         parent_id=parent_id,
         organization_id=organization_id,
         created_by=created_by,

@@ -119,8 +119,56 @@ def test_interview_validation(env):
     assert env.c.post("/hr/recruitment/interviews", json={**base, "start_time": "11:00", "end_time": "10:00"}).status_code == 422
     assert env.c.post("/hr/recruitment/interviews", json={**base, "meeting_link": "http://x.com"}).status_code == 422
     assert env.c.post("/hr/recruitment/interviews", json={**base, "timezone": "Mars/Base"}).status_code == 422
-    assert env.c.post("/hr/recruitment/interviews", json={**base, "interview_date": "2020-01-01"}).status_code == 400
+    assert env.c.post("/hr/recruitment/interviews", json={**base, "interview_date": "2020-01-01"}).status_code == 422
     assert env.c.post("/hr/recruitment/interviews", json={**base, "interviewer_id": 99999}).status_code == 400
+
+
+def _local_now(zone):
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    return datetime.now(timezone.utc).astimezone(ZoneInfo(zone)).replace(tzinfo=None)
+
+
+def test_interview_cannot_be_scheduled_or_moved_into_the_past_in_the_org_time_zone(env):
+    """QA-R1-1: a past date, or today at a time that has already passed in the organization's zone, is refused (422) on
+    create and on reschedule; other edits to an interview whose time has passed still go through."""
+    from datetime import datetime, timedelta
+    from app.modules.hr.models import Organization, RecruitmentInterview
+    env.db.get(Organization, 1).timezone = "Pacific/Kiritimati"          # UTC+14: "today" there is usually not the server's
+    env.db.commit()
+    now = _local_now("Pacific/Kiritimati")
+    base = {"candidate_name": "Ann Lee", "position": "Backend Developer", "interview_type": "video", "interviewer": "Rahul Mehta",
+            "notify": False}
+    yesterday = (now.date() - timedelta(days=1)).isoformat()
+    r = env.c.post("/hr/recruitment/interviews", json={**base, "interview_date": yesterday})
+    assert r.status_code == 422 and "past" in r.json()["message"]
+
+    an_hour_ago = now - timedelta(hours=1)
+    if an_hour_ago.date() == now.date():                                  # skip the time check in the first hour of the day
+        r = env.c.post("/hr/recruitment/interviews", json={**base, "interview_date": now.date().isoformat(),
+                                                           "start_time": an_hour_ago.strftime("%H:%M")})
+        assert r.status_code == 422
+    # an explicit interview time zone wins over the organization's
+    _ok(env.c.post("/hr/recruitment/interviews", json={**base, "interview_date": FUTURE, "start_time": "09:00", "end_time": "10:00",
+                                                       "timezone": "Europe/London"}))
+
+    iv = _ok(env.c.post("/hr/recruitment/interviews", json={**base, "interview_date": FUTURE}))
+    assert env.c.put(f"/hr/recruitment/interviews/{iv['id']}", json={"interview_date": yesterday}).status_code == 422
+
+    # an interview whose time has passed: its notes and status can still change, its schedule cannot go further back
+    old = RecruitmentInterview(candidate_name="Old Timer", position="Dev", interview_type="video", interviewer="Rahul Mehta",
+                               interview_date=now.date() - timedelta(days=3), start_time="10:00", organization_id=1)
+    env.db.add(old)
+    env.db.commit()
+    assert _ok(env.c.put(f"/hr/recruitment/interviews/{old.id}", json={"notes": "Went well", "notify": False}))["notes"] == "Went well"
+    assert _ok(env.c.put(f"/hr/recruitment/interviews/{old.id}", json={"status": "completed", "notify": False}))["status"] == "completed"
+    assert _ok(env.c.put(f"/hr/recruitment/interviews/{old.id}/feedback", json={"feedback": "Strong", "rating": 4}))["rating"] == 4
+    old2 = RecruitmentInterview(candidate_name="Old Two", position="Dev", interview_type="video", interviewer="Rahul Mehta",
+                                interview_date=now.date() - timedelta(days=3), organization_id=1)
+    env.db.add(old2)
+    env.db.commit()
+    assert env.c.put(f"/hr/recruitment/interviews/{old2.id}", json={"start_time": "11:00"}).status_code == 422
+    assert _ok(env.c.put(f"/hr/recruitment/interviews/{old2.id}", json={"interview_date": LATER, "notify": False}))["interview_date"] == LATER
 
 
 def test_offer_currency_follows_the_region_and_internships_pay_a_stipend(env):

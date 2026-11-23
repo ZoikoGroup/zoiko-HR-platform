@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Download, Eye, FileText, FolderDown, RotateCcw, Upload } from "lucide-react";
 import { getPortalMyDocumentFile, getPortalMyDocuments, getPortalMyDocumentsZip, uploadPortalDocument } from "../../service/hrService";
 import { openFile } from "../../utils/fileViewer";
+import FileInput from "../FileInput";
 import { formatDate } from "../../utils/dateTime";
 
 const CHIP = {
@@ -42,8 +43,7 @@ function ResubmitUpload({ token, doc, onDone, onError }) {
   };
   return (
     <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-      <input type="file" aria-label={`New file for ${doc.title}`} onChange={(e) => setFile(e.target.files?.[0] || null)}
-        className="block w-full min-w-0 text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-blue-700" />
+      <FileInput ariaLabel={`New file for ${doc.title}`} file={file} onChange={setFile} size="sm" className="w-full" />
       <button type="button" onClick={send} disabled={!file || busy}
         className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:bg-blue-300 sm:w-auto">
         <Upload className="h-3.5 w-3.5" />{busy ? "Uploading…" : "Upload again"}

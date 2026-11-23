@@ -1790,6 +1790,14 @@ async def upload_onboarding_document(
         raise _field_problems(file="The selected file is empty.")
     if len(contents) > MAX_FILE_SIZE_BYTES:
         raise _field_problems(file=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
+    if record_id is not None and category in ("offer_letter", "nda"):
+        # a template uploaded as this hire's own letter would reach them with its blanks unfilled
+        from app.modules.hr.docs_setup import unfilled_template_blanks
+        blanks = unfilled_template_blanks(contents, file.filename or "")
+        if blanks:
+            raise _field_problems(file=(
+                f"This file still has blanks to fill in ({', '.join(blanks)}). Fill them in before uploading, or add the "
+                "template under Onboarding › Settings › Set up docs so each new hire's copy is filled in from their record."))
     os.makedirs(_ONBOARDING_DOC_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
@@ -2148,7 +2156,8 @@ def send_onboarding_package(
     if n:
         message = f"{n} document(s) sent to {hire.candidate_name}." + (f" {h} held until they are ready." if h else "")
     elif h:
-        message = f"Nothing sent: {h} document(s) are not ready yet."
+        message = (f"Nothing sent yet: {h} document(s) are not ready. Documents waiting only for the new hire's details "
+                   "are sent automatically once they enter them.")
     else:
         message = "Every package document has already been sent."
     return {"success": n > 0, "message": message, "new_hire_id": hire.id, "candidate_name": hire.candidate_name,

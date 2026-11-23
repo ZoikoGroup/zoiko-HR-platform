@@ -70,6 +70,63 @@ const LEGAL_HANDLED = new Set([...LEGAL_TOP, "notice_rules", "notice_period_valu
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/** The cities offered for the jurisdiction: the registered address's city, the jurisdiction country's list, and a saved value
+ * that is on neither (so it is not lost on save). */
+export function jurisdictionCityChoices({ value, country, registeredCity }) {
+  const list = [registeredCity, ...((country || "").toUpperCase() === "IN" ? IN_CITIES : [])]
+    .map((c) => String(c || "").trim()).filter(Boolean);
+  const v = String(value || "").trim();
+  if (v && !list.some((c) => c.toLowerCase() === v.toLowerCase())) list.unshift(v);
+  return [...new Set(list)];
+}
+
+/** Jump to the Registered address card and put the cursor in its first box. */
+function goToAddresses() {
+  const card = document.getElementById("company-profile-address");
+  if (!card) return;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  card.querySelector("input, select, textarea")?.focus({ preventScroll: true });
+}
+
+/** QA-R2-4: the jurisdiction city is the same styled dropdown as the jurisdiction country. It used to be a text box with a
+ * <datalist>, which the browser opened as its own (dark, unstyled) address-autofill popup ending in "Manage addresses…".
+ * Typing another city and "Manage addresses…" are actions under the box, not options in it. */
+function JurisdictionCityField({ spec, value, error, onChange, country, registeredCity }) {
+  const id = `cp-${spec.key}`;
+  const cls = `${inputCls} ${error ? errorInputCls : ""}`;
+  const describedBy = error ? `${id}-err` : undefined;
+  const choices = jurisdictionCityChoices({ value, country, registeredCity });
+  const [typing, setTyping] = useState(false);
+  const typed = typing || !choices.length;
+  const action = "text-xs font-medium text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 rounded";
+  return (
+    <div>
+      <label htmlFor={id} className={labelCls}>{spec.label}{spec.required && <span className="text-rose-600"> *</span>}</label>
+      {typed ? (
+        <input id={id} className={cls} value={value ?? ""} autoComplete="off" placeholder={HINTS[spec.key] || spec.hint || "City whose courts have jurisdiction"}
+          aria-invalid={!!error} aria-describedby={describedBy} onChange={(e) => onChange(e.target.value)} />
+      ) : (
+        <select id={id} className={cls} value={value ?? ""} autoComplete="off" aria-invalid={!!error} aria-describedby={describedBy}
+          onChange={(e) => onChange(e.target.value)}>
+          <option value="">{spec.required ? "Select a city…" : "—"}</option>
+          {choices.map((c) => (
+            <option key={c} value={c}>{c}{registeredCity && c === String(registeredCity).trim() ? " (registered address)" : ""}</option>
+          ))}
+        </select>
+      )}
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+        {choices.length > 0 && (
+          <button type="button" className={action} onClick={() => setTyping((t) => !t)}>
+            {typed ? "Choose from the list" : "Type another city"}
+          </button>
+        )}
+        <button type="button" className={action} onClick={goToAddresses}>Manage addresses…</button>
+      </div>
+      {error && <p id={`${id}-err`} className="mt-1 text-xs text-rose-600">{error}</p>}
+    </div>
+  );
+}
+
 function Field({ spec, value, error, onChange, country }) {
   const id = `cp-${spec.key}`;
   const cls = `${inputCls} ${error ? errorInputCls : ""}`;
@@ -129,7 +186,7 @@ function Field({ spec, value, error, onChange, country }) {
   } else {
     const inIndia = (country || "").toUpperCase() === "IN";
     const suggest = inIndia && spec.key === "state" ? ["cp-in-states", IN_STATES]
-      : inIndia && (spec.key === "city" || spec.key === "jurisdiction_city") ? ["cp-in-cities", IN_CITIES] : null;
+      : inIndia && spec.key === "city" ? ["cp-in-cities", IN_CITIES] : null;
     control = (
       <>
         <input id={id} className={cls} value={value ?? ""} placeholder={HINTS[spec.key] || spec.hint || undefined} aria-invalid={!!error} aria-describedby={describedBy}
@@ -374,7 +431,10 @@ export default function CompanyProfileSettings() {
     const rest = fieldsByGroup("legal").filter((s) => !LEGAL_HANDLED.has(s.key));
     return (
       <div className="grid gap-4 sm:grid-cols-2">
-        {top.map((s) => renderField(s, form.jurisdiction_country))}
+        {top.map((s) => (s.key === "jurisdiction_city"
+          ? <JurisdictionCityField key={s.key} spec={s} value={form[s.key]} error={errors[s.key]} country={form.jurisdiction_country}
+              registeredCity={form.city} onChange={(v) => setField(s.key, v)} />
+          : renderField(s, form.jurisdiction_country)))}
         {spec("notice_rules") && (
           <NoticeRules rules={form.notice_rules} types={types} error={errors.notice_rules || errors.notice_period_value}
             onChange={(v) => setField("notice_rules", v)} />

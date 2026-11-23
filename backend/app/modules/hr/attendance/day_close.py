@@ -150,7 +150,7 @@ def close_day(db: Session, org: int, day: date, *, now_utc: Optional[datetime] =
         ctx = DayContext(
             work_date=day, employed=True, holiday=holiday, working_day=policy_mod.is_working_day(pol, shift, day),
             leave=leaves.get(emp.id), shift=shift, grace_minutes=pol.grace_minutes, standard_minutes=pol.standard_minutes,
-            half_day_min_minutes=pol.half_day_min_minutes, day_closed=True,
+            half_day_min_minutes=pol.half_day_min_minutes, min_present_minutes=pol.min_present_minutes, day_closed=True,
             check_in_local=clock.to_local(rec.check_in_at, tz) if rec else None,
             check_out_local=clock.to_local(rec.check_out_at, tz) if rec else None,
             check_in_utc=rec.check_in_at if rec else None, check_out_utc=rec.check_out_at if rec else None,
