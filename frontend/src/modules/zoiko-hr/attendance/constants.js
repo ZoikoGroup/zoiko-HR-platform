@@ -1,5 +1,7 @@
 /** Attendance vocabulary, mirroring backend app/modules/hr/attendance/constants.py. */
 
+import { formatTime12h as formatClockTime } from "../../../utils/dateTime";
+
 export const STATUS = {
   present: { label: "Present", chip: "bg-emerald-50 text-emerald-800 ring-emerald-200", cell: "bg-emerald-500" },
   late: { label: "Late", chip: "bg-amber-50 text-amber-800 ring-amber-200", cell: "bg-amber-400" },
@@ -65,45 +67,8 @@ export function dayTotalsAt(today, atMs) {
   return { worked: Math.max(floor.worked, Math.floor((span - taken) / 1000)), breaks: Math.max(floor.breaks, Math.floor(taken / 1000)) };
 }
 
-/**
- * The attendance clock format. No organization or user time-format preference is stored yet (the ESS "time format"
- * choice is not saved anywhere), so every attendance screen shows 12-hour times with AM/PM. Pass `hour12: false` for
- * values that feed an <input type="time">.
- */
-export const DEFAULT_HOUR12 = true;
-
-const pad2 = (n) => String(n).padStart(2, "0");
-const ZONED = /(Z|[+-]\d{2}:?\d{2})$/i;                     // an instant (UTC or with an offset), not a wall-clock time
-
-function clockParts(value, timeZone) {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "string" && !ZONED.test(value.trim())) {
-    // a wall-clock time: "09:40", "09:40:05" or "2026-11-18T09:40:00" (the person's local time already)
-    const m = /(?:^|[T\s])(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(value.trim());
-    return m ? { h: Number(m[1]), m: Number(m[2]), s: Number(m[3] || 0) } : null;
-  }
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  const read = (tz) => {
-    const parts = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: tz })
-      .formatToParts(d);
-    const get = (t) => Number(parts.find((p) => p.type === t)?.value);
-    return { h: get("hour") % 24, m: get("minute"), s: get("second") };
-  };
-  try { return read(timeZone); } catch { return read(undefined); }
-}
-
-/**
- * One time format for every attendance screen: "06:00 PM" (or "18:00" with hour12 false), seconds on request.
- * Accepts an ISO instant (shown in `timeZone`), a Date / epoch ms, or a wall-clock "HH:MM[:SS]" / "YYYY-MM-DDTHH:MM".
- */
-export function formatClockTime(value, { timeZone, seconds = false, hour12 = DEFAULT_HOUR12, empty = "—" } = {}) {
-  const p = clockParts(value, timeZone);
-  if (!p) return value ? String(value) : empty;
-  const tail = `${pad2(p.m)}${seconds ? `:${pad2(p.s)}` : ""}`;
-  if (!hour12) return `${pad2(p.h)}:${tail}`;
-  return `${pad2(p.h % 12 || 12)}:${tail} ${p.h < 12 ? "AM" : "PM"}`;
-}
+// The clock format lives in utils/dateTime.js (one helper for the whole product); attendance keeps its own names.
+export { DEFAULT_HOUR12, dayOffset, formatTime12h as formatClockTime } from "../../../utils/dateTime";
 
 /** An ISO UTC instant shown in the given IANA time zone, in the attendance time format. */
 export function timeIn(iso, timeZone) {
