@@ -261,6 +261,9 @@ export const ROLE_DISALLOWED_PREFIXES = {
     "/zoiko-hr/compensation/approvals",
     "/zoiko-hr/employee-management/reports",
     "/zoiko-hr/learning/reports",
+    "/zoiko-hr/learning/enrollments",
+    "/zoiko-hr/learning/certifications",
+    "/zoiko-hr/learning/skills",
     // Admin document management (organization-wide files, uploads, approvals). A manager still opens the
     // generated documents of their reports under /zoiko-hr/documents/generated.
     "/zoiko-hr/documents/employee-upload",

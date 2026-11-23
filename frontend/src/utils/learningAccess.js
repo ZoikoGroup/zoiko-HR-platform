@@ -22,11 +22,11 @@ function safeStoredUser() {
 export const LEARNING_TABS = [
   { key: "dashboard", label: "Dashboard", adminOnly: true, path: true },
   { key: "courses", label: "Courses", path: true },
-  { key: "enrollments", label: "Enrollments", adminOnly: true },
+  { key: "enrollments", label: "Enrollments", adminOnly: true, path: true },
   { key: "training-programs", label: "Training Programs", path: true },
   { key: "assessments", label: "Assessments", path: true },
-  { key: "certifications", label: "Certifications", adminOnly: true },
-  { key: "skills", label: "Skills", adminOnly: true },
+  { key: "certifications", label: "Certifications", adminOnly: true, path: true },
+  { key: "skills", label: "Skills", adminOnly: true, path: true },
   { key: "reports", label: "Reports", adminOnly: true, path: true },
 ];
 

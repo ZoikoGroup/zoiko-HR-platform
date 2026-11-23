@@ -252,9 +252,12 @@ const products = {
         { label: "Learning",           icon: BookOpen, children: [
           { label: "Dashboard",          href: "/zoiko-hr/learning",               icon: LayoutDashboard, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
           { label: "Courses",            href: "/zoiko-hr/learning/courses",        icon: BookOpen, featureKey: "hr.learning.core" },
+          { label: "Enrollments",        href: "/zoiko-hr/learning/enrollments",    icon: UserCheck, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
           { label: "Training Programs",  href: "/zoiko-hr/learning/training-programs", icon: GraduationCap, featureKey: "hr.learning.core" },
           { label: "Assessments",        href: "/zoiko-hr/learning/assessments",    icon: ClipboardCheck, featureKey: "hr.learning.core" },
-          { label: "Reports",            href: "/zoiko-hr/learning/reports",        icon: FileText, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
+          { label: "Certifications",     href: "/zoiko-hr/learning/certifications", icon: Award, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
+          { label: "Skills",             href: "/zoiko-hr/learning/skills",         icon: Target, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
+          { label: "Reports",           href: "/zoiko-hr/learning/reports",        icon: FileText, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
         ]},
         // Temporarily hidden for Org Admin and HR Admin; remove excludeRoles to restore.
         { label: "Compensation",       icon: CircleDollarSign, excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN], children: [
