@@ -81,7 +81,7 @@ function ProposalRow({ p, sessionId, onChanged, onError }) {
             <blockquote key={`${src.file_id}-${i}`} className="rounded-lg border-l-4 border-blue-200 bg-blue-50/40 px-3 py-1.5 text-xs text-gray-700">
               <span className="block">We found this in <em>{src.filename || "your file"}</em>{src.page ? `, page ${src.page}` : ""}{src.paragraph ? `, paragraph ${src.paragraph}` : ""}:</span>
               <span className="block font-medium text-gray-900">“{src.quote}”</span>
-              <button type="button" onClick={() => openDocsSetupSource(sessionId, src.file_id, { page: src.page, chunk: src.chunk_id }).catch(() => onError("The file could not be opened."))}
+              <button type="button" onClick={() => openDocsSetupSource(sessionId, src.file_id, { page: src.page, chunk: src.chunk_id, filename: src.filename }).catch(() => onError("The file could not be opened."))}
                 className="mt-1 inline-flex items-center gap-1 text-blue-700 underline-offset-2 hover:underline">
                 <ExternalLink className="h-3 w-3" />Open the file at this place
               </button>

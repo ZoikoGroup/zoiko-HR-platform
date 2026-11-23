@@ -1,8 +1,8 @@
 {#-
   Header.
 
-  An organization's emails are headed by the organization's own brand: its uploaded logo (CID-inlined, on a white
-  chip so a dark-on-transparent logo stays visible in dark mode) or, without one, its name as a wordmark. The
+  An organization's emails are headed by the organization's own brand: its name as a wordmark, with its uploaded logo
+  (kept smaller than the name, on a white chip so a dark-on-transparent logo stays visible in dark mode) beside it. The
   Zoiko HR logo is never removed (§5.2 — Zoiko HR identity is immutable): for these emails it renders in the
   footer as "Powered by Zoiko HR" (_footer.html).
 
@@ -17,19 +17,22 @@
 <td class="stack" valign="middle" style="vertical-align:middle;">
 {% if org_brand %}
 {% if org_logo_src %}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
 <tr>
-<td class="org-logo-chip" bgcolor="#ffffff" style="background-color:#ffffff;border-radius:8px;padding:6px 8px;">
+<td class="org-logo-chip" valign="middle" bgcolor="#ffffff" style="vertical-align:middle;background-color:#ffffff;border-radius:6px;padding:4px 6px;">
 {% if org_logo_width %}
-<img class="org-logo" src="{{ org_logo_src }}" width="{{ org_logo_width }}" height="{{ org_logo_height }}" alt="{{ tenant_name }}" style="display:block;border:0;outline:none;text-decoration:none;width:{{ org_logo_width }}px;max-width:100%;height:auto;color:#0f172a;font-family:{{ FONT_STACK }};font-size:20px;font-weight:700;line-height:24px;">
+<img class="org-logo" src="{{ org_logo_src }}" width="{{ org_logo_width }}" height="{{ org_logo_height }}" alt="" style="display:block;border:0;outline:none;text-decoration:none;width:{{ org_logo_width }}px;min-width:{{ org_logo_width }}px;height:auto;">
 {% else %}
-<img class="org-logo" src="{{ org_logo_src }}" height="40" alt="{{ tenant_name }}" style="display:block;border:0;outline:none;text-decoration:none;height:40px;width:auto;max-width:200px;color:#0f172a;font-family:{{ FONT_STACK }};font-size:20px;font-weight:700;line-height:24px;">
+<img class="org-logo" src="{{ org_logo_src }}" height="32" alt="" style="display:block;border:0;outline:none;text-decoration:none;height:32px;width:auto;max-width:110px;">
 {% endif %}
+</td>
+<td width="100%" valign="middle" align="left" style="width:100%;vertical-align:middle;text-align:left;padding-left:12px;">
+<p class="org-wordmark dm-text-strong" style="margin:0;font-family:{{ FONT_STACK }};font-size:20px;line-height:26px;font-weight:700;color:#0f172a;">{{ tenant_name }}</p>
 </td>
 </tr>
 </table>
 {% else %}
-<p class="org-wordmark dm-text-strong" style="margin:0;font-family:{{ FONT_STACK }};font-size:22px;line-height:28px;font-weight:700;color:#0f172a;">{{ tenant_name }}</p>
+<p class="org-wordmark dm-text-strong" style="margin:0;font-family:{{ FONT_STACK }};font-size:20px;line-height:26px;font-weight:700;color:#0f172a;">{{ tenant_name }}</p>
 {% endif %}
 {% else %}
 <img class="zhr-logo zhr-logo-light" src="{{ logo_src }}" width="180" height="31" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:180px;max-width:180px;height:auto;color:{{ PALETTE.primary }};font-family:{{ FONT_STACK }};font-size:22px;font-weight:700;line-height:31px;">
@@ -38,8 +41,8 @@
 </td>
 {% if _badge %}
 {% set _tone = BADGE_TONES[_badge_tone] %}
-<td class="stack stack-badge" valign="middle" align="right" style="vertical-align:middle;text-align:right;padding-left:12px;">
-<span class="badge-{{ _badge_tone }}" style="display:inline-block;padding:6px 12px;border:1px solid {{ _tone.border }};border-radius:999px;background-color:{{ _tone.bg }};color:{{ _tone.fg }};font-family:{{ FONT_STACK }};font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;">{{ _badge }}</span>
+<td class="stack stack-badge" valign="middle" align="right" style="vertical-align:middle;text-align:right;padding-left:12px;white-space:nowrap;">
+<span class="badge-{{ _badge_tone }}" style="display:inline-block;white-space:nowrap;padding:6px 12px;border:1px solid {{ _tone.border }};border-radius:999px;background-color:{{ _tone.bg }};color:{{ _tone.fg }};font-family:{{ FONT_STACK }};font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;">{{ _badge }}</span>
 </td>
 {% endif %}
 </tr>

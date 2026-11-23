@@ -1009,9 +1009,14 @@ def on_offer_executed(db, doc):
     if offer.status != OfferStatus.ACCEPTED:
         recruitment_service.accept_offer(db, offer.id, offer.organization_id, _from_engine=True)
     from app.modules.employee.models import Employee
+    from app.modules.doc_templates import notify as doc_notify
+    from app.modules.hr import onboarding_flow
     issuer = db.get(Employee, doc.issued_by) if doc.issued_by else None
-    _try_generate(db, issuer or system_actor(db, offer.organization_id), canonical_id=ACCEPTANCE, subject_type="candidate",
-                  subject_id=offer.candidate_id, source_ref=_ref("recruitment_offer", offer.id), trigger="offer_document.executed")
+    held: list = []
+    with doc_notify.hold_candidate_mail(held):     # the acceptance confirmation rides in the one welcome e-mail
+        _try_generate(db, issuer or system_actor(db, offer.organization_id), canonical_id=ACCEPTANCE, subject_type="candidate",
+                      subject_id=offer.candidate_id, source_ref=_ref("recruitment_offer", offer.id), trigger="offer_document.executed")
+    onboarding_flow.send_offer_accepted_welcome(db, db.get(RecruitmentOffer, offer.id) or offer, deferred_mail=held)
 
 
 def on_offer_declined(db, doc):

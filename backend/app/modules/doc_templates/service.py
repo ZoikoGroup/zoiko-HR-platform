@@ -22,6 +22,8 @@ from app.modules.doc_templates import access, approvals, fields, hooks, notify, 
 from app.modules.doc_templates.models import (DocumentNumberSequence, DocumentSignature, GeneratedDocument, JurisdictionPack,
                                               TemplateDefinition, TemplateVariant)
 
+logger = logging.getLogger("zoiko.doc_templates")
+
 DEFAULT_RESPONSE_DAYS = 14
 DEFAULT_REMINDER_DAYS = [3, 1]
 
@@ -65,22 +67,38 @@ def verify_url(number: str) -> str:
     return notify.app_url(f"/verify/{number}")
 
 
+def _settings_logo(organization) -> Optional[bytes]:
+    """The company logo uploaded in Onboarding settings (the same one the onboarding package prints), or None."""
+    from sqlalchemy.orm import object_session
+    db = object_session(organization) if organization is not None else None
+    if db is None or getattr(organization, "id", None) is None:
+        return None
+    try:
+        from app.modules.hr import onboarding_package
+        return onboarding_package.logo_bytes(db, organization.id)
+    except Exception:
+        logger.warning("onboarding settings logo could not be read for org %s", getattr(organization, "id", None))
+        return None
+
+
 def letterhead(entity, organization) -> dict:
+    """Letterhead of a generated document. Logo: the one uploaded in Onboarding settings, else the employer entity's own."""
+    logo_bytes = _settings_logo(organization)
     if entity is None:
-        return {"legal_name": getattr(organization, "organization_name", "")}
+        return {"legal_name": getattr(organization, "organization_name", ""), "logo_bytes": logo_bytes}
     from app.core import business_ids
     reg = None
     if entity.registration_number:
         lbl = business_ids.id_type(entity.country, entity.registration_type).get("label") or entity.registration_type or "Registration"
         reg = f"{lbl}: {entity.registration_number}"
     logo = None
-    if entity.logo_file:
+    if entity.logo_file and not logo_bytes:
         from app.modules.hr.file_storage import resolve_stored_file
         logo = resolve_stored_file(entity.logo_file)
     return {"legal_name": entity.legal_name or "", "trading_name": entity.trading_name,
             "address": fields.REGISTRY["employer.registered_address"].source(fields.FieldContext(db=None, organization=organization,
                                                                                                  entity=entity)),
-            "registration": reg, "logo_path": logo}
+            "registration": reg, "logo_path": logo, "logo_bytes": logo_bytes}
 
 
 def _signer_names(ctx: fields.FieldContext) -> dict:
@@ -128,9 +146,7 @@ def build_input(ctx: fields.FieldContext, *, blocks: list, clauses: dict, requir
         signatures=signatures or {}, signer_names=_signer_names(ctx), document_number=number, title=title,
         verify_url=verify_url(number) if number else "", confidential=sensitivity in ("C3", "C4"), language=ctx.language,
         letterhead=letterhead_info, author=author,
-        visual_profile="offer_letter" if ctx.canonical_id in {
-            "HR-HIR-011", "HR-HIR-012", "HR-HIR-014", "HR-HIR-015", "HR-HIR-016", "HR-HIR-017"
-        } else "standard")
+        visual_profile="offer_letter" if ctx.canonical_id in renderer.OFFER_LETTER_IDS else "standard")
 
 
 def _store_render(db, doc: GeneratedDocument, inp: renderer.RenderInput) -> None:

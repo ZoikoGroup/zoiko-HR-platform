@@ -331,6 +331,22 @@ def _require_signatory(db, doc, signer_employee) -> None:
         raise HTTPException(403, "You are not an authorised signatory for this document.")
 
 
+def _signature_marks(sigs) -> list[dict]:
+    """What renderer.stamp_signatures draws for each signer: the drawn image, or the typed name, and the signing date."""
+    store = storage.get_store()
+    marks = []
+    for s in sigs:
+        image = None
+        if s.signature_method == "DRAWN" and s.signature_image_path:
+            try:
+                image = store.get(s.signature_image_path)
+            except Exception:
+                image = None
+        marks.append({"party": s.signer_party, "image": image, "typed": s.signer_name_typed or "",
+                      "date": s.signed_at.strftime("%d %B %Y").lstrip("0") if s.signed_at else ""})
+    return marks
+
+
 def _finalize(db, doc: GeneratedDocument) -> None:
     """All parties signed: original pages + HR-DOC-012 certificate → executed PDF (new hash). The original is untouched."""
     from app.modules.hr.models import Organization
@@ -340,6 +356,10 @@ def _finalize(db, doc: GeneratedDocument) -> None:
     sigs = [s for s in signatures(db, doc) if s.decision == "SIGNED"]
     cert = governance.to_pdf(governance.certificate_record(db, doc, sigs, now, org), org, entity)
     original = storage.get_store().get(doc.pdf_path)
+    try:                                   # each signature on its own line, above the signer's printed name (a copy: the
+        original = renderer.stamp_signatures(original, _signature_marks(sigs))      # issued file and its hash are untouched)
+    except Exception:
+        logger.exception("signatures could not be placed on the signature lines of document %s", doc.id)
     try:                                   # signer-completed schedules (the affidavit's Schedule A) sit before the certificate
         from app.modules.hr import onboarding_package
         schedule = onboarding_package.signing_schedule(db, doc)
@@ -359,23 +379,16 @@ def _finalize(db, doc: GeneratedDocument) -> None:
     _point_hr_document(db, doc, len(executed))
     try:
         from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
-        from app.modules.hr import onboarding_package
-        from app.modules.hr.service import log_onboarding_activity
+        from app.modules.hr import onboarding_submissions
         for onb_doc in db.query(OnboardingDocument).filter(OnboardingDocument.document_id == doc.id).all():
             onb_doc.status = "approved"
             if doc.executed_pdf_path:
                 onb_doc.file_path = doc.executed_pdf_path
-            if onb_doc.onboarding_new_hire_id:
-                hire = db.get(OnboardingNewHire, onb_doc.onboarding_new_hire_id)
-                if hire:
-                    onboarding_package.sync_onboarding_document_checklist(db, hire)
-                    log_onboarding_activity(
-                        db, hire.id, "Document Signed",
-                        f"{hire.candidate_name} electronically signed '{doc.title}'.",
-                        hire.organization_id
-                    )
+            hire = db.get(OnboardingNewHire, onb_doc.onboarding_new_hire_id) if onb_doc.onboarding_new_hire_id else None
+            if hire:     # activity, HR digest, checklist (one commit)
+                onboarding_submissions.on_submitted(db, hire, "sign", onb_doc)
     except Exception:
-        pass
+        logger.exception("onboarding document of executed document %s could not be updated", doc.id)
 
 
 def _point_hr_document(db, doc, size) -> None:

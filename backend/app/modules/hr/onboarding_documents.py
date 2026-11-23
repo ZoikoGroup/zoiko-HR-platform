@@ -389,7 +389,11 @@ def save_portal_form(db, hire: OnboardingNewHire, canonical_id: str, values: dic
                     # the form as it was submitted: later changes to the organisation's form never change it
                     "_form_version": OS.form_version(db, hire.organization_id, canonical_id), "_fields": fields}
         sub.status, sub.submitted_at, sub.return_reason = "SUBMITTED", datetime.utcnow(), None
-    db.commit()
+        from app.modules.hr import onboarding_submissions
+        # its row in Onboarding › Documents (filled PDF, bank values masked), activity, HR digest, checklist: one commit
+        onboarding_submissions.on_submitted(db, hire, "form", sub)
+    else:
+        db.commit()
     return serialize_submission(db, sub, fields)
 
 
@@ -419,7 +423,18 @@ def return_submission(db, actor, sub: OnboardingFormSubmission, reason: str) -> 
         raise HTTPException(422, "Say what needs changing.")
     sub.status, sub.return_reason = "RETURNED", reason.strip()[:2000]
     db.commit()
+    _row_follows(db, actor, sub)
     return sub
+
+
+def _row_follows(db, actor, sub) -> None:
+    """The form's row in Onboarding › Documents and its checklist item follow HR's decision."""
+    try:
+        from app.modules.hr import onboarding_submissions
+        onboarding_submissions.on_form_reviewed(db, actor, sub)
+    except Exception:
+        db.rollback()
+        logger.exception("onboarding document row did not follow the decision on form submission %s", sub.id)
 
 
 def verify_submission(db, actor, sub: OnboardingFormSubmission) -> OnboardingFormSubmission:
@@ -441,6 +456,7 @@ def verify_submission(db, actor, sub: OnboardingFormSubmission) -> OnboardingFor
                                   "errors": errors})
     sub.status, sub.verified_by, sub.verified_at = "VERIFIED", actor.id, datetime.utcnow()
     db.commit()
+    _row_follows(db, actor, sub)
     _apply(db, actor, sub)
     hire = db.get(OnboardingNewHire, sub.new_hire_id) if sub.new_hire_id else None
     employee_id = sub.employee_id or getattr(hire, "employee_id", None)

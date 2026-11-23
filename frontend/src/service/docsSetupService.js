@@ -1,5 +1,6 @@
 // "Set up docs for your organisation", the organisation's onboarding package, portal forms and upload categories.
 import { api, API_BASE_URL, getAccessToken } from "./api";
+import { openFile } from "../utils/fileViewer";
 
 const BASE = "/hr/onboarding/docs-setup";
 
@@ -48,11 +49,15 @@ export async function getDocsSetupPreviewPdf(id, fileId) {
   return res.blob();
 }
 
-/** A short-lived link to an uploaded file opened at the cited page or paragraph. */
-export async function openDocsSetupSource(id, fileId, { page, chunk } = {}) {
+/** An uploaded file, fetched through its short-lived link and shown in the in-app viewer at the cited page. */
+export async function openDocsSetupSource(id, fileId, { page, chunk, filename } = {}) {
   const link = await getDocsSetupFileLink(id, fileId, { page, chunk });
-  const url = link?.url?.startsWith("http") ? link.url : `${API_BASE_URL}${link?.url || ""}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+  const url = (link?.url?.startsWith("http") ? link.url : `${API_BASE_URL}${link?.url || ""}`).split("#")[0];
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("The source file could not be opened.");
+  const blob = await res.blob();
+  const match = /filename="?([^";]+)"?/i.exec(res.headers.get("content-disposition") || "");
+  openFile(blob, filename || match?.[1] || link?.filename || "Source document", "preview", { page });
 }
 
 // ── Word template import ────────────────────────────────────────────────────────────────────────────────────────────

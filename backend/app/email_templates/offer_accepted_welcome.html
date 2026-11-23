@@ -1,0 +1,29 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui with context %}
+{% import "_partials/_welcome.html" as welcome with context %}
+{% set title = "Offer accepted — welcome to " ~ organization_name %}
+{% set preheader = "Your next steps before " ~ (start_date_display or "your start date") ~ "." %}
+{% set badge = "Offer accepted" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this because you accepted an offer from {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Welcome aboard, {{ first_name }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Thank you for signing your offer letter. Your acceptance of the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role at {{ organization_name }} is confirmed.</p>
+<h2 class="dm-text-strong" style="{{ S.h2 }}">Offer accepted</h2>
+{% call ui.details() %}
+{{ ui.detail_row("Position", position, first=True) }}
+{{ ui.detail_row("Start date", start_date_display or "To be confirmed") }}
+{% if manager_name %}{{ ui.detail_row("Reporting manager", manager_name) }}{% endif %}
+{% if accepted_on_display %}{{ ui.detail_row("Accepted on", accepted_on_display) }}{% endif %}
+{% if signed_letter_in_portal %}{{ ui.detail_row("Signed offer letter", "Available in your portal" if portal_url else "Available in your portal once HR sends your link") }}{% endif %}
+{% endcall %}
+{% if documents %}
+<p class="t-body dm-text-body" style="{{ S.p }}">{% for d in documents %}<a class="dm-link" href="{{ d.url }}" target="_blank" style="{{ S.link }}">View {{ d.label }}</a>{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+{% endif %}
+{{ welcome.message(welcome_blocks) }}
+{{ welcome.steps(next_steps) }}
+{{ welcome.portal_link(portal_url, expires_display) }}
+{{ welcome.privacy() }}
+{{ welcome.support(organization_name, hr_contact_name, hr_contact_email) }}
+{{ welcome.signoff(welcome_signature, organization_name) }}
+{% endblock %}

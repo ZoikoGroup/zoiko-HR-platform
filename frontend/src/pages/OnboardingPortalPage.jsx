@@ -32,6 +32,8 @@ import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructur
 import { rememberOnboardingPortal } from "./public/onboardingReturn";
 import PackageFormFiller from "../components/documents/PackageFormFiller";
 import WelcomeMessage from "../components/WelcomeMessage";
+import { openFile } from "../utils/fileViewer";
+import PortalMyDocuments from "../components/documents/PortalMyDocuments";
 
 // The new hire's own pre-onboarding page. Public: the link token is the credential.
 
@@ -135,12 +137,7 @@ function SignableDocCard({ doc, token, onUpdated, onError }) {
     setBusy(true);
     try {
       const res = await getPortalDocumentFile(token, doc.id);
-      const url = URL.createObjectURL(res.blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.filename || `${doc.title}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      openFile(res.blob, res.filename || `${doc.title}.pdf`, "download");
     } catch (err) {
       onError(err.message || "Could not download document.");
     } finally {
@@ -152,15 +149,7 @@ function SignableDocCard({ doc, token, onUpdated, onError }) {
     setBusy(true);
     try {
       const res = await getPortalDocumentFile(token, doc.id);
-      const url = URL.createObjectURL(res.blob);
-      const win = window.open(url, "_blank", "noopener");
-      if (!win) {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = res.filename || `${doc.title}.pdf`;
-        a.click();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      openFile(res.blob, res.filename || `${doc.title}.pdf`, "preview");
     } catch (err) {
       onError(err.message || "Could not preview document.");
     } finally {
@@ -248,12 +237,7 @@ function OperationalDocRow({ doc, token, onError }) {
     setBusy(true);
     try {
       const res = await getPortalDocumentFile(token, doc.id);
-      const url = URL.createObjectURL(res.blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.filename || `${doc.title}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      openFile(res.blob, res.filename || `${doc.title}.pdf`, "download");
     } catch (err) {
       onError(err.message || "Could not download document.");
     } finally {
@@ -265,15 +249,7 @@ function OperationalDocRow({ doc, token, onError }) {
     setBusy(true);
     try {
       const res = await getPortalDocumentFile(token, doc.id);
-      const url = URL.createObjectURL(res.blob);
-      const win = window.open(url, "_blank", "noopener");
-      if (!win) {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = res.filename || `${doc.title}.pdf`;
-        a.click();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      openFile(res.blob, res.filename || `${doc.title}.pdf`, "preview");
     } catch (err) {
       onError(err.message || "Could not preview document.");
     } finally {
@@ -337,9 +313,7 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
     setViewing(true);
     try {
       const res = await getPortalDocumentFile(token, doc.id);
-      const url = URL.createObjectURL(res.blob);
-      window.open(url, "_blank", "noopener");
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      openFile(res.blob, res.filename || `${doc.title}.pdf`, "preview");
     } catch (err) {
       onError(err.message || "Could not open the document.");
     } finally {
@@ -363,7 +337,7 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
   };
 
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white p-4 transition">
+    <div id={`portal-doc-${doc.id}`} className="rounded-xl border border-slate-200/80 bg-white p-4 transition">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <FileText className="h-4 w-4 text-slate-400 shrink-0" />
@@ -444,14 +418,7 @@ function AcknowledgeDocCard({ doc, token, ack, onUpdated, onError }) {
   const open = async () => {
     try {
       const res = await getPortalDocumentFile(token, doc.id);
-      const url = URL.createObjectURL(res.blob);
-      if (!window.open(url, "_blank", "noopener")) {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = res.filename || `${doc.title}.pdf`;
-        a.click();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      openFile(res.blob, res.filename || `${doc.title}.pdf`, "preview");
     } catch (err) {
       onError(err.message || "Could not open the document.");
     }
@@ -895,8 +862,8 @@ export default function OnboardingPortalPage() {
           </div>
 
           {/* full width under the name (not squeezed beside the avatar on a phone); long messages fold behind "Read more" */}
-          <WelcomeMessage text={view.welcome_message}
-            fallback="We are thrilled to welcome you to our team. Please complete your onboarding steps below." />
+          {/* rendered by the server: the same words as the welcome e-mail */}
+          <WelcomeMessage blocks={view.welcome_blocks} signature={view.welcome_signature} />
 
           {/* Key metadata grid */}
           <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
@@ -1087,6 +1054,10 @@ export default function OnboardingPortalPage() {
             </div>
           </section>
         )}
+
+        {/* My documents: status, preview / download of the hire's own copies, ZIP, resubmit when returned */}
+        <PortalMyDocuments token={token} refreshKey={view} onUpdated={applyView}
+          onError={(text) => setBanner({ type: "error", text })} />
 
         {/* Section 5: Personal Details (Emergency Contacts Excluded) */}
         <section id="portal-details" className="scroll-mt-20 rounded-3xl border border-blue-100/90 bg-white p-5 sm:p-7 shadow-sm">

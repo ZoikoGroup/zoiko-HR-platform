@@ -1,6 +1,7 @@
 {#-
   Footer (§4.1): product name + legal operator, a monitored support route and
-  the reason the recipient got this email. The preferences/unsubscribe link
+  the reason the recipient got this email. An organization's people-facing emails send questions to that
+  organization's HR contact (Company Profile); account/billing emails keep Zoiko HR Support (footer_contact). The preferences/unsubscribe link
   is rendered only for class E (promotional) mail.
 -#}
 {%- set _reason = footer_reason if footer_reason is defined and footer_reason else "" -%}
@@ -9,9 +10,18 @@
 <p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
 {% if _reason %}{{ _reason }}{% else %}You are receiving this email because you have a Zoiko HR account{% if tenant_name %} with {{ tenant_name }}{% endif %} and this is a service notification about it.{% endif %}
 </p>
+{% if org_brand and footer_contact == "hr" %}
+<p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
+Questions? Contact {% if org_hr_name %}{{ org_hr_name }} in the {{ tenant_name }} HR team{% else %}the {{ tenant_name }} HR team{% endif %}{% if org_hr_email %} at <a class="dm-link" href="mailto:{{ org_hr_email }}" style="color:{{ PALETTE.primary }};text-decoration:underline;">{{ org_hr_email }}</a>{% endif %}.
+</p>
+<p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;color:#4b5563;">
+Trouble with this email or its link? <a class="dm-link" href="{{ support_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:underline;">Contact Zoiko HR Support</a>.
+</p>
+{% else %}
 <p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
 Questions? <a class="dm-link" href="{{ support_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:underline;">Contact Zoiko HR Support</a>{% if support_email is defined and support_email %} or email <a class="dm-link" href="mailto:{{ support_email }}" style="color:{{ PALETTE.primary }};text-decoration:underline;">{{ support_email }}</a>{% endif %}.
 </p>
+{% endif %}
 {% if delivery_class == "E" and unsubscribe_url %}
 <p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
 <a class="dm-link" href="{{ unsubscribe_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:underline;">Manage email preferences or unsubscribe</a>
@@ -22,8 +32,8 @@ Questions? <a class="dm-link" href="{{ support_url }}" target="_blank" style="co
 <tr>
 <td valign="middle" class="dm-text-muted" style="vertical-align:middle;padding-right:8px;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;color:#4b5563;">Powered by</td>
 <td valign="middle" class="zhr-foot-logo" style="vertical-align:middle;">
-<img class="zhr-logo zhr-logo-light" src="{{ logo_src }}" width="120" height="21" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:120px;max-width:120px;height:auto;color:{{ PALETTE.primary }};font-family:{{ FONT_STACK }};font-size:14px;font-weight:700;line-height:21px;">
-<!--[if !mso]><!--><div class="zhr-logo-dark-wrap" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="zhr-logo zhr-logo-dark" src="{{ logo_dark_src }}" width="120" height="21" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:120px;max-width:120px;height:auto;color:#ffffff;font-family:{{ FONT_STACK }};font-size:14px;font-weight:700;line-height:21px;"></div><!--<![endif]-->
+<img class="zhr-logo zhr-logo-light" src="{{ logo_src }}" width="96" height="17" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:96px;max-width:96px;height:auto;color:{{ PALETTE.primary }};font-family:{{ FONT_STACK }};font-size:14px;font-weight:700;line-height:21px;">
+<!--[if !mso]><!--><div class="zhr-logo-dark-wrap" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="zhr-logo zhr-logo-dark" src="{{ logo_dark_src }}" width="96" height="17" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:96px;max-width:96px;height:auto;color:#ffffff;font-family:{{ FONT_STACK }};font-size:14px;font-weight:700;line-height:21px;"></div><!--<![endif]-->
 </td>
 </tr>
 </table>

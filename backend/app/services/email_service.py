@@ -66,6 +66,7 @@ EMAIL_STYLES = {
     "muted": Markup(f"margin:0 0 16px 0;font-family:{FONT_STACK};font-size:14px;line-height:21px;color:#4b5563;"),
     "strong": Markup("color:#0f172a;font-weight:700;"),
     "link": Markup(f"color:{PALETTE['primary']};text-decoration:underline;"),
+    "h2": Markup(f"margin:24px 0 8px 0;font-family:{FONT_STACK};font-size:18px;line-height:26px;font-weight:700;color:#0f172a;"),
 }
 
 # Badge / notice tones: fg on bg is >= 4.5:1 in both light and dark schemes.
@@ -179,7 +180,7 @@ def email_asset_base() -> str:
 
 
 ORG_LOGO_CID = "org-logo"
-ORG_LOGO_MAX_DISPLAY = (200, 48)  # px; the inlined file is up to 2x this so it stays sharp on high-DPI screens
+ORG_LOGO_MAX_DISPLAY = (110, 32)  # px, kept smaller than the organization name beside it; the inlined file is up to 2x this so it stays sharp on high-DPI screens
 
 
 def _org_logo_for_email(png: bytes):
@@ -335,6 +336,9 @@ def render_email(
     full_context = {**branding, **context}
     org_logo_url = _org_logo_public_url(db, organization_id) if org_logo else ""
     full_context.update(_layout_context(branding, context, org_logo, org_logo_url))
+    full_context["footer_contact"] = footer_contact_for(template_name)
+    full_context["org_hr_name"] = branding.get("org_hr_name", "")
+    full_context["org_hr_email"] = branding.get("org_hr_email", "")
 
     try:
         if template_body is not None:
@@ -427,6 +431,37 @@ def _load_org_logo(db, organization_id):
         return None
 
 
+def _org_hr_contact(db, organization_id) -> dict:
+    """The HR contact people are told to ask (Settings › Company Profile); empty when it is not set or cannot be read."""
+    try:
+        from app.modules.hr import company_profile as CP
+        profile = CP.get_profile(db, organization_id)
+        email = str(profile.get("hr_contact_email") or "").strip()
+        return {"org_hr_name": str(profile.get("hr_contact_name") or "").strip(),
+                "org_hr_email": email if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) else ""}
+    except Exception as e:
+        logger.warning(f"[email] Could not read the HR contact of organization_id={organization_id}: {e}")
+        return {}
+
+
+# Emails about the organization's Zoiko HR account (billing, access, platform admin): questions go to Zoiko HR Support.
+# Every other organization email sends questions to the organization's own HR contact.
+_PLATFORM_SUPPORT_TEMPLATES = frozenset({
+    "account_status.html", "approved.html", "rejected.html", "suspended.html", "reactivated.html", "invoice_sent.html",
+    "past_due_notice.html", "payment_received.html", "refund_processed.html", "plan_upgraded.html",
+    "subscription_renewed.html", "new_organization_created.html", "registration_received.html",
+    "org_registration_otp.html", "support_access_granted.html", "support_login_requested.html", "hr_ticket_created.html",
+})
+_PLATFORM_SUPPORT_PREFIXES = ("org_admin_", "delinquency_", "quote_", "demo_", "pricing_", "evaluation_")
+
+
+def footer_contact_for(template_name: str) -> str:
+    name = (template_name or "").rsplit("/", 1)[-1]
+    if name in _PLATFORM_SUPPORT_TEMPLATES or name.startswith(_PLATFORM_SUPPORT_PREFIXES):
+        return "platform"
+    return "hr"
+
+
 def _get_org_branding(organization_id=None, db=None) -> dict:
     """Look up HR Organization branding for organization_id and return the
     template-context branding fields, with safe fallbacks. Returns the
@@ -469,6 +504,7 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
                 "billing_address": billing_address,
                 "billing_phone": "",
                 "org_logo": _load_org_logo(db, organization_id) if row else None,
+                **(_org_hr_contact(db, organization_id) if row else {}),
             }
         finally:
             if own_session:
@@ -1039,7 +1075,8 @@ def send_offer_outcome(email, admin_name, candidate_name, position, organization
     """Tell the organization's admins that a candidate accepted or declined an offer."""
     outcome = "Accepted" if accepted else "Declined"
     return send_approval_email(email, "offer_outcome.html", {
-        "subject": f"Offer {outcome.lower()}: {candidate_name} ({position}) | Zoiko HR",
+        "subject": f"Offer {outcome.lower()}: {_subject_safe(candidate_name)} ({_subject_safe(position)}) | "
+                   f"{_subject_safe(organization_name) or 'Zoiko HR'}",
         "admin_name": admin_name, "candidate_name": candidate_name, "position": position,
         "organization_name": organization_name, "accepted": accepted, "outcome_label": outcome,
         "offers_url": offers_url, "start_date_display": start_date_display,
@@ -1068,16 +1105,62 @@ def send_requisition_decision(email, requester_name, title_text, department, app
     }, db=db, organization_id=organization_id)
 
 
+def _subject_safe(value) -> str:
+    """A person's or organization's name inside a subject line: template braces are removed so it is never evaluated."""
+    return re.sub(r"[{}%]", "", str(value or "")).strip()
+
+
+def _welcome_context(welcome_blocks, welcome_message, welcome_signature, next_steps, hr_contact_name, hr_contact_email,
+                     sample_values=None) -> dict:
+    """The welcome-message sections shared by the offer-accepted e-mail and the pre-onboarding invite."""
+    from app.modules.hr import welcome_message as WM
+    if welcome_blocks is None:
+        welcome_blocks = WM.blocks(welcome_message, sample_values or {}) if welcome_message else []
+    hr_email = str(hr_contact_email or "").strip()
+    return {
+        "welcome_blocks": welcome_blocks,
+        "welcome_signature": (welcome_signature or "").strip() or WM.DEFAULT_WELCOME_SIGNATURE,
+        "next_steps": list(next_steps or []),
+        "hr_contact_name": (hr_contact_name or "").strip(),
+        "hr_contact_email": hr_email,
+        "support_email": hr_email,          # replies go to the organization's HR contact
+    }
+
+
 def send_onboarding_invite(email, first_name, organization_name, position, portal_url, expires_display,
                            joining_date_display=None, manager_name=None, documents_requested=0, welcome_message=None,
-                           db=None, organization_id=None):
-    """Welcome a new hire and send their pre-onboarding link (no account needed)."""
+                           welcome_blocks=None, welcome_signature=None, next_steps=None, hr_contact_name=None,
+                           hr_contact_email=None, db=None, organization_id=None):
+    """Welcome a new hire and send their pre-onboarding link (no account needed). Also used when HR resends the link.
+    welcome_blocks: the organization's rendered welcome message (welcome_message.blocks); welcome_message, plain text, is
+    rendered here when blocks are not given."""
     return send_approval_email(email, "onboarding_invite.html", {
-        "subject": f"Welcome to {organization_name}: complete your pre-onboarding",
+        "subject": f"Welcome to {_subject_safe(organization_name)}: complete your pre-onboarding",
         "first_name": first_name, "organization_name": organization_name, "position": position,
         "portal_url": portal_url, "expires_display": expires_display, "joining_date_display": joining_date_display,
-        "manager_name": manager_name, "documents_requested": documents_requested, "welcome_message": welcome_message,
+        "manager_name": manager_name, "documents_requested": documents_requested,
+        **_welcome_context(welcome_blocks, welcome_message, welcome_signature, next_steps, hr_contact_name, hr_contact_email),
     }, db=db, organization_id=organization_id)
+
+
+def send_offer_accepted_welcome(email, first_name, organization_name, position, start_date_display=None, manager_name=None,
+                                accepted_on_display=None, portal_url=None, expires_display=None, signed_letter_in_portal=False,
+                                welcome_blocks=None, welcome_message=None, welcome_signature=None, next_steps=None,
+                                hr_contact_name=None, hr_contact_email=None, documents=None, attachments=None,
+                                db=None, organization_id=None, wait=False, error_out=None):
+    """The one e-mail a candidate gets when their offer is accepted: confirmation, the organization's welcome message,
+    next steps and the pre-onboarding link. portal_url None: invites are not automatic, HR sends the link later.
+    documents: [{label, url}] other documents of the acceptance (the acceptance confirmation) to link."""
+    first = _subject_safe(first_name) or "there"
+    company = _subject_safe(organization_name)
+    return send_approval_email(email, "offer_accepted_welcome.html", {
+        "subject": f"Offer accepted — welcome to {company}, {first}",
+        "first_name": first_name or "there", "organization_name": organization_name, "position": position,
+        "start_date_display": start_date_display, "manager_name": manager_name, "accepted_on_display": accepted_on_display,
+        "portal_url": portal_url, "expires_display": expires_display, "signed_letter_in_portal": bool(signed_letter_in_portal),
+        "documents": list(documents or []),
+        **_welcome_context(welcome_blocks, welcome_message, welcome_signature, next_steps, hr_contact_name, hr_contact_email),
+    }, db=db, organization_id=organization_id, attachments=attachments, wait=wait, error_out=error_out)
 
 
 def send_onboarding_document_request(email, first_name, organization_name, documents, portal_url, joining_date_display=None,
@@ -1136,6 +1219,27 @@ def send_onboarding_documents_submitted(email, recipient_name, candidate_name, p
         "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
         "organization_name": organization_name, "documents": list(documents or []), "review_url": review_url,
         "joining_date_display": joining_date_display,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_submissions_digest(email, recipient_name, candidate_name, position, organization_name, items,
+                                       review_url, db=None, organization_id=None):
+    """The throttled digest HR gets when a new hire hands anything back (upload, form, signature, acknowledgement).
+    items: [{"title", "status"}]. One mail per hire per 10 minutes; no answers or bank values are included."""
+    return send_approval_email(email, "onboarding_submissions_digest.html", {
+        "subject": f"Onboarding submissions to review: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "items": list(items or []), "review_url": review_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_submissions_digest(email, recipient_name, candidate_name, position, organization_name, items, review_url,
+                                       db=None, organization_id=None):
+    """HR's digest of what one new hire handed back (at most one per hire every 10 minutes). items: [{"title", "status"}]."""
+    return send_approval_email(email, "onboarding_submissions_digest.html", {
+        "subject": f"Onboarding documents to review: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "items": list(items or []), "review_url": review_url,
     }, db=db, organization_id=organization_id)
 
 

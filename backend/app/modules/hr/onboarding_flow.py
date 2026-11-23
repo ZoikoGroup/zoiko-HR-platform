@@ -14,9 +14,11 @@ Emails never undo or fail the change that triggered them.
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import logging
 import secrets
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -113,10 +115,12 @@ def _admins(db: Session, organization_id, roles=("admin", "hr_admin")):
 def get_settings(db: Session, organization_id: int) -> OnboardingSettings:
     row = db.query(OnboardingSettings).filter(OnboardingSettings.organization_id == organization_id).first()
     if row is None:
+        from app.modules.hr import welcome_message as WM
         row = OnboardingSettings(organization_id=organization_id, auto_template_ids=[],
                                  required_document_categories=["id_proof", "bank_details"], auto_send_portal_invite=True,
                                  portal_link_days=30, reminder_days=3, require_checklists_complete=True,
-                                 require_documents_approved=True)
+                                 require_documents_approved=True, welcome_message=WM.DEFAULT_WELCOME_MESSAGE,
+                                 welcome_signature=WM.DEFAULT_WELCOME_SIGNATURE)
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -124,7 +128,15 @@ def get_settings(db: Session, organization_id: int) -> OnboardingSettings:
 
 
 def update_settings(db: Session, organization_id: int, data: dict) -> OnboardingSettings:
+    from app.modules.hr import welcome_message as WM
     row = get_settings(db, organization_id)
+    if "welcome_message" in data:
+        WM.validate_message(data["welcome_message"])          # 422: too long or an unknown {{placeholder}}
+        if not (data["welcome_message"] or "").strip():
+            data["welcome_message"] = WM.DEFAULT_WELCOME_MESSAGE   # an empty message reads as the default
+    if "welcome_signature" in data:
+        WM.validate_signature(data["welcome_signature"])
+        data["welcome_signature"] = (data["welcome_signature"] or "").strip() or WM.DEFAULT_WELCOME_SIGNATURE
     if "auto_template_ids" in data and data["auto_template_ids"] is not None:
         ids = sorted({int(i) for i in data["auto_template_ids"]})
         found = {i for (i,) in db.query(OnboardingChecklist.id).filter(
@@ -140,11 +152,217 @@ def update_settings(db: Session, organization_id: int, data: dict) -> Onboarding
         if bad:
             raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
     for field, value in data.items():
-        if value is not None or field == "welcome_message":
+        if value is not None:
             setattr(row, field, value)
     db.commit()
     db.refresh(row)
     return row
+
+
+# ── welcome (offer accepted e-mail, invite, portal) ────────────────────────────────────────────────────────────────
+# While an offer acceptance is being processed, start_onboarding creates the pre-onboarding link without e-mailing it:
+# the candidate gets one offer-accepted welcome e-mail (send_offer_accepted_welcome) that carries the link.
+_INVITE_DEFERRED: contextvars.ContextVar[bool] = contextvars.ContextVar("onboarding_invite_deferred", default=False)
+
+
+@contextmanager
+def invite_deferred():
+    token = _INVITE_DEFERRED.set(True)
+    try:
+        yield
+    finally:
+        _INVITE_DEFERRED.reset(token)
+
+
+def _hr_contact(db: Session, organization_id: int) -> tuple[str, str]:
+    """The HR contact from Settings › Company Profile (name, e-mail); blanks when not set."""
+    try:
+        from app.modules.hr import company_profile as CP
+        profile = CP.get_profile(db, organization_id)
+        name = str(profile.get("hr_contact_name") or "").strip()
+        email = str(profile.get("hr_contact_email") or "").strip()
+        return name, (email if CP.EMAIL.match(email) else "")
+    except Exception:
+        logger.warning("HR contact could not be read for organization %s", organization_id)
+        return "", ""
+
+
+def _plural(n: int, one: str, many: Optional[str] = None) -> str:
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def next_steps(db: Session, hire: OnboardingNewHire) -> list[dict]:
+    """What the new hire still has to do, from real data. Steps with nothing to do are left out."""
+    steps: list[dict] = []
+    if not (hire.profile_details or {}).get("details_submitted_at"):
+        steps.append({"title": "Confirm your personal details",
+                      "detail": "Check your contact details, address and emergency contact."})
+    from app.modules.hr.onboarding_package import PACKAGE_CATEGORIES
+    rows = (db.query(OnboardingDocument)
+            .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
+            .order_by(OnboardingDocument.id).all())
+    uploads = [d for d in rows if d.status in ("requested", "rejected") and not d.document_id
+               and d.category not in PACKAGE_CATEGORIES]
+    if uploads:
+        steps.append({"title": f"Upload {_plural(len(uploads), 'document')}",
+                      "detail": ", ".join(d.title for d in uploads)})
+    done = {d.category for d in rows if d.status == "approved"}
+    try:
+        from app.modules.hr import onboarding_package
+        package = [d for d in onboarding_package._org().documents_for_hire(db, hire)
+                   if d.get("category") != "offer_letter" and d.get("category") not in done]
+    except Exception:
+        logger.warning("offer package documents could not be listed for new hire %s", hire.id)
+        package = []
+    action = [d for d in package if d.get("mode") in ("SIGN", "ACKNOWLEDGE", "COMPLETE")]
+    if action:
+        modes = {d["mode"] for d in action}
+        verbs = [v for m, v in (("SIGN", "sign"), ("ACKNOWLEDGE", "acknowledge"), ("COMPLETE", "complete")) if m in modes]
+        verb = verbs[0] if len(verbs) == 1 else ", ".join(verbs[:-1]) + " or " + verbs[-1]
+        steps.append({"title": f"{verb[0].upper()}{verb[1:]} {_plural(len(action), 'onboarding document')} from your offer package",
+                      "detail": ", ".join(d.get("title") or "" for d in action)})
+    info = [d for d in package if d.get("mode") == "INFO"]
+    if info:
+        steps.append({"title": f"Review {_plural(len(info), 'policy', 'policies')} shared for your information",
+                      "detail": ", ".join(d.get("title") or "" for d in info)})
+    return steps
+
+
+def welcome_context(db: Session, hire: OnboardingNewHire, settings: Optional[OnboardingSettings] = None) -> dict:
+    """Everything the welcome e-mails show besides the link: the rendered message, signature, steps and HR contact.
+    Values come from the hire's own organisation only."""
+    from app.modules.hr import welcome_message as WM
+    settings = settings or get_settings(db, hire.organization_id)
+    company = _org_name(db, hire.organization_id)
+    rendered = WM.render_for_hire(db, hire, settings, company_name=company)
+    hr_name, hr_email = _hr_contact(db, hire.organization_id)
+    return {
+        "company_name": company,
+        "first_name": _first_name(hire),
+        "start_date_display": WM.long_date(hire.joining_date),
+        "welcome_blocks": rendered["blocks"],
+        "welcome_text": rendered["text"],
+        "welcome_signature": rendered["signature"],
+        "next_steps": next_steps(db, hire),
+        "hr_contact_name": hr_name,
+        "hr_contact_email": hr_email,
+    }
+
+
+def _portal_welcome(db: Session, hire: OnboardingNewHire) -> dict:
+    """The same rendered welcome message the e-mails carry (the portal never formats the raw text itself)."""
+    from app.modules.hr import welcome_message as WM
+    rendered = WM.render_for_hire(db, hire, company_name=_org_name(db, hire.organization_id))
+    return {"welcome_message": rendered["text"], "welcome_blocks": rendered["blocks"], "welcome_html": rendered["html"],
+            "welcome_signature": rendered["signature"]}
+
+
+def _hire_for_offer(db: Session, offer) -> Optional[OnboardingNewHire]:
+    from app.modules.hr.models import RecruitmentCandidate
+    if not offer.candidate_id:
+        return None
+    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == offer.candidate_id).first()
+    if cand is None or not cand.onboarding_new_hire_id or cand.organization_id != offer.organization_id:
+        return None
+    return (db.query(OnboardingNewHire)
+            .filter(OnboardingNewHire.id == cand.onboarding_new_hire_id, OnboardingNewHire.organization_id == offer.organization_id,
+                    OnboardingNewHire.is_deleted == False).first())  # noqa: E712
+
+
+def _link_signed_offer(db: Session, hire: OnboardingNewHire, offer) -> bool:
+    """Put the signed offer letter in the new hire's portal (reused, never issued twice). True when it is there."""
+    if not getattr(offer, "document_id", None):
+        return False
+    try:
+        from app.modules.hr import onboarding_package
+        row = (db.query(OnboardingDocument)
+               .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.category == "offer_letter",
+                       OnboardingDocument.is_deleted == False).first())  # noqa: E712
+        if row is not None and row.document_id:
+            return row.document_id == offer.document_id and row.status == "approved"
+        linked = onboarding_package._link_recruitment_offer(db, hire, row)
+        db.commit()
+        return linked is not None
+    except Exception:
+        db.rollback()
+        logger.warning("signed offer letter could not be linked into the portal of new hire %s", hire.id)
+        return False
+
+
+def send_offer_accepted_welcome(db: Session, offer, deferred_mail: Optional[list] = None) -> bool:
+    """The one e-mail a candidate gets when their offer is accepted: confirmation, welcome message, next steps and the
+    pre-onboarding link (or, when invites are not automatic, that HR will send it). Sent once per offer
+    (recruitment_offers.welcome_email_sent_at); never fails the acceptance.
+
+    deferred_mail: candidate e-mails held back while the acceptance was processed (the acceptance confirmation document,
+    see doc_templates.notify.hold_candidate_mail): their link and attachment go into this e-mail. If this e-mail is not
+    sent, they are sent on their own as before."""
+    from sqlalchemy import update
+    from app.modules.hr.models import RecruitmentOffer
+    deferred_mail = deferred_mail or []
+    sent = False
+    try:
+        hire = _hire_for_offer(db, offer)
+        if hire is None or not hire.email or hire.status not in ACTIVE_STATUSES:
+            return False
+        now = datetime.utcnow()
+        claimed = db.execute(update(RecruitmentOffer)
+                             .where(RecruitmentOffer.id == offer.id, RecruitmentOffer.welcome_email_sent_at.is_(None))
+                             .values(welcome_email_sent_at=now)).rowcount
+        db.commit()
+        if claimed != 1:
+            return False
+        try:
+            sent = _send_offer_accepted_welcome(db, offer, hire, deferred_mail, now)
+        finally:
+            if not sent:                   # a later attempt may try again
+                db.execute(update(RecruitmentOffer).where(RecruitmentOffer.id == offer.id).values(welcome_email_sent_at=None))
+                db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("offer accepted welcome e-mail failed for offer %s", getattr(offer, "id", None))
+        sent = False
+    finally:
+        if not sent:
+            for item in deferred_mail:
+                try:
+                    item["send"]()
+                except Exception:
+                    logger.warning("held candidate e-mail could not be sent for offer %s", getattr(offer, "id", None))
+    return sent
+
+
+def _send_offer_accepted_welcome(db: Session, offer, hire: OnboardingNewHire, deferred_mail: list, now: datetime) -> bool:
+    from app.services.email_service import send_offer_accepted_welcome as send_mail
+    settings = get_settings(db, hire.organization_id)
+    url = expires = None
+    if settings.auto_send_portal_invite:
+        url = current_portal_url(db, hire)
+        expires = hire.portal_expires_at
+    letter_in_portal = _link_signed_offer(db, hire, offer)
+    ctx = welcome_context(db, hire, settings)
+    accepted = getattr(offer, "accepted_at", None) or now
+    attachments = [item["attachment"] for item in deferred_mail if item.get("attachment")]
+    documents = [{"label": item["label"], "url": item["url"]} for item in deferred_mail if item.get("url")]
+    ok = bool(send_mail(
+        hire.email, ctx["first_name"], ctx["company_name"], offer.position or hire.position,
+        start_date_display=ctx["start_date_display"], manager_name=hire.manager_name,
+        accepted_on_display=f"{accepted.day} {accepted:%B %Y}", portal_url=url,
+        expires_display=f"{expires.day} {expires:%B %Y}" if (url and expires) else None,
+        signed_letter_in_portal=letter_in_portal, welcome_blocks=ctx["welcome_blocks"],
+        welcome_signature=ctx["welcome_signature"], next_steps=ctx["next_steps"], hr_contact_name=ctx["hr_contact_name"],
+        hr_contact_email=ctx["hr_contact_email"], documents=documents, attachments=attachments or None,
+        db=db, organization_id=hire.organization_id))
+    if ok:
+        if url:
+            hire.portal_invited_at = datetime.utcnow()
+            db.commit()
+        from app.modules.hr.service import log_onboarding_activity
+        log_onboarding_activity(db, hire.id, "Offer accepted email sent",
+                                f"{hire.candidate_name} was sent the offer-accepted welcome email"
+                                + (" with their pre-onboarding link." if url else "; HR will send the pre-onboarding link."),
+                                hire.organization_id)
+    return ok
 
 
 # ── pre-onboarding link ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -190,10 +408,13 @@ def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -
             requested = db.query(OnboardingDocument).filter(
                 OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
                 OnboardingDocument.status.in_(["requested", "rejected"])).count()
+            ctx = welcome_context(db, hire, settings)
             sent = bool(send_onboarding_invite(
-                hire.email, _first_name(hire), _org_name(db, hire.organization_id), hire.position, portal_url(token),
-                expires.strftime("%b %d, %Y"), joining_date_display=_date_display(hire.joining_date),
-                manager_name=hire.manager_name, documents_requested=requested, welcome_message=settings.welcome_message,
+                hire.email, _first_name(hire), ctx["company_name"], hire.position, portal_url(token),
+                expires.strftime("%b %d, %Y"), joining_date_display=ctx["start_date_display"],
+                manager_name=hire.manager_name, documents_requested=requested, welcome_blocks=ctx["welcome_blocks"],
+                welcome_signature=ctx["welcome_signature"], next_steps=ctx["next_steps"],
+                hr_contact_name=ctx["hr_contact_name"], hr_contact_email=ctx["hr_contact_email"],
                 db=db, organization_id=hire.organization_id))
         except Exception:
             logger.exception("onboarding invite email failed")
@@ -272,6 +493,8 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
     cats = OS.category_map(db, hire.organization_id)
     doc_items = []
     for d in docs:
+        if d.kind == "form" or d.form_submission_id:
+            continue                 # structured forms are filled in their own section (and listed under "My documents")
         extra = pkg.get(d.id) or {}
         cat = cats.get(d.category)
         mode = extra.get("mode")
@@ -317,7 +540,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "joining_date": hire.joining_date,
         "manager_name": hire.manager_name,
         "department_name": hire.department_name,
-        "welcome_message": get_settings(db, hire.organization_id).welcome_message,
+        **_portal_welcome(db, hire),
         "expires_at": hire.portal_expires_at,
         "details": _details_with_form_answers(db, hire),
         "phone": hire.phone,
@@ -345,8 +568,10 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
         # structured parts only: the one-line address (used by the forms and v1 documents) is built from them
         data["address"] = ", ".join(str(data[k]).strip() for k in ("house", "building", "street")
                                     if str(data.get(k) or "").strip())[:300]
-    previous = {**{k: details.get(k) for k in PORTAL_DETAIL_RULES if k != "phone"}, "phone": hire.phone}
+    from app.modules.hr.onboarding_submissions import detail_snapshot
+    before = detail_snapshot(hire)
     values = {k: data.get(k) for k in PORTAL_DETAIL_RULES if k in data and str(data.get(k) or "").strip()}
+    previous = {**{k: before.get(k) for k in PORTAL_DETAIL_RULES if k != "phone"}, "phone": before["phone"]}
     cleaned, errors = field_rules.validate_record(values, PORTAL_DETAIL_RULES, previous=previous)
     submit = bool(data.get("submit"))
     if submit:
@@ -365,11 +590,14 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
     if submit:
         details["details_submitted_at"] = datetime.utcnow().isoformat()
     hire.profile_details = details
+    from app.modules.hr import onboarding_submissions
+    onboarding_submissions.mark_details_changed(db, hire, before)
     db.commit()
     from app.modules.hr.service import log_onboarding_activity
     log_onboarding_activity(db, hire.id, "Details submitted", f"{hire.candidate_name} updated their personal details.", hire.organization_id)
     from app.modules.hr import onboarding_package
     onboarding_package.release_held(db, hire)       # documents not sent yet that were waiting for the address
+    onboarding_package.flag_details_changed(db, hire)   # sent but unsigned documents printed the old details: HR reissues
     return portal_view(db, hire)
 
 
@@ -388,7 +616,7 @@ def request_documents(db: Session, hire: OnboardingNewHire, categories: list[str
         raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
     have = {d.category for d in db.query(OnboardingDocument).filter(
         OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
-        OnboardingDocument.status != "rejected").all()}
+        OnboardingDocument.status != "rejected").all() if d.kind != "form" and not d.form_submission_id}
     created = []
     for cat in dict.fromkeys(categories):
         if cat in have:
@@ -417,7 +645,8 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
         if settings.required_document_categories:
             request_documents(db, hire, list(settings.required_document_categories), notify=False)
         if settings.auto_send_portal_invite and hire.email and hire.status in ACTIVE_STATUSES:
-            issue_portal_link(db, hire, send=True)
+            # on an offer acceptance the link goes out in the one offer-accepted welcome e-mail instead
+            issue_portal_link(db, hire, send=not _INVITE_DEFERRED.get())
     except Exception:
         db.rollback()
         logger.exception("starting onboarding failed for new hire %s", hire.id)
