@@ -424,7 +424,7 @@ def get_shifts(db: Session, organization_id: Optional[int] = None) -> list[Shift
 
 
 def create_shift(db: Session, data: ShiftCreate, created_by: int = None, organization_id: int = None) -> Shift:
-    shift = Shift(**data.model_dump(), created_by=created_by)
+    shift = Shift(**data.model_dump())                    # shifts has no created_by column (it used to fail here)
     if organization_id:
         shift.organization_id = organization_id
     db.add(shift)
@@ -454,7 +454,17 @@ def update_shift(db: Session, shift_id: int, data: ShiftUpdate, organization_id:
 
 
 def delete_shift(db: Session, shift_id: int, organization_id: Optional[int] = None) -> None:
+    """Delete a shift nobody uses. A shift that is assigned, rostered or recorded on a day is kept (deleting it would
+    break those rows): deactivate it instead."""
+    from app.core.exceptions import ZoikoException
+    from app.modules.hr.attendance.models import EmployeeShift
     shift = get_shift_by_id(db, shift_id, organization_id)
+    in_use = (db.query(EmployeeShift.id).filter(EmployeeShift.shift_id == shift.id).first()
+              or db.query(ShiftRoster.id).filter(ShiftRoster.shift_id == shift.id).first()
+              or db.query(AttendanceRecord.id).filter(AttendanceRecord.shift_id == shift.id).first())
+    if in_use:
+        raise ZoikoException(409, "SHIFT_IN_USE", f"“{shift.name}” is assigned to people or used on past days, so it can't be deleted. "
+                                "Deactivate it instead.")
     db.delete(shift)
     db.commit()
 

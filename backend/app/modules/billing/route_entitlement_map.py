@@ -109,6 +109,9 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     # hr.attendance.shift_rostering
     **_r("GET", "/hr/attendance/shifts", "hr.attendance.shift_rostering"),
     **_r("POST", "/hr/attendance/shifts", "hr.attendance.shift_rostering"),
+    **_r("GET", "/hr/attendance/shift-assignments", "hr.attendance.shift_rostering"),
+    **_r("POST", "/hr/attendance/shift-assignments", "hr.attendance.shift_rostering"),
+    **_r("POST", "/hr/attendance/shift-assignments/{assignment_id}/end", "hr.attendance.shift_rostering"),
     **_r("POST", "/hr/attendance/shifts/rosters", "hr.attendance.shift_rostering"),
     **_r("DELETE", "/hr/attendance/shifts/rosters/{roster_id}", "hr.attendance.shift_rostering"),
 

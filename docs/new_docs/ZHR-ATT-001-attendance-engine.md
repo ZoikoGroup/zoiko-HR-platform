@@ -138,6 +138,18 @@ limited (12 per minute).
 | GET | `/export/csv`, `/export/excel` | Same filters as the log |
 | GET | `/dashboard/today` | Live Today panel (includes `last_closed`) |
 | GET | `/approvals` | `type (all, correction, overtime), status (pending, approved, rejected, all), page, per_page` |
+| GET / POST / PUT / DELETE | `/shifts`, `/shifts/{id}` | Shifts with `standard_hours`, `working_days`, `half_day_min_minutes`, `min_present_minutes`; a shift in use cannot be deleted (409 `SHIFT_IN_USE`: deactivate it) |
+| GET | `/shift-assignments` | Who works which shift: `employee_id, shift_id, active_on, page, per_page` |
+| POST | `/shift-assignments` | `{shift_id, effective_from, effective_to?, employee_ids[], department_id?}`; a running assignment ends the day before (its remainder continues after a dated one); one that starts inside the new period is refused (409 `SHIFT_ASSIGNMENT_OVERLAP`); audited `shift_assigned`, notified `shift.assigned`, event `attendance.shift.assigned` |
+| POST | `/shift-assignments/{id}/end` | `{effective_to}`; audited `shift_ended`, notified `shift.changed` |
+
+`GET /hr/me/attendance/today` also returns `required_minutes`, `next_shift_change` (`{date, shift}` within 60 days) and
+`pending_shift_notice` (a shift notice document still waiting for the person's acknowledgement).
+
+**Admin screen:** Attendance → **Shifts & Work Policy** (`/zoiko-hr/attendance/shifts`) with tabs Shifts, Assignments,
+Roster & notices (publish a pattern / change shifts, moved from Working time requests) and Work policy (every
+`attendance.*` setting, moved from Working time requests → Settings). Publishing or changing a roster also sends the
+in-app `shift.assigned` / `shift.changed` notification.
 
 **Requests (`/hr/time`)**: `POST /corrections` (kinds: `missed_punch`, `time_change`, `wrong_status`, `break`),
 `POST /corrections/{id}/decision`, `POST /overtime`, `POST /overtime/{id}/decision`.
@@ -229,6 +241,8 @@ backend/app/modules/hr/attendance/
   day_close.py        end-of-day close
   jobs.py             scheduler entry point
   backfill.py         migration data steps
+  shift_assignments.py who works which shift (employee_shifts): list, assign, end
+  leave_sync.py       a leave decision recalculates stored days
 backend/app/modules/hr/attendance_router.py, attendance_service.py, time_documents.py  (existing, extended)
 backend/scripts/seed_attendance.py
 frontend/src/service/attendanceService.js

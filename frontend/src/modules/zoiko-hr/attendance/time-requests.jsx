@@ -3,20 +3,20 @@
 // and changing someone's shifts. Nobody can decide their own request; the server enforces it and returns a plain message.
 import { correctionSummary, formatClockTime } from "./constants";
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, Check, Clock, Send, X } from "lucide-react";
+import { Check, Clock, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { Modal } from "../../../components/billing-ui";
-import RecordDocumentsPanel, { blockedText } from "../../../components/documents/RecordDocumentsPanel";
+import RecordDocumentsPanel from "../../../components/documents/RecordDocumentsPanel";
 import {
-  changeShifts, decideCorrection, decideOvertime, getTimeRecordDocuments, getTimeSettings, listCorrections, listOvertime, publishRoster,
-  updateTimeSettings,
+  decideCorrection, decideOvertime, getTimeRecordDocuments, listCorrections, listOvertime,
 } from "../../../service/workDocumentsService";
-import { getShifts } from "../../../service/hrService";
 import {
-  EmployeePicker, ErrorBanner, PrimaryButton, SecondaryButton, Toast, fmtDate, fmtDateTime, inputCls, useToast,
+  ErrorBanner, PrimaryButton, SecondaryButton, Toast, fmtDate, fmtDateTime, inputCls, useToast,
 } from "../documents/generated/docUi";
 
-const TABS = [["overtime", "Overtime"], ["corrections", "Attendance corrections"], ["rosters", "Shift notices"], ["settings", "Settings"]];
+// shift notices and the working-time settings moved to Shifts & Work Policy (My Attendance plan step 6)
+const TABS = [["overtime", "Overtime"], ["corrections", "Attendance corrections"]];
 const STATUS_TEXT = { PENDING: "Waiting", APPROVED: "Approved", REJECTED: "Refused", CANCELLED: "Cancelled" };
 const REASONS = { forgot: "Forgot to check in/out", system_issue: "System issue", off_site: "Working off-site", other: "Other" };
 const hhmm = (v) => formatClockTime(v);
@@ -25,7 +25,7 @@ export default function TimeRequestsPage() {
   const [tab, setTab] = useState("overtime");
   const [toast, showToast] = useToast();
   return (
-    <HRPage title="Working time requests" subtitle="Overtime, attendance corrections and shift notices, each with its decision record.">
+    <HRPage title="Working time requests" subtitle="Overtime and attendance corrections, each with its decision record.">
       <Toast toast={toast} />
       <div role="tablist" aria-label="Working time" className="mb-4 flex flex-wrap gap-2">
         {TABS.map(([k, label]) => (
@@ -35,8 +35,10 @@ export default function TimeRequestsPage() {
       </div>
       {tab === "overtime" && <RequestList kind="overtime" onToast={showToast} />}
       {tab === "corrections" && <RequestList kind="corrections" onToast={showToast} />}
-      {tab === "rosters" && <RosterTools onToast={showToast} />}
-      {tab === "settings" && <TimeSettings onToast={showToast} />}
+      <p className="mt-4 text-sm text-slate-600">
+        Shift patterns, shift change notices and working-time settings are in{" "}
+        <Link to="/zoiko-hr/attendance/shifts" className="font-semibold text-blue-700 underline">Shifts &amp; Work Policy</Link>.
+      </p>
     </HRPage>
   );
 }
@@ -128,130 +130,5 @@ function DecisionModal({ state, overtime, onClose, onDone, onError }) {
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={inputCls} />
       </label>
     </Modal>
-  );
-}
-
-function RosterTools({ onToast }) {
-  const [shifts, setShifts] = useState([]);
-  const [form, setForm] = useState({ shift_id: "", employees: {}, start_date: "", end_date: "", weekdays: [0, 1, 2, 3, 4], location: "" });
-  const [preview, setPreview] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [change, setChange] = useState({ employees: {}, new_shift_id: "", dates: "", reason: "", short_notice_reason: "" });
-  useEffect(() => {
-    getShifts().then((r) => setShifts(r?.items || r?.data || (Array.isArray(r) ? r : []))).catch(() => setShifts([]));
-  }, []);
-  const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setPreview(null); };
-  const body = () => ({ shift_id: Number(form.shift_id), employee_ids: Object.keys(form.employees).map(Number), start_date: form.start_date,
-    end_date: form.end_date || null, weekdays: form.weekdays, location: form.location || null });
-
-  const run = async (isPreview) => {
-    if (!form.shift_id || !form.start_date || !Object.keys(form.employees).length) { setError("Choose a shift, a start date and at least one person."); return; }
-    setBusy(true); setError(null);
-    try {
-      const r = await publishRoster({ ...body(), preview: isPreview });
-      if (isPreview) setPreview(r);
-      else { onToast("success", `Rostered and sent ${r.results.filter((x) => x.document_status === "ISSUED").length} shift notices.`); setPreview(null); }
-    } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
-  };
-
-  const submitChange = async () => {
-    const ids = Object.keys(change.employees).map(Number);
-    const dates = change.dates.split(",").map((s) => s.trim()).filter(Boolean);
-    if (ids.length !== 1 || !change.new_shift_id || !dates.length || !change.reason.trim()) { setError("Choose one person, the new shift, the dates and a reason."); return; }
-    setBusy(true); setError(null);
-    try {
-      const r = await changeShifts({ employee_id: ids[0], new_shift_id: Number(change.new_shift_id), dates, reason: change.reason,
-        short_notice_reason: change.short_notice_reason || null });
-      onToast("success", r.needs_approval ? "Short notice: the change notice is waiting for an HR approver." : "Shifts changed and the notice was sent.");
-    } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Publish a shift pattern">
-        <h2 className="mb-2 flex items-center gap-2 text-base font-semibold"><CalendarClock size={18} aria-hidden="true" /> Publish a shift pattern</h2>
-        <ErrorBanner error={error} />
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="text-sm">Shift<select value={form.shift_id} onChange={(e) => set("shift_id", e.target.value)} className={inputCls}>
-            <option value="">Choose…</option>{shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({formatClockTime(s.start_time)}–{formatClockTime(s.end_time)})</option>)}</select></label>
-          <label className="text-sm">Location<input value={form.location} onChange={(e) => set("location", e.target.value)} className={inputCls} /></label>
-          <label className="text-sm">From<input type="date" value={form.start_date} onChange={(e) => set("start_date", e.target.value)} className={inputCls} /></label>
-          <label className="text-sm">Until (optional)<input type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} className={inputCls} /></label>
-        </div>
-        <fieldset className="mt-2 flex flex-wrap gap-2 text-sm"><legend className="sr-only">Days</legend>
-          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) => (
-            <label key={d} className="flex items-center gap-1"><input type="checkbox" checked={form.weekdays.includes(i)} className="accent-blue-600"
-              onChange={(e) => set("weekdays", e.target.checked ? [...form.weekdays, i].sort() : form.weekdays.filter((x) => x !== i))} />{d}</label>
-          ))}
-        </fieldset>
-        <div className="mt-2"><EmployeePicker value={form.employees} onChange={(v) => set("employees", v)} idPrefix="roster-emp" /></div>
-        {preview && (
-          <div role="status" className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm">
-            {preview.recipients} {preview.recipients === 1 ? "person" : "people"}; {preview.blocked ? `${preview.blocked} cannot receive a notice yet:` : "everyone can receive a notice."}
-            <ul className="list-disc pl-5">{preview.results.filter((x) => x.outcome !== "ALLOW").map((x) => <li key={x.employee_id}>Employee #{x.employee_id}: {x.reasons.map(blockedText).join(" ")}</li>)}</ul>
-          </div>
-        )}
-        <div className="mt-3 flex gap-2">
-          <SecondaryButton loading={busy} onClick={() => run(true)}>Preview</SecondaryButton>
-          <PrimaryButton loading={busy} icon={Send} disabled={!preview} onClick={() => run(false)}>Roster and send notices</PrimaryButton>
-        </div>
-      </section>
-      <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Change shifts">
-        <h2 className="mb-2 text-base font-semibold">Change someone's shifts</h2>
-        <EmployeePicker value={change.employees} onChange={(v) => setChange((c) => ({ ...c, employees: v }))} idPrefix="change-emp" max={1} />
-        <div className="mt-2 grid gap-2">
-          <label className="text-sm">New shift<select value={change.new_shift_id} onChange={(e) => setChange((c) => ({ ...c, new_shift_id: e.target.value }))} className={inputCls}>
-            <option value="">Choose…</option>{shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({formatClockTime(s.start_time)}–{formatClockTime(s.end_time)})</option>)}</select></label>
-          <label className="text-sm">Dates (YYYY-MM-DD, comma separated)<input value={change.dates} onChange={(e) => setChange((c) => ({ ...c, dates: e.target.value }))} className={inputCls} /></label>
-          <label className="text-sm">Reason<input value={change.reason} onChange={(e) => setChange((c) => ({ ...c, reason: e.target.value }))} className={inputCls} /></label>
-          <label className="text-sm">Why the notice is short (needed when it is shorter than usual)<input value={change.short_notice_reason}
-            onChange={(e) => setChange((c) => ({ ...c, short_notice_reason: e.target.value }))} className={inputCls} /></label>
-        </div>
-        <PrimaryButton className="mt-3" loading={busy} onClick={submitChange}>Change shifts and send notice</PrimaryButton>
-      </section>
-    </div>
-  );
-}
-
-function TimeSettings({ onToast }) {
-  const [v, setV] = useState({ standard_workday_hours: "", shift_change_notice_days: "", half_day_min_hours: "", min_present_hours: "" });
-  const [fallback, setFallback] = useState(8);
-  useEffect(() => {
-    getTimeSettings().then((r) => { setFallback(r.fallback_standard_workday_hours); setV({ standard_workday_hours: r.standard_workday_hours ?? "", shift_change_notice_days: r.shift_change_notice_days ?? "",
-      half_day_min_hours: r.half_day_min_hours ?? "", min_present_hours: r.min_present_hours ?? "" }); }).catch(() => {});
-  }, []);
-  const num = (x) => (x === "" ? null : Number(x));
-  const thresholdError = v.min_present_hours !== "" && v.half_day_min_hours !== "" && Number(v.min_present_hours) > Number(v.half_day_min_hours)
-    ? "The minimum to count the day cannot be more than the half-day threshold." : "";
-  const save = () => {
-    if (thresholdError) { onToast("error", thresholdError); return; }
-    updateTimeSettings({ standard_workday_hours: num(v.standard_workday_hours), shift_change_notice_days: num(v.shift_change_notice_days),
-      half_day_min_hours: num(v.half_day_min_hours), min_present_hours: num(v.min_present_hours) })
-      .then(() => onToast("success", "Working time settings saved.")).catch((e) => onToast("error", e.message));
-  };
-  return (
-    <section className="max-w-lg space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-      <label className="block text-sm">Standard working day for timekeeping (hours)
-        <input type="number" min="0" step="0.25" value={v.standard_workday_hours} onChange={(e) => setV({ ...v, standard_workday_hours: e.target.value })} className={inputCls} />
-        <span className="text-xs text-slate-500">Used for overtime figures (a shift can override it). Until set, overtime analytics use {fallback} hours and the Working Hours Policy cannot be published.</span>
-      </label>
-      <label className="block text-sm">Half-day threshold (hours)
-        <input type="number" min="0" step="0.25" value={v.half_day_min_hours} onChange={(e) => setV({ ...v, half_day_min_hours: e.target.value })} className={inputCls} />
-        <span className="text-xs text-slate-500">A finished day with less net work than this counts as a half day.</span>
-      </label>
-      <label className="block text-sm">Minimum worked time for the day to count (hours)
-        <input type="number" min="0" step="0.25" value={v.min_present_hours} onChange={(e) => setV({ ...v, min_present_hours: e.target.value })}
-          aria-invalid={thresholdError ? "true" : undefined} className={inputCls} />
-        <span className={`text-xs ${thresholdError ? "text-rose-600" : "text-slate-500"}`}>{thresholdError || "A finished day with less net work than this counts as absent; from here up to the half-day threshold it is a half day."}</span>
-      </label>
-      <label className="block text-sm">Normal notice for a shift change (days)
-        <input type="number" min="0" value={v.shift_change_notice_days} onChange={(e) => setV({ ...v, shift_change_notice_days: e.target.value })} className={inputCls} />
-        <span className="text-xs text-slate-500">A change on shorter notice needs a reason and an HR approver before the notice is sent.</span>
-      </label>
-      <PrimaryButton onClick={save}>Save</PrimaryButton>
-    </section>
   );
 }

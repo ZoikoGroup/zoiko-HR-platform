@@ -663,7 +663,37 @@ class AttendanceUpdate(BaseModel):
 # SHIFT SCHEMAS
 # ════════════════════════════════════════════════════════════════════════════
 
-class ShiftCreate(BaseModel):
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _clean_working_days(value):
+    """["Mon", "tue"] -> ["mon", "tue"] in week order; unknown names are refused; None = the organization's days."""
+    if value is None:
+        return None
+    days = {str(v).strip().lower()[:3] for v in value}
+    unknown = days - set(_WEEKDAYS)
+    if unknown:
+        raise ValueError(f"Unknown day(s): {', '.join(sorted(unknown))}. Use mon, tue, wed, thu, fri, sat, sun.")
+    if not days:
+        raise ValueError("Choose at least one working day, or leave it empty to use the organization's days.")
+    return [d for d in _WEEKDAYS if d in days]
+
+
+class ShiftPolicyFields(BaseModel):
+    """Shift & Work Policy (My Attendance plan step 6): what a shift asks of the person. All optional: an empty value
+    falls back to the organization's attendance settings."""
+    standard_hours: Optional[float] = Field(None, gt=0, le=24, description="Required hours a day (else the organization's standard day)")
+    working_days: Optional[list[str]] = Field(None, description='e.g. ["mon","tue","wed","thu","fri"]; empty = organization days')
+    half_day_min_minutes: Optional[int] = Field(None, ge=0, le=24 * 60, description="Below this net time a day is a half day")
+    min_present_minutes: Optional[int] = Field(None, ge=0, le=24 * 60, description="Below this net time a finished day is absent")
+
+    @field_validator("working_days")
+    @classmethod
+    def _days(cls, v):
+        return _clean_working_days(v)
+
+
+class ShiftCreate(ShiftPolicyFields):
     name: str = Field(..., min_length=1, max_length=100)
     shift_type: ShiftType = ShiftType.GENERAL
     start_time: str = Field(..., min_length=4, max_length=5, pattern=r"^\d{2}:\d{2}$")
@@ -675,7 +705,7 @@ class ShiftCreate(BaseModel):
     description: Optional[str] = None
 
 
-class ShiftUpdate(BaseModel):
+class ShiftUpdate(ShiftPolicyFields):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     shift_type: Optional[ShiftType] = None
     start_time: Optional[str] = Field(None, min_length=4, max_length=5, pattern=r"^\d{2}:\d{2}$")
@@ -698,6 +728,10 @@ class ShiftResponse(BaseModel):
     break_duration_minutes: int
     is_overtime_eligible: bool
     requires_attendance: bool
+    standard_hours: Optional[float] = None
+    working_days: Optional[list[str]] = None
+    half_day_min_minutes: Optional[int] = None
+    min_present_minutes: Optional[int] = None
     description: Optional[str]
     is_active: bool
     created_at: Optional[datetime]
