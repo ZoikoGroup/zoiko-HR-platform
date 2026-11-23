@@ -4660,12 +4660,24 @@ def _name_travel_rows(db: Session, rows) -> list:
     The name is looked up from the employee the row points at (one query for the whole list)."""
     rows = [r for r in rows if r is not None]
     ids = {r.employee_id for r in rows if getattr(r, "employee_id", None)}
+    ids |= {r.first_approver_id for r in rows if getattr(r, "first_approver_id", None)}
     names = {}
     if ids:
         for e in db.query(Employee).filter(Employee.id.in_(ids)).all():
             names[e.id] = (f"{e.first_name or ''} {e.last_name or ''}".strip()) or e.email
     for r in rows:
         r.employee_name = names.get(getattr(r, "employee_id", None))
+        if isinstance(r, TravelExpense):          # audit T16: who gave the first of two approvals
+            r.first_approver_name = names.get(r.first_approver_id)
+            r.awaiting_second_approval = bool(r.first_approver_id) and r.status == RequestStatus.IN_PROGRESS
+    return rows
+
+
+def mark_first_approver(rows, user_id: int) -> list:
+    """Tells the caller which claims they gave the first approval to, so the page can hide their Approve button (T16)."""
+    for r in (rows if isinstance(rows, list) else [rows]):
+        if isinstance(r, TravelExpense):
+            r.first_approved_by_me = bool(r.first_approver_id) and r.first_approver_id == user_id
     return rows
 
 
@@ -4684,12 +4696,66 @@ def check_travel_dates(start: Optional[date], end: Optional[date], *, allow_past
             raise BadRequestException(PAST_TRAVEL_MESSAGE)
 
 
+def check_trip_length(db: Session, organization_id: int, start: Optional[date], end: Optional[date]) -> None:
+    """Travel settings, maximum trip duration (audit T5): a trip may last at most that many days, first and last day
+    included."""
+    if not (start and end) or end < start:
+        return
+    limit = get_travel_settings(db, organization_id).max_trip_duration
+    days = (end - start).days + 1
+    if limit and days > int(limit):
+        raise BadRequestException(f"This trip is {days} days long; the travel policy allows at most {int(limit)} days. "
+                                  "Shorten the trip or ask an admin to change the maximum trip duration.")
+
+
+# Which status a trip may move to from its current one (audit T3). A decision is made once; a rejected, cancelled or
+# completed trip is final.
+TRIP_TRANSITIONS = {
+    RequestStatus.PENDING:     {RequestStatus.APPROVED, RequestStatus.REJECTED, RequestStatus.CANCELLED},
+    RequestStatus.IN_PROGRESS: {RequestStatus.APPROVED, RequestStatus.REJECTED, RequestStatus.CANCELLED},
+    RequestStatus.APPROVED:    {RequestStatus.CANCELLED, RequestStatus.COMPLETED},
+    RequestStatus.REJECTED:    set(),
+    RequestStatus.CANCELLED:   set(),
+    RequestStatus.COMPLETED:   set(),
+}
+FINAL_TRIP_STATES = {RequestStatus.REJECTED, RequestStatus.CANCELLED, RequestStatus.COMPLETED}
+
+
+def _trip_conflict(message: str):
+    from app.core.exceptions import ZoikoException
+    return ZoikoException(409, "CONFLICT", message)
+
+
+def _status_label(status) -> str:
+    return getattr(status, "value", status) or "unknown"
+
+
+def check_trip_change(db: Session, request: TravelRequest, changes: dict) -> None:
+    """The rules every change to a trip follows, whoever makes it (audit T3):
+      - the status moves only along TRIP_TRANSITIONS (409 otherwise); sending the current status again changes nothing;
+      - a rejected, cancelled or completed trip cannot be edited (409);
+      - edited dates are checked: the trip cannot end before it starts, nor last longer than the policy allows (400)."""
+    current = request.status or RequestStatus.PENDING
+    new = changes.get("status")
+    if new is not None and new != current and new not in TRIP_TRANSITIONS.get(current, set()):
+        raise _trip_conflict(f"A {_status_label(current)} trip cannot be changed to {_status_label(new)}.")
+    edits = {k for k in changes if k != "status"}
+    if edits and current in FINAL_TRIP_STATES:
+        raise _trip_conflict(f"This trip is {_status_label(current)}; it can no longer be changed.")
+    if "start_date" in changes or "end_date" in changes:
+        start = changes.get("start_date", request.start_date)
+        end = changes.get("end_date", request.end_date)
+        check_travel_dates(start, end, allow_past=True)
+        check_trip_length(db, request.organization_id, start, end)
+
+
 def create_travel_request(db: Session, data: TravelRequestCreate, organization_id: int) -> TravelRequest:
     if data.employee_id is not None:
         from app.modules.employee.ownership import get_org_employee_or_404
         get_org_employee_or_404(db, organization_id, data.employee_id)        # this organization, still working here
     if data.start_date and data.end_date and data.end_date < data.start_date:
         raise BadRequestException("The end date cannot be before the start date.")
+    check_trip_length(db, organization_id, data.start_date, data.end_date)
     request = TravelRequest(**data.model_dump(), organization_id=organization_id)
     db.add(request)
     db.commit()
@@ -4702,14 +4768,14 @@ def get_travel_requests(
     db: Session,
     organization_id: int,
     employee_id: Optional[int] = None,
-    page: int = 1,
-    per_page: int = 20,
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
     search: Optional[str] = None,
     status: Optional[RequestStatus] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     employee_ids: Optional[list[int]] = None,
-) -> dict:
+):
     from app.modules.employee.ownership import filter_ids
     query = db.query(TravelRequest).filter(TravelRequest.organization_id == organization_id)
     query = filter_ids(query, TravelRequest.employee_id, employee_ids)    # who the caller may see (None = everyone)
@@ -4722,23 +4788,24 @@ def get_travel_requests(
         query = query.filter(TravelRequest.start_date >= start_date)
     if end_date:
         query = query.filter(TravelRequest.end_date <= end_date)
-    if search:
-        search_term = f"%{search}%"
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+        people = db.query(Employee.id).filter(
+            Employee.organization_id == organization_id,
+            or_(Employee.first_name.ilike(search_term), Employee.last_name.ilike(search_term), Employee.email.ilike(search_term),
+                (func.coalesce(Employee.first_name, "") + " " + func.coalesce(Employee.last_name, "")).ilike(search_term)),
+        )
         query = query.filter(
             (TravelRequest.destination.ilike(search_term)) |
-            (TravelRequest.purpose.ilike(search_term))
+            (TravelRequest.purpose.ilike(search_term)) |
+            (TravelRequest.employee_id.in_(people))
         )
-    
-    total = query.count()
-    requests = query.order_by(TravelRequest.created_at.desc(), TravelRequest.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
-    _name_travel_rows(db, requests)
 
-    return {
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "items": requests,
-    }
+    # no page / per_page sent: the plain list (capped), as before; otherwise {items, total, page, per_page} (audit T6)
+    result = list_or_page(query.order_by(TravelRequest.created_at.desc(), TravelRequest.id.desc()), page, per_page,
+                          label="/hr/travel")
+    _name_travel_rows(db, result["items"] if isinstance(result, dict) else result)
+    return result
 
 
 def get_travel_request(db: Session, request_id: int, organization_id: Optional[int] = None) -> TravelRequest:
@@ -4756,8 +4823,11 @@ def update_travel_request(db: Session, request_id: int, data: TravelRequestUpdat
     request = get_travel_request(db, request_id, organization_id)
     before_status = request.status
     update_data = data.model_dump(exclude_unset=True)
+    check_trip_change(db, request, update_data)
     for field, value in update_data.items():
         setattr(request, field, value)
+    if request.status != before_status and request.status == RequestStatus.APPROVED:
+        request.approved_at = datetime.utcnow()
     db.commit()
     db.refresh(request)
     if request.status != before_status and request.status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
@@ -4771,6 +4841,12 @@ def update_travel_request(db: Session, request_id: int, data: TravelRequestUpdat
 
 def delete_travel_request(db: Session, request_id: int, organization_id: Optional[int] = None) -> None:
     request = get_travel_request(db, request_id, organization_id)
+    # a trip with expense claims is not deleted: the claims would lose their trip without anyone noticing (audit T13)
+    claims = db.query(TravelExpense.id).filter(TravelExpense.request_id == request.id).order_by(TravelExpense.id).all()
+    if claims:
+        refs = ", ".join(f"EXP-{c.id:05d}" for c in claims[:10]) + (f" and {len(claims) - 10} more" if len(claims) > 10 else "")
+        raise _trip_conflict(f"This trip has {len(claims)} expense claim{'s' if len(claims) != 1 else ''} ({refs}), so it cannot "
+                             "be deleted. Cancel the trip instead; its claims stay on record.")
     db.delete(request)
     db.commit()
 
@@ -4883,6 +4959,9 @@ def check_expense_trip(db: Session, data, organization_id: int) -> None:
 
 def create_travel_expense(db: Session, data: TravelExpenseCreate, organization_id: int) -> TravelExpense:
     expense = TravelExpense(**data.model_dump(), organization_id=organization_id)
+    # the daily expense limit flags a claim for the reviewer straight away (audit T5); it does not block it
+    from app.modules.hr.compensation_documents import _within_policy
+    expense.within_policy = _within_policy(db, expense)
     db.add(expense)
     db.commit()
     db.refresh(expense)
@@ -4897,11 +4976,11 @@ def get_travel_expenses(
     employee_id: Optional[int] = None,
     status: Optional[RequestStatus] = None,
     expense_type: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 20,
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
     search: Optional[str] = None,
     employee_ids: Optional[list[int]] = None,
-) -> dict:
+):
     from app.modules.employee.ownership import filter_ids
     query = db.query(TravelExpense).filter(TravelExpense.organization_id == organization_id)
     query = filter_ids(query, TravelExpense.employee_id, employee_ids)    # who the caller may see (None = everyone)
@@ -4914,23 +4993,63 @@ def get_travel_expenses(
         query = query.filter(TravelExpense.status == status)
     if expense_type:
         query = query.filter(TravelExpense.expense_type == expense_type)
-    if search:
-        search_term = f"%{search}%"
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
         query = query.filter(
             (TravelExpense.expense_type.ilike(search_term)) |
             (TravelExpense.description.ilike(search_term))
         )
-    
-    total = query.count()
-    expenses = query.order_by(TravelExpense.created_at.desc(), TravelExpense.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
-    _name_travel_rows(db, expenses)
 
-    return {
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "items": expenses,
-    }
+    # no page / per_page sent: the plain list (capped), as before; otherwise one page plus the totals of every matching
+    # claim, worked out here rather than from the rows the browser happens to hold (audit T6)
+    ordered = query.order_by(TravelExpense.created_at.desc(), TravelExpense.id.desc())
+    if not wants_page(page, per_page):
+        rows = legacy_list(ordered, "/hr/travel-expenses")
+        _name_travel_rows(db, rows)
+        return rows
+    result = page_of(ordered, page, per_page)
+    _name_travel_rows(db, result["items"])
+    result["totals"] = travel_expense_totals(db, query)
+    return result
+
+
+_CLAIM_STATES = {
+    "total_claimed": (RequestStatus.PENDING, RequestStatus.IN_PROGRESS, RequestStatus.APPROVED, RequestStatus.COMPLETED),
+    "approved": (RequestStatus.APPROVED, RequestStatus.COMPLETED),
+    "pending": (RequestStatus.PENDING, RequestStatus.IN_PROGRESS),
+    "rejected": (RequestStatus.REJECTED,),
+    "reimbursed": (RequestStatus.COMPLETED,),
+}
+
+
+def _currency_lines(sums: dict) -> list:
+    return [{"currency": c, "amount": a} for c, a in sorted(sums.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def travel_expense_totals(db: Session, query) -> dict:
+    """Totals of the claims `query` matches, per state and currency (a claim with no currency counts as INR, as the pages
+    show it), and per category. One GROUP BY; amounts are never added across currencies (audit T6 / T9)."""
+    from decimal import Decimal
+    currency = func.coalesce(TravelExpense.currency, "INR")
+    rows = (query.order_by(None)
+            .with_entities(TravelExpense.status, currency, TravelExpense.expense_type,
+                           func.coalesce(func.sum(TravelExpense.amount), 0))
+            .group_by(TravelExpense.status, currency, TravelExpense.expense_type).all())
+    states = {k: {} for k in _CLAIM_STATES}
+    categories = {}
+    for status, cur, category, amount in rows:
+        amount = Decimal(str(amount or 0))
+        cur = (cur or "INR").upper()
+        for key, members in _CLAIM_STATES.items():
+            if status in members:
+                states[key][cur] = states[key].get(cur, Decimal(0)) + amount
+        if status not in (RequestStatus.REJECTED, RequestStatus.CANCELLED):
+            k = (category or "Other", cur)
+            categories[k] = categories.get(k, Decimal(0)) + amount
+    out = {k: _currency_lines(v) for k, v in states.items()}
+    out["categories"] = [{"label": label, "currency": cur, "amount": a}
+                         for (label, cur), a in sorted(categories.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return out
 
 
 def get_travel_expense(db: Session, expense_id: int) -> TravelExpense:
@@ -4961,6 +5080,12 @@ def review_travel_expense(db: Session, expense_id: int, organization_id: int, st
     if status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
         if current not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
             raise BadRequestException(f"This claim is already {getattr(current, 'value', current)}; it has been decided and cannot be decided again.")
+        if status == RequestStatus.APPROVED and expense.request_id is not None:
+            # the trip may have been rejected or cancelled after the claim was filed (audit T12); refusing is still allowed
+            trip = db.query(TravelRequest).filter(TravelRequest.id == expense.request_id).first()
+            if trip is not None and trip.status in (RequestStatus.REJECTED, RequestStatus.CANCELLED):
+                raise _trip_conflict(f"The trip for this claim (TRV-{trip.id:05d}) was {_status_label(trip.status)}, so the claim "
+                                     "cannot be approved. Reject it instead.")
         # one decision path: the claimant can never decide their own claim, large claims need a second approver,
         # and the decision record (HR-CMP-024) is produced
         from app.modules.hr import compensation_documents
@@ -5171,18 +5296,20 @@ def get_travel_dashboard_stats(db: Session, organization_id: int) -> dict:
         TravelRequest.status == RequestStatus.APPROVED
     ).scalar()
     
-    total_expenses = db.query(func.coalesce(func.sum(TravelExpense.amount), 0)).join(
-        TravelRequest, TravelRequest.id == TravelExpense.request_id
-    ).filter(
-        TravelRequest.organization_id == organization_id,
-        TravelExpense.status.in_([RequestStatus.APPROVED, RequestStatus.COMPLETED])
-    ).scalar()
-    
+    # every claim of this organization, with or without a trip, filtered on the claim's own organization, and totals
+    # kept per currency (audit T9)
+    totals = travel_expense_totals(db, db.query(TravelExpense).filter(TravelExpense.organization_id == organization_id))
+    approved = totals["approved"]
+
     return {
         "total_requests": total_requests or 0,
         "pending_requests": pending_requests or 0,
         "approved_requests": approved_requests or 0,
-        "total_expenses": total_expenses or 0,
+        # legacy single figure: only filled in when every approved claim is in one currency
+        "total_expenses": approved[0]["amount"] if len(approved) == 1 else 0,
+        "approved_expenses_by_currency": approved,
+        "reimbursed_expenses_by_currency": totals["reimbursed"],
+        "expenses_by_category": totals["categories"],
     }
 
 

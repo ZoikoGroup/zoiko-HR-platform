@@ -128,6 +128,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/hr-admin/recruitment",
     "/hr-admin/performance",
     "/hr-admin/assets",
+    // the Assets admin pages (the API gives HR admins the same asset rights as org admins; audit A14)
+    "/organization-admin/assets",
     "/hr-admin/learning",
     "/hr-admin/documents",
     "/hr-admin/reports",
@@ -250,6 +252,7 @@ export const ROLE_DISALLOWED_PREFIXES = {
     "/zoiko-hr/workforce-planning/job-descriptions",
     "/zoiko-hr/compensation/approvals",
     "/zoiko-hr/employee-management/reports",
+    "/zoiko-hr/learning/reports",
     // Admin document management (organization-wide files, uploads, approvals). A manager still opens the
     // generated documents of their reports under /zoiko-hr/documents/generated.
     "/zoiko-hr/documents/employee-upload",

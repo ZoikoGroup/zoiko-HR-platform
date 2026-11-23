@@ -82,6 +82,11 @@ const svc = {
   submitQuiz: async (a, at, answers) => { state.calls.submitted.push([a, at, answers]); return { score: 100, passed: true, status: "completed" }; },
 };
 mock.module("../src/service/employee.js", { exports: svc });
+// the learner's own enrollments (catalogue "Enroll" button) come from the Learning service
+mock.module("../src/service/hrService.js", { exports: {
+  getEnrollments: async () => ({ items: [], total: 0 }),
+  createEnrollment: async (courseId, employeeId) => ({ id: 1, course_id: courseId, employee_id: employeeId, status: "enrolled" }),
+} });
 mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
 
 beforeEach(() => { state.calls = { started: [], submitted: [] }; state.failCourses = false; });

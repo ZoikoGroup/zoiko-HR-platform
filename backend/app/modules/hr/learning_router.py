@@ -27,7 +27,7 @@ from app.modules.hr.schemas import (
     SkillCreate, SkillUpdate, SkillResponse,
     AssessmentCreate, AssessmentUpdate, AssessmentResponse,
     QuestionCreate, QuestionUpdate, QuestionResponse,
-    QuizAttemptStart, QuizAttemptSubmit, QuizAttemptResponse,
+    QuizAttemptStart, QuizAttemptSubmit, QuizAttemptGrade, QuizAttemptResponse,
     TrainingProgramCreate, TrainingProgramUpdate, TrainingProgramResponse,
     ProgramAssignmentCreate, ProgramAssignmentUpdate, ProgramAssignmentResponse,
     CalendarEventCreate, CalendarEventUpdate, CalendarEventResponse,
@@ -93,7 +93,7 @@ def list_courses(
     current_user=Depends(get_current_user),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
-    search: Optional[str] = Query(None, description="Search by course name"),
+    search: Optional[str] = Query(None, description="Search by course name, category or provider"),
     category: Optional[str] = Query(None, description="Filter by category"),
     status: Optional[str] = Query(None, description="Filter by status"),
     course_type: Optional[str] = Query(None, description="Filter by course type"),
@@ -200,7 +200,9 @@ def create_enrollment(
 ):
     # an employee or manager can enroll only themselves; an admin can enroll anyone working in the organization (audit L2)
     data = data.model_copy(update={"employee_id": ownership.on_behalf_employee_id(current_user, data.employee_id)})
-    return learning_service.create_enrollment(db, data, organization_id=current_user.organization_id)
+    # a learner enrolls from the catalogue, which lists active courses only; an admin may also enroll people in a draft course
+    return learning_service.create_enrollment(db, data, organization_id=current_user.organization_id,
+                                              self_service=not ownership.is_admin(current_user))
 
 
 @learning_router.get(
@@ -550,6 +552,20 @@ def start_quiz(
 
 
 @learning_router.get(
+    "/assessments/review-queue",
+    response_model=list[QuizAttemptResponse],
+    summary="Quiz attempts waiting for essay grading",
+    description="Admin only. Submitted attempts with status pending_review in the organization, oldest first, optionally for one assessment.",
+)
+def quiz_review_queue(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    assessment_id: Optional[int] = Query(None, description="Only this assessment's attempts"),
+):
+    return learning_service.get_attempts_awaiting_review(db, organization_id=current_user.organization_id, assessment_id=assessment_id)
+
+
+@learning_router.get(
     "/assessments/attempts/{attempt_id}",
     response_model=QuizAttemptResponse,
     summary="Get a quiz attempt by ID",
@@ -562,6 +578,22 @@ def get_quiz_attempt(
     attempt = learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id)
     _own_attempt_or_404(attempt, current_user, attempt_id, db)
     return attempt
+
+
+@learning_router.post(
+    "/assessments/attempts/{attempt_id}/grade",
+    response_model=QuizAttemptResponse,
+    summary="Grade the essay answers of a quiz attempt",
+    description="Admin only. Marks every essay question of an attempt that is waiting for review (status pending_review) "
+                "with points from 0 to the question's maximum; the attempt is then scored and completed.",
+)
+def grade_quiz_attempt(
+    attempt_id: int,
+    data: QuizAttemptGrade,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    return learning_service.grade_quiz_attempt(db, attempt_id, data.essay_points, organization_id=current_user.organization_id)
 
 
 @learning_router.get(
@@ -755,8 +787,10 @@ def list_training_programs(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by program name, department or instructor"),
 ):
-    return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id, hide_cancelled=_is_learner(current_user))
+    return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id,
+                                                  hide_cancelled=_is_learner(current_user), search=search)
 
 
 @learning_router.post(
@@ -865,7 +899,7 @@ def update_program_assignment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.update_program_assignment(db, assign_id, data, organization_id=current_user.organization_id)
+    return learning_service.update_program_assignment(db, assign_id, data, organization_id=current_user.organization_id, program_id=prog_id)
 
 
 @learning_router.delete(
@@ -880,7 +914,7 @@ def remove_program_assignment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    learning_service.remove_program_assignment(db, assign_id, organization_id=current_user.organization_id)
+    learning_service.remove_program_assignment(db, assign_id, organization_id=current_user.organization_id, program_id=prog_id)
     return {"message": f"Assignment {assign_id} has been removed successfully."}
 
 
@@ -972,8 +1006,10 @@ def delete_calendar_event(
 def course_completion_report(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
+    start_date: Optional[date] = Query(None, description="Count only enrollments made on or after this day"),
+    end_date: Optional[date] = Query(None, description="Count only enrollments made on or before this day"),
 ):
-    return learning_service.get_course_completion_report(db, current_user.organization_id)
+    return learning_service.get_course_completion_report(db, current_user.organization_id, start_date, end_date)
 
 
 @learning_router.get(
@@ -983,8 +1019,10 @@ def course_completion_report(
 def export_course_completion_report_csv(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
+    start_date: Optional[date] = Query(None, description="Count only enrollments made on or after this day"),
+    end_date: Optional[date] = Query(None, description="Count only enrollments made on or before this day"),
 ):
-    csv_data = learning_service.export_course_completion_csv(db, current_user.organization_id)
+    csv_data = learning_service.export_course_completion_csv(db, current_user.organization_id, start_date, end_date)
     return Response(
         content=csv_data,
         media_type="text/csv",
@@ -999,8 +1037,10 @@ def export_course_completion_report_csv(
 def export_course_completion_report_excel(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
+    start_date: Optional[date] = Query(None, description="Count only enrollments made on or after this day"),
+    end_date: Optional[date] = Query(None, description="Count only enrollments made on or before this day"),
 ):
-    xlsx_data = learning_service.export_course_completion_excel(db, current_user.organization_id)
+    xlsx_data = learning_service.export_course_completion_excel(db, current_user.organization_id, start_date, end_date)
     return Response(
         content=xlsx_data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

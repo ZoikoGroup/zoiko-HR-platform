@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import HRPage from "../../../components/HRPage";
 import {
-  getCourses,
   getCourseCompletionReport,
   getCertificationReport,
   getSkillGapAnalysis,
@@ -11,25 +10,83 @@ import {
   exportCertificationReportExcel,
   exportSkillGapReportCsv,
   exportSkillGapReportExcel,
-  getHrEmployees,
 } from "../../../service/hrService";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const ITEMS_PER_PAGE = 10;
 
+// CSV / Excel export buttons: each shows that it is working, and a failed download (expired session, no permission,
+// server error) is reported on the page instead of failing silently (audit L11).
+export function ExportButtons({ onCsv, onExcel }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const run = async (kind, fn) => {
+    if (busy) return;
+    setBusy(kind);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError(err?.message || "The report could not be downloaded. Try again.");
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <div className="flex flex-col items-end gap-1 ml-auto">
+      <div className="flex gap-2">
+        <button
+          onClick={() => run("csv", onCsv)}
+          disabled={!!busy}
+          className="border border-gray-200 dark:border-[#334155] hover:bg-gray-50 dark:hover:bg-[#0f172a] disabled:opacity-60 text-gray-700 dark:text-[#e2e8f0] text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <span>📥</span> {busy === "csv" ? "Exporting..." : "Export CSV"}
+        </button>
+        <button
+          onClick={() => run("excel", onExcel)}
+          disabled={!!busy}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <span>📊</span> {busy === "excel" ? "Exporting..." : "Export Excel"}
+        </button>
+      </div>
+      {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+/** The enrollment period the dashboard tab can be limited to, as the report's start / end dates (audit L12). */
+export const PERIODS = [
+  { key: "all", label: "All time" },
+  { key: "30d", label: "Last 30 days" },
+  { key: "90d", label: "Last 90 days" },
+  { key: "12m", label: "Last 12 months" },
+  { key: "year", label: "This year" },
+];
+
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export function periodParams(key, today = new Date()) {
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (key === "30d") start.setDate(start.getDate() - 29);
+  else if (key === "90d") start.setDate(start.getDate() - 89);
+  else if (key === "12m") start.setFullYear(start.getFullYear() - 1);
+  else if (key === "year") start.setMonth(0, 1);
+  else return {};
+  return { start_date: isoDay(start), end_date: isoDay(today) };
+}
+
 function DashboardTab() {
-  const [courses, setCourses] = useState([]);
   const [report, setReport] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState("monthly");
+  const [period, setPeriod] = useState("all");
 
-  const fetchData = async () => {
+  const fetchData = async (key) => {
     setLoading(true);
     setError(null);
     try {
-      const [coursesRes, reportRes] = await Promise.all([getCourses(), getCourseCompletionReport()]);
-      setCourses(Array.isArray(coursesRes) ? coursesRes : coursesRes?.items || coursesRes?.data || []);
+      const reportRes = await getCourseCompletionReport(periodParams(key));
       setReport(Array.isArray(reportRes) ? reportRes : []);
     } catch (err) {
       setError(err.message || "Failed to load report data");
@@ -38,86 +95,74 @@ function DashboardTab() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(period); }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chartData = useMemo(() => {
-    if (report.length === 0 && courses.length === 0) return [];
-    const source = report.length > 0 ? report : courses;
-    return source.slice(0, 10).map((r) => ({
-      name: r.course_name || r.course || r.title || r.name || "Course",
-      rate: parseFloat(r.completion_rate || r.completionRate || 0).toFixed(1),
-      enrolled: r.total_enrollments || r.enrolled || r.enrollments || 0,
-      completed: r.completed || r.completions || 0,
-    }));
-  }, [report, courses]);
+    return [...report]
+      .sort((a, b) => (b.total_enrollments || 0) - (a.total_enrollments || 0))
+      .slice(0, 10)
+      .map((r) => ({
+        name: r.course_name || "Course",
+        rate: Number(parseFloat(r.completion_rate || 0).toFixed(1)),
+        enrolled: r.total_enrollments || 0,
+        completed: r.completed || 0,
+      }));
+  }, [report]);
 
-  const handleDownloadCsv = useCallback(() => {
-    if (chartData.length === 0) return;
-    const headers = ["Course,Completion Rate,Enrolled,Completed"];
-    const rows = chartData.map((r) => `${r.name},${r.rate}%,${r.enrolled},${r.completed}`);
-    const blob = new Blob([headers.join(""), ...rows.map(r => "\n" + r)], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "learning_dashboard.csv"; a.click();
-    URL.revokeObjectURL(url);
-  }, [chartData]);
-
-  const handleDownloadExcel = useCallback(() => {
-    if (chartData.length === 0) return;
-    const rows = [["Course", "Completion Rate (%)", "Enrolled", "Completed"]];
-    chartData.forEach((r) => rows.push([r.name, r.rate, r.enrolled, r.completed]));
-    const csv = rows.map(row => row.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "learning_dashboard.csv"; a.click();
-    URL.revokeObjectURL(url);
-  }, [chartData]);
-
-  if (loading) {
-    return <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>;
-  }
-
-  if (error) {
-    return <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</div>;
-  }
+  const totals = useMemo(() => {
+    const enrolled = report.reduce((s, r) => s + (r.total_enrollments || 0), 0);
+    const completed = report.reduce((s, r) => s + (r.completed || 0), 0);
+    return { enrolled, completed, rate: enrolled ? ((completed / enrolled) * 100).toFixed(1) : "0.0" };
+  }, [report]);
 
   return (
     <div className="space-y-6">
-      {/* Filters Row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-gray-600">Date Range:</label>
+          <label htmlFor="report-period" className="text-sm font-medium text-gray-600 dark:text-[#cbd5e1]">Enrollments made:</label>
           <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            id="report-period"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className="border border-gray-200 dark:border-[#334155] dark:bg-[#0f172a] dark:text-[#f1f5f9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="daily">Daily</option>
-            <option value="monthly">Monthly</option>
-            <option value="yearly">Yearly</option>
+            {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
         </div>
-        <div className="flex gap-2">
-          <button onClick={handleDownloadCsv} className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
-            <span>📥</span> CSV
-          </button>
-          <button onClick={handleDownloadExcel} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
-            <span>📊</span> Excel
-          </button>
-        </div>
+        {/* the server's exports: the same period, every course, a real .xlsx, cells quoted and formula-safe */}
+        <ExportButtons onCsv={() => exportCourseCompletionReportCsv(periodParams(period))} onExcel={() => exportCourseCompletionReportExcel(periodParams(period))} />
       </div>
 
-      {chartData.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-gray-500 font-medium">No data available for charts.</p>
+      {loading ? (
+        <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
+      ) : error ? (
+        <div role="alert" className="px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg">{error}</div>
+      ) : report.length === 0 ? (
+        <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
+          <p className="text-gray-500 dark:text-[#94a3b8] font-medium">No data available for charts.</p>
         </div>
       ) : (
         <>
-          {/* Bar Chart */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Course Completion Rates</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm p-4">
+              <p className="text-xs text-gray-500 dark:text-[#94a3b8] font-medium uppercase tracking-wide">Total Courses</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-[#f1f5f9] mt-1" data-testid="total-courses">{report.length}</p>
+            </div>
+            <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm p-4">
+              <p className="text-xs text-gray-500 dark:text-[#94a3b8] font-medium uppercase tracking-wide">Enrollments in Period</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1" data-testid="total-enrollments">{totals.enrolled}</p>
+            </div>
+            <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm p-4">
+              <p className="text-xs text-gray-500 dark:text-[#94a3b8] font-medium uppercase tracking-wide">Overall Completion</p>
+              <p className="text-2xl font-bold text-emerald-600 mt-1" data-testid="overall-completion">{totals.rate}%</p>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm p-6">
+            <h3 className="text-sm font-bold text-gray-800 dark:text-[#f1f5f9] mb-4">Completion Rate of the Most Enrolled Courses</h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#94a3b833" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" interval={0} height={60} />
                 <YAxis unit="%" tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value) => `${value}%`} />
@@ -126,39 +171,20 @@ function DashboardTab() {
             </ResponsiveContainer>
           </div>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Courses</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{courses.length || report.length}</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Enrollments</p>
-              <p className="text-2xl font-bold text-blue-600 mt-1">{chartData.reduce((s, r) => s + (r.enrolled || 0), 0)}</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Avg Completion</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-1">
-                {chartData.length > 0 ? (chartData.reduce((s, r) => s + parseFloat(r.rate || 0), 0) / chartData.length).toFixed(1) : 0}%
-              </p>
-            </div>
-          </div>
-
-          {/* Flow Chart / Progress bars */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Enrollment vs Completion</h3>
+          <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm p-6">
+            <h3 className="text-sm font-bold text-gray-800 dark:text-[#f1f5f9] mb-4">Enrollment vs Completion</h3>
             <div className="space-y-3">
-              {chartData.slice(0, 5).map((r, i) => (
-                <div key={i}>
-                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+              {chartData.slice(0, 5).map((r) => (
+                <div key={r.name}>
+                  <div className="flex justify-between text-xs text-gray-600 dark:text-[#cbd5e1] mb-1">
                     <span className="font-medium truncate max-w-[200px]">{r.name}</span>
                     <span>{r.completed}/{r.enrolled}</span>
                   </div>
                   <div className="flex gap-1">
-                    <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                      <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min((r.enrolled ? (r.completed / r.enrolled) * 100 : 0), 100)}%` }} />
+                    <div className="flex-1 bg-gray-100 dark:bg-[#0f172a] rounded-full h-2.5 overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(r.rate, 100)}%` }} />
                     </div>
-                    <span className="text-xs font-medium text-gray-500 w-10 text-right">{r.rate}%</span>
+                    <span className="text-xs font-medium text-gray-500 dark:text-[#94a3b8] w-10 text-right">{r.rate}%</span>
                   </div>
                 </div>
               ))}
@@ -223,18 +249,18 @@ function CompletionTab() {
   }
 
   if (error) {
-    return <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</div>;
+    return <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg">{error}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        <div className="bg-white px-4 py-2 border border-gray-100 rounded-lg shadow-sm text-sm">
-          <span className="text-gray-400">Total Courses: </span>
-          <span className="font-bold text-gray-800">{stats.total}</span>
+        <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-gray-100 dark:border-[#334155] rounded-lg shadow-sm text-sm">
+          <span className="text-gray-400 dark:text-[#94a3b8]">Total Courses: </span>
+          <span className="font-bold text-gray-800 dark:text-[#f1f5f9]">{stats.total}</span>
         </div>
-        <div className="bg-white px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm">
-          <span className="text-gray-400">Avg Completion Rate: </span>
+        <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm">
+          <span className="text-gray-400 dark:text-[#94a3b8]">Avg Completion Rate: </span>
           <span className="font-bold text-blue-600">{stats.avgRate}%</span>
         </div>
       </div>
@@ -245,52 +271,39 @@ function CompletionTab() {
             placeholder="Search by course name..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-[#0f172a] dark:text-[#f1f5f9]"
           />
         )}
-        <div className="flex gap-2 ml-auto">
-          <button
-            onClick={exportCourseCompletionReportCsv}
-            className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📥</span> Export CSV
-          </button>
-          <button
-            onClick={exportCourseCompletionReportExcel}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📊</span> Export Excel
-          </button>
-        </div>
+        <ExportButtons onCsv={exportCourseCompletionReportCsv} onExcel={exportCourseCompletionReportExcel} />
       </div>
       {filtered.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-gray-500 font-medium">
+        <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
+          <p className="text-gray-500 dark:text-[#94a3b8] font-medium">
             {data.length === 0 ? "No course completion data available." : "No matches."}
           </p>
         </div>
       ) : (
         <>
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-100">
+                <thead className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
                   <tr>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-600">Course</th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-600">Total Enrollments</th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-600">Completed</th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-600">Completion Rate</th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Course</th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Total Enrollments</th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Completed</th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Completion Rate</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-gray-50 dark:divide-[#334155]">
                   {paginated.map((r, i) => (
-                    <tr key={r.course_id || i} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-800">{r.course_name || r.course || `#${r.course_id}`}</td>
-                      <td className="px-4 py-3 text-gray-700">{r.total_enrollments ?? "-"}</td>
-                      <td className="px-4 py-3 text-gray-700">{r.completed ?? "-"}</td>
+                    <tr key={r.course_id || i} className="hover:bg-gray-50 dark:hover:bg-[#0f172a] transition-colors">
+                      <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">{r.course_name || r.course || `#${r.course_id}`}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{r.total_enrollments ?? "-"}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{r.completed ?? "-"}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                          <div className="w-20 bg-gray-200 dark:bg-[#334155] rounded-full h-2">
                             <div className={`h-2 rounded-full ${
                               parseFloat(r.completion_rate) >= 80 ? "bg-green-500" : parseFloat(r.completion_rate) >= 50 ? "bg-yellow-500" : "bg-red-500"
                             }`} style={{ width: `${Math.min(parseFloat(r.completion_rate) || 0, 100)}%` }} />
@@ -306,15 +319,15 @@ function CompletionTab() {
           </div>
           {totalPages > 1 && (
             <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-400 dark:text-[#94a3b8]">
                 Showing {(safePage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(safePage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length}
               </span>
               <div className="flex gap-1">
-                <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Prev</button>
+                <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} className="px-3 py-1 text-sm border border-gray-200 dark:border-[#334155] rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-[#0f172a]">Prev</button>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                  <button key={p} onClick={() => setCurrentPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === safePage ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 hover:bg-gray-50"}`}>{p}</button>
+                  <button key={p} onClick={() => setCurrentPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === safePage ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-[#334155] hover:bg-gray-50 dark:hover:bg-[#0f172a]"}`}>{p}</button>
                 ))}
-                <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Next</button>
+                <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} className="px-3 py-1 text-sm border border-gray-200 dark:border-[#334155] rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-[#0f172a]">Next</button>
               </div>
             </div>
           )}
@@ -326,7 +339,6 @@ function CompletionTab() {
 
 function CertificationTab() {
   const [data, setData] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -334,9 +346,9 @@ function CertificationTab() {
     setLoading(true);
     setError(null);
     try {
-      const [res, emps] = await Promise.all([getCertificationReport(), getHrEmployees()]);
+      // each row names its holder (any role, including people who have left), so no separate people list is loaded
+      const res = await getCertificationReport();
       setData(Array.isArray(res) ? res : []);
-      setEmployees(emps?.items || (Array.isArray(emps) ? emps : []));
     } catch (err) {
       setError(err.message || "Failed to load certification report");
       setData([]);
@@ -347,18 +359,10 @@ function CertificationTab() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const employeeMap = useMemo(() => {
-    const m = {};
-    employees.forEach((e) => {
-      m[e.id] = e;
-    });
-    return m;
-  }, [employees]);
-
   const getCertRowStyle = (expiry) => {
     if (!expiry) return "";
     const daysLeft = Math.ceil((new Date(expiry) - new Date()) / (1000 * 60 * 60 * 24));
-    if (daysLeft < 0) return "bg-red-50";
+    if (daysLeft < 0) return "bg-red-50 dark:bg-red-900/20";
     if (daysLeft < 30) return "bg-yellow-50";
     return "";
   };
@@ -369,11 +373,11 @@ function CertificationTab() {
   };
 
   const getStatusBadge = (expiry) => {
-    if (!expiry) return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Valid</span>;
+    if (!expiry) return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:text-green-300">Valid</span>;
     const days = getDaysLeft(expiry);
     if (days < 0) return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Expired</span>;
     if (days < 30) return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">{days}d left</span>;
-    return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Valid</span>;
+    return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:text-green-300">Valid</span>;
   };
 
   if (loading) {
@@ -381,61 +385,49 @@ function CertificationTab() {
   }
 
   if (error) {
-    return <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</div>;
+    return <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg">{error}</div>;
   }
 
   return (
     <div className="space-y-4">
       {data.length > 0 && (
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={exportCertificationReportCsv}
-            className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📥</span> Export CSV
-          </button>
-          <button
-            onClick={exportCertificationReportExcel}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📊</span> Export Excel
-          </button>
+        <div className="flex justify-end">
+          <ExportButtons onCsv={exportCertificationReportCsv} onExcel={exportCertificationReportExcel} />
         </div>
       )}
       {data.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-gray-500 font-medium">No certification data available.</p>
+        <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
+          <p className="text-gray-500 dark:text-[#94a3b8] font-medium">No certification data available.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
                 <tr>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Certification</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Employee</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Issued</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Expiry</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Days Left</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Certification</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Employee</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Issued</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Expiry</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Days Left</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-[#334155]">
                 {data.map((c, i) => {
-                  const emp = employeeMap[c.employee_id];
-                  const empName = emp ? `${emp.first_name || ""} ${emp.last_name || ""}`.trim() : `#${c.employee_id}`;
+                  const empName = c.employee_name || `Employee #${c.employee_id}`;
                   return (
-                    <tr key={c.id || i} className={`hover:bg-gray-50 transition-colors ${getCertRowStyle(c.expiry_date)}`}>
-                      <td className="px-4 py-3 font-medium text-gray-800">{c.certification_name || c.name}</td>
-                      <td className="px-4 py-3 text-gray-700">{empName}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{c.issue_date || c.issued_date || c.issued}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{c.expiry_date || c.expiry || <span className="text-gray-300">-</span>}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">
+                    <tr key={c.id || i} className={`hover:bg-gray-50 dark:hover:bg-[#0f172a] transition-colors ${getCertRowStyle(c.expiry_date)}`}>
+                      <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">{c.certification_name || c.name}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{empName}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{c.issue_date || c.issued_date || c.issued}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{c.expiry_date || c.expiry || <span className="text-gray-300 dark:text-[#475569]">-</span>}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">
                         {c.expiry_date ? (
                           <span className={getDaysLeft(c.expiry_date) < 0 ? "text-red-600 font-medium" : getDaysLeft(c.expiry_date) < 30 ? "text-yellow-600 font-medium" : ""}>
                             {getDaysLeft(c.expiry_date)}
                           </span>
-                        ) : <span className="text-gray-300">-</span>}
+                        ) : <span className="text-gray-300 dark:text-[#475569]">-</span>}
                       </td>
                       <td className="px-4 py-3">{getStatusBadge(c.expiry_date)}</td>
                     </tr>
@@ -476,13 +468,13 @@ function SkillGapTab() {
   }
 
   if (error) {
-    return <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</div>;
+    return <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg">{error}</div>;
   }
 
   if (data.length === 0) {
     return (
-      <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-        <p className="text-gray-500 font-medium">No skill gap data available.</p>
+      <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
+        <p className="text-gray-500 dark:text-[#94a3b8] font-medium">No skill gap data available.</p>
       </div>
     );
   }
@@ -490,45 +482,34 @@ function SkillGapTab() {
   return (
     <div className="space-y-4">
       {data.length > 0 && (
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={exportSkillGapReportCsv}
-            className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📥</span> Export CSV
-          </button>
-          <button
-            onClick={exportSkillGapReportExcel}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <span>📊</span> Export Excel
-          </button>
+        <div className="flex justify-end">
+          <ExportButtons onCsv={exportSkillGapReportCsv} onExcel={exportSkillGapReportExcel} />
         </div>
       )}
       {data.map((dept, i) => (
-        <div key={dept.department_id || i} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-800">{dept.department_name || dept.department || `#${dept.department_id}`}</h3>
+        <div key={dept.department_id || i} className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-[#f1f5f9]">{dept.department_name || dept.department || `#${dept.department_id}`}</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
                 <tr>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Skill</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Employee Count</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600">Gap Level</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Skill</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Employee Count</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Gap Level</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-[#334155]">
                 {(Array.isArray(dept.skills) ? dept.skills : []).map((skill, j) => (
-                  <tr key={skill.skill_id || skill.skill_name || j} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-700">{skill.skill_name || skill.skill}</td>
-                    <td className="px-4 py-3 text-gray-700">{skill.employee_count ?? skill.count ?? "-"}</td>
+                  <tr key={skill.skill_id || skill.skill_name || j} className="hover:bg-gray-50 dark:hover:bg-[#0f172a] transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-700 dark:text-[#e2e8f0]">{skill.skill_name || skill.skill}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{skill.employee_count ?? skill.count ?? "-"}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
                         skill.gap_level === "high" ? "bg-red-100 text-red-800" :
                         skill.gap_level === "medium" ? "bg-yellow-100 text-yellow-800" :
-                        "bg-green-100 text-green-800"
+                        "bg-green-100 text-green-800 dark:text-green-300"
                       }`}>
                         {skill.gap_level || "unknown"}
                       </span>
@@ -556,7 +537,7 @@ export default function ZoikoHRReports({ isTab }) {
 
   const content = (
     <>
-      <div className="mb-6 border-b border-gray-200">
+      <div className="mb-6 border-b border-gray-200 dark:border-[#334155]">
         <div className="flex gap-1 overflow-x-auto">
           {tabs.map((t) => (
             <button
@@ -565,7 +546,7 @@ export default function ZoikoHRReports({ isTab }) {
               className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === t.key
                   ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  : "border-transparent text-gray-500 dark:text-[#94a3b8] hover:text-gray-700 hover:border-gray-300"
               }`}
             >
               {t.label}

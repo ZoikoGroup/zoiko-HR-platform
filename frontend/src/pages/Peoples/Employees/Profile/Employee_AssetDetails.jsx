@@ -123,15 +123,17 @@ export default function AssetDetails() {
     })
       .then((res) => {
         if (!mounted.current) return;
-        const newReq = res?.data || {
-          id: Date.now(),
-          asset_type: form.assetType,
-          reason: form.reason,
-          priority: form.priority.toLowerCase(),
-          status: "pending",
-          requested_on: new Date().toISOString().split("T")[0],
-        };
-        setRequests((prev) => [newReq, ...prev]);
+        // The api client returns the saved request itself (not {data}); show exactly what the server stored, never a
+        // made-up row, then re-read the list so it matches the server.
+        const created = res?.id ? res : res?.data?.id ? res.data : null;
+        if (created) setRequests((prev) => [created, ...prev.filter((r) => r.id !== created.id)]);
+        getAssetRequests(employeeId ? { employee_id: employeeId } : {})
+          .then((list) => {
+            if (!mounted.current) return;
+            const reqs = list?.items || list?.data || (Array.isArray(list) ? list : null);
+            if (Array.isArray(reqs)) setRequests(reqs);
+          })
+          .catch(() => {});
         setForm(emptyForm);
         setShowModal(false);
         setSuccess("Your asset request has been submitted successfully! It is under process and will be reviewed by the admin.");

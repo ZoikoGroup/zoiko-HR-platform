@@ -1,18 +1,17 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useAuth } from "../../context/AuthContext";
+import { useState, useEffect, useRef, useCallback } from "react";
 import PageHeader from "../../components/PageHeader";
 import { employeeName, employeeInitials, employeeEmail } from "../../utils/fieldAccess";
 import {
-  getAssets, createAsset, updateAsset, getAssetCategories, getHrEmployees, assignAsset,
+  getAssets, createAsset, getAssetCategories, getAssetDashboard, assignAsset,
 } from "../../service/hrService";
+import { PAGE_SIZE, Pager, isFutureDate, todayISO, useDebounced, useEmployeeOptions } from "./assetPickers";
 import {
-  Package, Search, Plus, X, Loader2, CheckCircle, AlertCircle, User, ChevronDown, Pencil, Trash2,
+  EditAssetDialog, DeleteAssetDialog, ReturnAssetDialog, TransferAssetDialog, CategoryManagerDialog,
+} from "./AssetActionDialogs";
+import {
+  Package, Search, Plus, X, Loader2, CheckCircle, AlertCircle, User, ChevronDown,
+  Pencil, Trash2, Undo2, ArrowLeftRight, Tags,
 } from "lucide-react";
-import { DeleteAssetDialog } from "./AssetActionDialogs";
-import {
-  ASSET_CONDITION_OPTIONS, EMPTY_ASSET_FORM, assetFormPayload, assetStatusOptions, assetToForm, categoryChoices,
-  isAssetAssigned, validateAssetForm,
-} from "../../utils/assetForm";
 
 const STATUS_COLORS = {
   available: "bg-green-100 text-green-800",
@@ -22,91 +21,102 @@ const STATUS_COLORS = {
   lost: "bg-red-100 text-red-800",
 };
 
-const CONDITION_OPTIONS = ASSET_CONDITION_OPTIONS;
-const initialForm = EMPTY_ASSET_FORM;
+const STATUS_OPTIONS = ["available", "assigned", "maintenance", "retired", "lost"];
+// A new asset starts without a holder in one of these states; choosing an employee makes it "assigned" on the server.
+const CREATE_STATUS_OPTIONS = ["available", "maintenance", "retired", "lost"];
+const CONDITION_OPTIONS = ["new", "good", "fair", "poor", "damaged"];
+
+const initialForm = {
+  name: "", assetTag: "", category: "", serialNumber: "",
+  status: "available", condition: "new", purchaseDate: "", purchasePrice: "",
+  notes: "", employee_id: "",
+};
 
 export default function OrgAdminAssetsPage() {
-  const { user } = useAuth();
   const [assets, setAssets] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [counts, setCounts] = useState(null);
+  const [categories, setCategories] = useState([]);          // names, for the selects
+  const [categoryRows, setCategoryRows] = useState([]);      // {id, name, ...}, for the category manager
+  const [action, setAction] = useState(null);                // { kind: "edit" | "delete" | "return" | "transfer", asset } | { kind: "categories" }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ ...initialForm });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [editAsset, setEditAsset] = useState(null);       // null = the modal adds a new asset
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [notice, setNotice] = useState(null);
+  const settledSearch = useDebounced(search);
+  const employeeId = selectedEmployee?.id;
+  const latest = useRef(0);
 
-  const fetchData = async () => {
+  // One page at a time from the server; search, status and holder are filtered there, not in the browser.
+  const fetchAssets = useCallback(async () => {
+    const mine = ++latest.current;             // a slower, older answer never overwrites a newer one
     setLoading(true);
-    setError(null);
-    const errors = [];
     try {
-      const [assetData, empData, catData] = await Promise.all([
-        getAssets().catch((e) => { errors.push(`Assets: ${e.message}`); return null; }),
-        getHrEmployees({ per_page: 200, include_all_roles: true }).catch((e) => { errors.push(`Employees: ${e.message}`); return null; }),
-        getAssetCategories().catch((e) => { errors.push(`Categories: ${e.message}`); return null; }),
-      ]);
-      if (assetData) setAssets(assetData?.items || (Array.isArray(assetData) ? assetData : []));
-      if (empData) {
-        const empList = empData?.items || (Array.isArray(empData) ? empData : []);
-        setEmployees(empList);
-      }
-      if (catData) {
-        const cats = Array.isArray(catData) ? catData : catData?.items || catData?.data || [];
-        setCategories(cats.map((c) => c.name));
-      }
-      if (errors.length) setError(errors.join(" | "));
+      const data = await getAssets({
+        page,
+        per_page: PAGE_SIZE,
+        search: settledSearch.trim() || undefined,
+        status: statusFilter || undefined,
+        employee_id: employeeId || undefined,
+      });
+      if (mine !== latest.current) return;
+      setAssets(data?.items || []);
+      setTotal(data?.total ?? 0);
     } catch (err) {
-      setError(err.message || "Failed to load data");
+      if (mine !== latest.current) return;
+      setError(`Assets: ${err.message || "failed to load"}`);
       setAssets([]);
+      setTotal(0);
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
-  };
+  }, [page, settledSearch, statusFilter, employeeId]);
 
-  useEffect(() => { fetchData(); }, []);
+  // The cards count every asset in the organization (the asset dashboard), not the rows on this page.
+  const fetchCounts = useCallback(async () => {
+    try {
+      setCounts(await getAssetDashboard());
+    } catch {
+      setCounts(null);
+    }
+  }, []);
 
-  const filtered = useMemo(() => {
-    let result = assets;
-    if (selectedEmployee) {
-      const eid = selectedEmployee.id;
-      result = result.filter((a) =>
-        a.employee_id === eid || a.employeeId === eid
-      );
+  useEffect(() => { fetchAssets(); }, [fetchAssets]);
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
+  const loadCategories = useCallback(async () => {
+    try {
+      const catData = await getAssetCategories();
+      const cats = Array.isArray(catData) ? catData : catData?.items || catData?.data || [];
+      setCategoryRows(cats);
+      setCategories(cats.map((c) => c.name));
+    } catch (e) {
+      setError(`Categories: ${e.message}`);
     }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((a) =>
-        (a.name || a.itemName || "").toLowerCase().includes(q) ||
-        (a.assetTag || a.asset_tag || "").toLowerCase().includes(q) ||
-        (a.serialNumber || a.serial_number || "").toLowerCase().includes(q) ||
-        (a.employeeName || a.employee_name || "").toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [assets, search, selectedEmployee]);
+  }, []);
+  useEffect(() => { loadCategories(); }, [loadCategories]);
+  useEffect(() => { setPage(1); }, [settledSearch, statusFilter, employeeId]);
+
+  const refresh = async () => { await Promise.all([fetchAssets(), fetchCounts()]); };
 
   const openCreate = () => {
-    setEditAsset(null);
     setForm({ ...initialForm });
     setFormErrors({});
     setShowModal(true);
   };
 
-  const openEdit = (asset) => {
-    setEditAsset(asset);
-    setForm(assetToForm(asset));
-    setFormErrors({});
-    setShowModal(true);
+  const validate = (d) => {
+    const e = {};
+    if (!d.name?.trim()) e.name = "Name is required";
+    if (!d.assetTag?.trim()) e.assetTag = "Asset tag is required";
+    if (isFutureDate(d.purchaseDate)) e.purchaseDate = "Purchase date cannot be in the future";
+    return e;
   };
-
-  const validate = (d) => validateAssetForm(d, { assets, editingId: editAsset?.id ?? null });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -115,21 +125,22 @@ export default function OrgAdminAssetsPage() {
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      if (editAsset) {
-        await updateAsset(editAsset.id, assetFormPayload(form, { mode: "edit" }));
-        setNotice(`Asset "${form.name.trim()}" updated.`);
-      } else {
-        const created = await createAsset(assetFormPayload(form, { mode: "create" }));
-        const assetId = created?.id || created?.data?.id;
-        if (assetId && form.employee_id) {
-          await assignAsset(assetId, { employee_id: parseInt(form.employee_id) });
-        }
-        setNotice(`Asset "${form.name.trim()}" added.`);
-      }
-
+      // One call: with an employee the server creates the asset already assigned to them, or creates nothing at all.
+      const payload = {
+        name: form.name.trim(),
+        asset_tag: form.assetTag.trim(),
+        category: form.category || null,
+        serial_number: form.serialNumber || null,
+        status: form.employee_id ? "assigned" : form.status,
+        condition: form.condition,
+        purchase_date: form.purchaseDate || null,
+        purchase_cost: form.purchasePrice ? Number(form.purchasePrice) : null,
+        notes: form.notes || null,
+        employee_id: form.employee_id ? parseInt(form.employee_id, 10) : null,
+      };
+      await createAsset(payload);
       setShowModal(false);
-      setEditAsset(null);
-      await fetchData();
+      await refresh();
     } catch (err) {
       setFormErrors({ submit: err.message || "Failed to save asset" });
     } finally {
@@ -137,18 +148,22 @@ export default function OrgAdminAssetsPage() {
     }
   };
 
+  // Resolves to null on success, or the server's message (shown inside the Assign dropdown).
   const handleAssign = async (assetId, employeeId) => {
     try {
-      await assignAsset(assetId, { employee_id: parseInt(employeeId) });
-      await fetchData();
+      await assignAsset(assetId, { employee_id: parseInt(employeeId, 10) });
     } catch (err) {
-      setError(err.message || "Failed to assign asset");
+      return err.message || "Failed to assign asset";
     }
+    await refresh();
+    return null;
   };
 
-  const totalCount = assets.length;
-  const assignedCount = assets.filter((a) => a.status === "assigned").length;
-  const availableCount = assets.filter((a) => a.status === "available").length;
+  const closeAction = () => setAction(null);
+  const afterAction = async () => { setAction(null); await refresh(); };
+
+  const filtering = Boolean(settledSearch.trim() || statusFilter || employeeId);
+  const cardValue = (v) => (v === undefined || v === null ? "..." : v);
 
   return (
     <div className="space-y-6">
@@ -157,52 +172,54 @@ export default function OrgAdminAssetsPage() {
         description="Manage your organization's assets and assign them to employees"
       />
 
-      {notice && (
-        <div role="status" className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-700 flex items-center justify-between">
-          <span>{notice}</span>
-          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="text-green-600 hover:text-green-800 font-bold">&times;</button>
-        </div>
-      )}
-
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
+        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-700 dark:text-red-300 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-[#334155] bg-white dark:bg-[#1e293b] p-5 shadow-sm">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Total Assets</p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-800">{loading ? "..." : totalCount}</p>
+          <p className="mt-1 text-2xl font-extrabold text-slate-800 dark:text-slate-100" data-testid="count-total">{cardValue(counts?.total_assets)}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-[#334155] bg-white dark:bg-[#1e293b] p-5 shadow-sm">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Assigned</p>
-          <p className="mt-1 text-2xl font-extrabold text-blue-600">{loading ? "..." : assignedCount}</p>
+          <p className="mt-1 text-2xl font-extrabold text-blue-600" data-testid="count-assigned">{cardValue(counts?.assigned_count)}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-[#334155] bg-white dark:bg-[#1e293b] p-5 shadow-sm">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Available</p>
-          <p className="mt-1 text-2xl font-extrabold text-green-600">{loading ? "..." : availableCount}</p>
+          <p className="mt-1 text-2xl font-extrabold text-green-600" data-testid="count-available">{cardValue(counts?.available_count)}</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text" placeholder="Search by name, tag, serial..."
             value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+            className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-[#334155] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
           />
         </div>
-        <EmployeeFilter employees={employees} value={selectedEmployee} onChange={setSelectedEmployee} />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status"
+          className="px-3 py-2 border border-slate-200 dark:border-[#334155] rounded-xl text-sm bg-white dark:bg-[#1e293b] focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400">
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>))}
+        </select>
+        <EmployeeFilter value={selectedEmployee} onChange={setSelectedEmployee} />
         {selectedEmployee && (
           <button onClick={() => setSelectedEmployee(null)}
             className="text-xs text-slate-400 hover:text-red-500 font-medium transition">
             Clear filter
           </button>
         )}
-        <div className="ml-auto">
+        <div className="sm:ml-auto flex flex-wrap items-center gap-2">
+          <button onClick={() => setAction({ kind: "categories" })}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-[#334155] bg-white dark:bg-[#1e293b] hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-semibold transition">
+            <Tags size={16} /> Categories
+          </button>
           <button onClick={openCreate}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition shadow-sm">
             <Plus size={16} /> Add Asset
@@ -213,21 +230,21 @@ export default function OrgAdminAssetsPage() {
       {loading && assets.length === 0 ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-          <span className="ml-3 text-sm text-slate-500 font-medium">Loading assets...</span>
+          <span className="ml-3 text-sm text-slate-500 dark:text-slate-400 font-medium">Loading assets...</span>
         </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm">
+      ) : assets.length === 0 ? (
+        <div className="text-center py-20 bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-100 dark:border-[#334155] shadow-sm">
           <Package className="mx-auto h-10 w-10 text-slate-300" />
-          <p className="mt-3 text-sm font-medium text-slate-500">
-            {assets.length === 0 ? "No assets yet. Add your first asset." : "No assets match your search."}
+          <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">
+            {filtering ? "No assets match your search." : "No assets yet. Add your first asset."}
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-100 dark:border-[#334155] shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-100">
+            <table className="min-w-full divide-y divide-slate-100 dark:divide-[#334155]">
               <thead>
-                <tr className="border-b border-slate-100">
+                <tr className="border-b border-slate-100 dark:border-[#334155]">
                   <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-400 uppercase tracking-widest">Asset</th>
                   <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-400 uppercase tracking-widest">Tag</th>
                   <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-400 uppercase tracking-widest">Category</th>
@@ -236,21 +253,21 @@ export default function OrgAdminAssetsPage() {
                   <th className="px-5 py-3.5 text-right text-xs font-bold text-slate-400 uppercase tracking-widest">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filtered.map((a) => {
+              <tbody className="divide-y divide-slate-50 dark:divide-[#334155]">
+                {assets.map((a) => {
                   const status = a.status || "available";
                   const empName = a.employeeName || a.employee_name || "";
                   return (
-                    <tr key={a.id} className="hover:bg-slate-50/60 transition">
+                    <tr key={a.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition">
                       <td className="px-5 py-3.5">
-                        <p className="text-sm font-semibold text-slate-800">{a.name || a.itemName || "-"}</p>
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{a.name || a.itemName || "-"}</p>
                         {a.serialNumber || a.serial_number ? (
                           <p className="text-xs text-slate-400 font-mono mt-0.5">{a.serialNumber || a.serial_number}</p>
                         ) : null}
                       </td>
                       <td className="px-5 py-3.5 text-sm font-mono text-amber-600">{a.assetTag || a.asset_tag || "-"}</td>
-                      <td className="px-5 py-3.5 text-sm text-slate-500">{a.category || "-"}</td>
-                      <td className="px-5 py-3.5 text-sm text-slate-600">
+                      <td className="px-5 py-3.5 text-sm text-slate-500 dark:text-slate-400">{a.category || "-"}</td>
+                      <td className="px-5 py-3.5 text-sm text-slate-600 dark:text-slate-300">
                         {empName ? (
                           <span className="inline-flex items-center gap-1.5">
                             <User size={12} className="text-slate-400" />
@@ -268,27 +285,20 @@ export default function OrgAdminAssetsPage() {
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {status === "available" && (
-                            <AssignDropdown
-                              employees={employees}
-                              asset={a}
-                              onAssign={handleAssign}
-                            />
+                            <AssignDropdown asset={a} onAssign={handleAssign} />
                           )}
                           {status === "assigned" && (
-                            <span className="text-xs text-slate-400 flex items-center justify-end gap-1 mr-1">
-                              <CheckCircle size={12} className="text-blue-500" /> Assigned
-                            </span>
+                            <>
+                              <IconButton label={`Transfer ${a.asset_tag}`} title="Transfer" onClick={() => setAction({ kind: "transfer", asset: a })}
+                                className="text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30"><ArrowLeftRight size={14} /></IconButton>
+                              <IconButton label={`Return ${a.asset_tag}`} title="Return (unassign)" onClick={() => setAction({ kind: "return", asset: a })}
+                                className="text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"><Undo2 size={14} /></IconButton>
+                            </>
                           )}
-                          <button type="button" onClick={() => openEdit(a)} title="Edit asset" aria-label={`Edit ${a.name || "asset"}`}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition">
-                            <Pencil size={14} />
-                          </button>
-                          <button type="button" onClick={() => setDeleteTarget(a)}
-                            title={isAssetAssigned(a) ? "Return this asset before deleting it" : "Delete asset"}
-                            aria-label={`Delete ${a.name || "asset"}`}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition">
-                            <Trash2 size={14} />
-                          </button>
+                          <IconButton label={`Edit ${a.asset_tag}`} title="Edit" onClick={() => setAction({ kind: "edit", asset: a })}
+                            className="text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><Pencil size={14} /></IconButton>
+                          <IconButton label={`Delete ${a.asset_tag}`} title="Delete" onClick={() => setAction({ kind: "delete", asset: a })}
+                            className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"><Trash2 size={14} /></IconButton>
                         </div>
                       </td>
                     </tr>
@@ -297,175 +307,190 @@ export default function OrgAdminAssetsPage() {
               </tbody>
             </table>
           </div>
+          <Pager page={page} total={total} onPage={setPage} label="assets" />
         </div>
+      )}
+
+      {action?.kind === "edit" && (
+        <EditAssetDialog asset={action.asset} categories={categories} onClose={closeAction} onSaved={afterAction} />
+      )}
+      {action?.kind === "delete" && (
+        <DeleteAssetDialog asset={action.asset} onClose={closeAction} onDeleted={afterAction} />
+      )}
+      {action?.kind === "return" && (
+        <ReturnAssetDialog asset={action.asset} onClose={closeAction} onReturned={afterAction} />
+      )}
+      {action?.kind === "transfer" && (
+        <TransferAssetDialog asset={action.asset} onClose={closeAction} onTransferred={afterAction} />
+      )}
+      {action?.kind === "categories" && (
+        <CategoryManagerDialog categories={categoryRows} onClose={closeAction}
+          onChanged={async () => { await loadCategories(); await fetchAssets(); }} />
       )}
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="bg-white dark:bg-[#1e293b] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#334155]">
               <div>
-                <h2 className="text-lg font-bold text-slate-800">{editAsset ? "Edit Asset" : "Add Asset"}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {editAsset ? "Change the asset's details. Use Assign or Return to change who holds it." : "Create and optionally assign to an employee"}
-                </p>
+                <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Add Asset</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Create and optionally assign to an employee</p>
               </div>
-              <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition">
+              <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition">
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} noValidate className="p-6 space-y-4">
               {formErrors.submit && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm font-semibold">
+                <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-red-700 dark:text-red-300 text-sm font-semibold">
                   <AlertCircle size={14} /> {formErrors.submit}
                 </div>
               )}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Name *</label>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Name *</label>
                   <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition ${formErrors.name ? "border-red-300" : "border-slate-200"}`} />
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition ${formErrors.name ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`} />
                   {formErrors.name && <p className="text-xs text-red-500 mt-1">{formErrors.name}</p>}
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Asset Tag *</label>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Asset Tag *</label>
                   <input type="text" value={form.assetTag} onChange={(e) => setForm({ ...form, assetTag: e.target.value })}
-                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition ${formErrors.assetTag ? "border-red-300" : "border-slate-200"}`} />
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition ${formErrors.assetTag ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`} />
                   {formErrors.assetTag && <p className="text-xs text-red-500 mt-1">{formErrors.assetTag}</p>}
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Category</label>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Category</label>
                   <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition">
+                    className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition">
                     <option value="">Select category</option>
-                    {categoryChoices(categories, form.category).map((v) => (<option key={v} value={v}>{v}</option>))}
+                    {categories.map((v) => (<option key={v} value={v}>{v}</option>))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Serial Number</label>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Serial Number</label>
                   <input type="text" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
-                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition ${formErrors.serialNumber ? "border-red-300" : "border-slate-200"}`} />
-                  {formErrors.serialNumber && <p className="text-xs text-red-500 mt-1">{formErrors.serialNumber}</p>}
+                    className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition" />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Assign to Employee</label>
+                <EmployeeSelectModal value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Department</label>
-                  <input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition" />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">
-                    {editAsset ? "Assigned To" : "Assign to Employee"}
-                  </label>
-                  {editAsset ? (
-                    <p className="px-3 py-2.5 text-sm text-slate-600 border border-slate-100 rounded-xl bg-slate-50">
-                      {editAsset.employee_name || editAsset.employeeName || "Not assigned"}
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Status</label>
+                  {form.employee_id ? (
+                    <p className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30">
+                      assigned (to the chosen employee)
                     </p>
                   ) : (
-                    <EmployeeSelectModal employees={employees} value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
+                    <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
+                      className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition">
+                      {CREATE_STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
+                    </select>
                   )}
                 </div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Status</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    disabled={!!editAsset && isAssetAssigned(editAsset)}
-                    title={editAsset && isAssetAssigned(editAsset) ? "Return the asset to change its status" : undefined}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition disabled:opacity-60">
-                    {assetStatusOptions(editAsset).map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Condition</label>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Condition</label>
                   <select value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition">
+                    className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition">
                     {CONDITION_OPTIONS.map((v) => (<option key={v} value={v}>{v}</option>))}
                   </select>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Purchase Price ($)</label>
-                  <input type="number" min="0" step="0.01" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
-                    className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition ${formErrors.purchasePrice ? "border-red-300" : "border-slate-200"}`} />
-                  {formErrors.purchasePrice && <p className="text-xs text-red-500 mt-1">{formErrors.purchasePrice}</p>}
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Purchase Price ($)</label>
+                  <input type="number" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
+                    className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition" />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Purchase Date</label>
-                  <input type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition" />
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Purchase Date</label>
+                  <input type="date" max={todayISO()} aria-label="Purchase Date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
+                    className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition" />
+                  {formErrors.purchaseDate && <p className="text-xs text-red-500 mt-1">{formErrors.purchaseDate}</p>}
                 </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Notes</label>
+                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5">Notes</label>
                 <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition resize-none" />
+                  className="w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition resize-none" />
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-[#334155] text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition">
                   Cancel
                 </button>
                 <button type="submit" disabled={submitting}
                   className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold transition shadow-sm flex items-center gap-2">
-                  {submitting ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : editAsset ? "Save Changes" : "Create Asset"}
+                  {submitting ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : "Create Asset"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {deleteTarget && (
-        <DeleteAssetDialog
-          asset={deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onDeleted={async (gone) => {
-            setDeleteTarget(null);
-            setNotice(`Asset "${gone.name || gone.asset_tag}" deleted.`);
-            await fetchData();
-          }}
-        />
-      )}
     </div>
   );
 }
 
-function EmployeeFilter({ employees, value, onChange }) {
-  const [input, setInput] = useState("");
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+function IconButton({ label, title, onClick, className = "", children }) {
+  return (
+    <button type="button" aria-label={label} title={title} onClick={onClick}
+      className={`p-1.5 rounded-lg transition ${className}`}>
+      {children}
+    </button>
+  );
+}
 
-  const suggestions = useMemo(() => {
-    if (!input) return [];
-    const q = input.toLowerCase();
-    return employees.filter((e) =>
-      employeeName(e, "").toLowerCase().includes(q) ||
-      (employeeEmail(e) || "").toLowerCase().includes(q)
-    ).slice(0, 10);
-  }, [employees, input]);
+function EmployeeOption({ emp, selected = false }) {
+  return (
+    <>
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+        selected ? "bg-blue-200 text-blue-700 dark:text-blue-300" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+      }`}>
+        {employeeInitials(emp)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium truncate">{employeeName(emp)}</p>
+        {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
+      </div>
+      {selected && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
+    </>
+  );
+}
 
+function useOutsideClose(ref, close) {
   useEffect(() => {
     const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target)) close();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [ref, close]);
+}
 
-  const displayName = value ? employeeName(value) : "";
+// Filter the list by holder: anyone in the organization (someone who has left may still hold assets), searched on the server.
+function EmployeeFilter({ value, onChange }) {
+  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClose(ref, close);
+  const { items: suggestions } = useEmployeeOptions(input, {
+    enabled: open && !value && Boolean(input.trim()), includeInactive: true,
+  });
 
   return (
-    <div ref={ref} className="relative w-64">
+    <div ref={ref} className="relative w-full sm:w-64">
       {value ? (
-        <div className="flex items-center gap-2 border border-blue-200 bg-blue-50 rounded-xl px-3 py-2 text-sm text-blue-700 font-medium">
+        <div className="flex items-center gap-2 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 rounded-xl px-3 py-2 text-sm text-blue-700 dark:text-blue-300 font-medium">
           <User size={14} />
-          <span className="flex-1 truncate">{displayName}</span>
-          <button onClick={() => { onChange(null); setInput(""); }}
+          <span className="flex-1 truncate">{employeeName(value)}</span>
+          <button onClick={() => { onChange(null); setInput(""); }} aria-label="Clear employee filter"
             className="text-blue-400 hover:text-blue-600 transition">
             <X size={14} />
           </button>
@@ -477,27 +502,18 @@ function EmployeeFilter({ employees, value, onChange }) {
             value={input}
             onChange={(e) => { setInput(e.target.value); setOpen(true); }}
             onFocus={() => setOpen(true)}
-            className="w-full pl-3 pr-8 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+            className="w-full pl-3 pr-8 py-2 border border-slate-200 dark:border-[#334155] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
           />
           <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </>
       )}
-      {open && !value && suggestions.length > 0 && (
-        <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-white rounded-xl border border-slate-200 shadow-lg max-h-60 overflow-y-auto">
+      {open && !value && input.trim() && suggestions.length > 0 && (
+        <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-white dark:bg-[#1e293b] rounded-xl border border-slate-200 dark:border-[#334155] shadow-lg max-h-60 overflow-y-auto p-1">
           {suggestions.map((emp) => (
-            <button
-              key={emp.id}
-              type="button"
+            <button key={emp.id} type="button"
               onClick={() => { onChange(emp); setInput(""); setOpen(false); }}
-              className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition flex items-center gap-3 border-b border-slate-50 last:border-0"
-            >
-              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
-                {employeeInitials(emp)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800 truncate">{employeeName(emp)}</p>
-                {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
-              </div>
+              className="w-full text-left px-2 py-2 rounded-lg text-sm flex items-center gap-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-slate-700 dark:text-slate-200">
+              <EmployeeOption emp={emp} />
             </button>
           ))}
         </div>
@@ -506,75 +522,56 @@ function EmployeeFilter({ employees, value, onChange }) {
   );
 }
 
-function EmployeeSelectModal({ employees, value, onChange }) {
+// Who a new asset goes to: active staff only, searched on the server and ordered by name.
+function EmployeeSelectModal({ value, onChange }) {
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(null);
   const ref = useRef(null);
-
-  const selectedEmp = value ? employees.find((e) => String(e.id) === String(value)) : null;
-
-  const suggestions = useMemo(() => {
-    if (!input) return employees.slice(0, 8);
-    const q = input.toLowerCase();
-    return employees.filter((e) =>
-      employeeName(e, "").toLowerCase().includes(q) ||
-      (employeeEmail(e) || "").toLowerCase().includes(q)
-    ).slice(0, 8);
-  }, [employees, input]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClose(ref, close);
+  const { items: suggestions, loading } = useEmployeeOptions(input, { enabled: open, limit: 8 });
+  const selectedEmp = value && picked && String(picked.id) === String(value) ? picked : null;
 
   return (
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 hover:bg-white transition text-left">
+        className="w-full flex items-center gap-2 border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm bg-slate-50 dark:bg-[#0f172a] hover:bg-white dark:hover:bg-[#1e293b] transition text-left">
         {selectedEmp ? (
-          <span className="flex-1 text-slate-800 font-medium">{employeeName(selectedEmp)}</span>
+          <span className="flex-1 text-slate-800 dark:text-slate-100 font-medium">{employeeName(selectedEmp)}</span>
         ) : (
           <span className="flex-1 text-slate-400">— Keep available —</span>
         )}
         <ChevronDown size={14} className="text-slate-400 flex-shrink-0" />
       </button>
       {open && (
-        <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-white rounded-xl border border-slate-200 shadow-lg p-2">
+        <div className="absolute top-full mt-1 left-0 right-0 z-50 bg-white dark:bg-[#1e293b] rounded-xl border border-slate-200 dark:border-[#334155] shadow-lg p-2">
           <div className="relative mb-1">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text" placeholder="Search employee..."
               value={input} onChange={(e) => setInput(e.target.value)}
               autoFocus
-              className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full pl-8 pr-3 py-1.5 border border-slate-200 dark:border-[#334155] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
           </div>
           <div className="max-h-48 overflow-y-auto">
-            <button type="button" onClick={() => { onChange(""); setOpen(false); setInput(""); }}
-              className={`w-full text-left px-2 py-2 rounded-lg text-sm transition ${!value ? "bg-blue-50 text-blue-700 font-medium" : "hover:bg-slate-50 text-slate-500"}`}>
+            <button type="button" onClick={() => { onChange(""); setPicked(null); setOpen(false); setInput(""); }}
+              className={`w-full text-left px-2 py-2 rounded-lg text-sm transition ${!value ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium" : "hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-500 dark:text-slate-400"}`}>
               — Keep available —
             </button>
+            {!loading && suggestions.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-3">No active employees match</p>
+            )}
             {suggestions.map((emp) => {
               const isSelected = String(emp.id) === String(value);
               return (
                 <button key={emp.id} type="button"
-                  onClick={() => { onChange(String(emp.id)); setOpen(false); setInput(""); }}
+                  onClick={() => { onChange(String(emp.id)); setPicked(emp); setOpen(false); setInput(""); }}
                   className={`w-full text-left px-2 py-2 rounded-lg text-sm flex items-center gap-2.5 transition ${
-                    isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50 text-slate-700"
+                    isSelected ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-200"
                   }`}>
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    isSelected ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-500"
-                  }`}>
-                    {employeeInitials(emp)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{employeeName(emp)}</p>
-                    {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
-                  </div>
-                  {isSelected && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
+                  <EmployeeOption emp={emp} selected={isSelected} />
                 </button>
               );
             })}
@@ -585,87 +582,66 @@ function EmployeeSelectModal({ employees, value, onChange }) {
   );
 }
 
-function AssignDropdown({ employees, asset, onAssign }) {
+function AssignDropdown({ asset, onAssign }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
   const [assignInput, setAssignInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [assignError, setAssignError] = useState(null);
   const ref = useRef(null);
-
-  const filteredEmp = useMemo(() => {
-    if (!assignInput) return employees.slice(0, 10);
-    const q = assignInput.toLowerCase();
-    return employees.filter((e) =>
-      employeeName(e, "").toLowerCase().includes(q) ||
-      (employeeEmail(e) || "").toLowerCase().includes(q)
-    ).slice(0, 10);
-  }, [employees, assignInput]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
+  useOutsideClose(ref, close);
+  const { items: filteredEmp, loading } = useEmployeeOptions(assignInput, { enabled: open });
 
   return (
     <div ref={ref} className="relative inline-block text-left">
-      <button onClick={() => { setOpen(!open); setAssignInput(""); setSelected(""); }}
-        className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition">
+      <button onClick={() => { setOpen(!open); setAssignInput(""); setSelected(""); setAssignError(null); }}
+        className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition">
         Assign
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-xl border border-slate-200 shadow-lg p-3">
-          <p className="text-xs font-semibold text-slate-500 mb-2">Search Employee</p>
+        <div className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[calc(100vw-2rem)] bg-white dark:bg-[#1e293b] rounded-xl border border-slate-200 dark:border-[#334155] shadow-lg p-3">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Search Employee</p>
           <div className="relative mb-2">
             <input
               type="text" placeholder="Type name or email..."
               value={assignInput}
               onChange={(e) => setAssignInput(e.target.value)}
               autoFocus
-              className="w-full pl-3 pr-8 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+              className="w-full pl-3 pr-8 py-1.5 border border-slate-200 dark:border-[#334155] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
             />
             <Search size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           </div>
           <div className="max-h-48 overflow-y-auto -mx-1">
-            {filteredEmp.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">No employees match</p>
+            {loading && filteredEmp.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">Searching...</p>
+            ) : filteredEmp.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">No active employees match</p>
             ) : (
               filteredEmp.map((emp) => {
                 const isSelected = String(emp.id) === selected;
                 return (
-                  <button
-                    key={emp.id}
-                    type="button"
-                    onClick={() => setSelected(String(emp.id))}
+                  <button key={emp.id} type="button" onClick={() => setSelected(String(emp.id))}
                     className={`w-full text-left px-2 py-2 rounded-lg text-sm flex items-center gap-2.5 transition ${
-                      isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50 text-slate-700"
-                    }`}
-                  >
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      isSelected ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-500"
+                      isSelected ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-200"
                     }`}>
-                      {employeeInitials(emp)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{employeeName(emp)}</p>
-                      {employeeEmail(emp) && <p className="text-xs text-slate-400 truncate">{employeeEmail(emp)}</p>}
-                    </div>
-                    {isSelected && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
+                    <EmployeeOption emp={emp} selected={isSelected} />
                   </button>
                 );
               })
             )}
           </div>
-          <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100">
-            <button onClick={() => setOpen(false)}
-              className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 font-medium">Cancel</button>
+          {assignError && <p role="alert" className="text-xs text-red-600 mt-2">{assignError}</p>}
+          <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-[#334155]">
+            <button onClick={() => setOpen(false)} disabled={saving}
+              className="flex-1 px-2 py-1.5 text-xs border border-slate-200 dark:border-[#334155] rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40 font-medium">Cancel</button>
             <button disabled={!selected || saving} onClick={async () => {
               setSaving(true);
-              await onAssign(asset.id, selected);
+              setAssignError(null);
+              const problem = await onAssign(asset.id, selected);
               setSaving(false);
-              setOpen(false);
+              if (problem) setAssignError(problem);
+              else setOpen(false);
             }}
               className="flex-1 px-2 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium">
               {saving ? "Assigning..." : "Assign"}
