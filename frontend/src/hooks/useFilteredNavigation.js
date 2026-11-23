@@ -17,7 +17,9 @@ const SECTION_EXCLUSIONS = {
   admin: ["SHARED LAYERS", "MY WORKSPACE"],
   hr_admin: ["SHARED LAYERS", "MY WORKSPACE"],
   manager: ["SHARED LAYERS"],
-  employee: ["SHARED LAYERS"],
+  // PRODUCTS is the admin product menu. Employees work from MY WORKSPACE; without this, the one link in it they may
+  // open (Zoiko HR → ESS → Attendance → /employee/ess/attendance, a duplicate of their own) kept the section visible.
+  employee: ["SHARED LAYERS", "PRODUCTS"],
 };
 
 function isAllowedPathForRole(pathname, role) {
