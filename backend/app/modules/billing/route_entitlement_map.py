@@ -287,6 +287,7 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     **_r("GET", "/hr/documents/access/{target_type}/{target_id}", "hr.documents.core"),
     **_r("PUT", "/hr/documents/access/{target_type}/{target_id}", "hr.documents.core"),
     **_r("POST", "/hr/documents/access/preview", "hr.documents.core"),
+    **_r("PUT", "/hr/documents/access/bulk", "hr.documents.core"),
     **_r("GET", "/hr/documents/company/{document_id}/acknowledgements", "hr.documents.core"),
     **_r("POST", "/hr/documents/company/{document_id}/acknowledgements/remind", "hr.documents.core"),
     **_r("GET", "/hr/me/company-documents", "hr.documents.core"),

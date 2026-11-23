@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { CheckSquare, Eye, EyeOff, FileText, Folder, FolderPlus, History, RefreshCw, Send, Share2, Trash2, Upload } from "lucide-react";
+import { CheckSquare, Eye, EyeOff, FileText, FileWarning, Folder, FolderPlus, History, RefreshCw, Send, Share2, Trash2, Upload } from "lucide-react";
 import { OrganizationDocumentsLayout } from "../ui";
 import SectionState from "../components/SectionState";
 import DocsBreadcrumb from "../components/DocsBreadcrumb";
@@ -51,7 +51,8 @@ function VersionsPanel({ document: doc, onClose }) {
 /**
  * Admin → Company Documents, level 2 (docs/new_docs/ZHR-DOCS-ARCH-001 §17 A3): the folders and files of one category.
  * Upload and Share sit under the breadcrumb and act on the open category (or folder); New Folder and Refresh too; each file can be shared, versioned, published / unpublished, tracked for read
- * confirmations and removed.
+ * confirmations and removed. Files can be ticked (or all of them on the page at once) and shared together in one action
+ * (QA R1-21). A file whose bytes are missing on the server is flagged and offers "Upload it again" (QA R1-22).
  */
 export default function CompanyCategoryPage() {
   const { categoryId } = useParams();
@@ -66,6 +67,8 @@ export default function CompanyCategoryPage() {
   const [versions, setVersions] = useState(null);
   const [previewing, setPreviewing] = useState(null);
   const [newFolder, setNewFolder] = useState("");
+  const [folderError, setFolderError] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
   const [notice, setNotice] = useState(null);
   const query = useCompanyItems(categoryId, { folder_id: folderId || undefined, expiry: segment, search: search.trim() || undefined, page, per_page: 50 });
   const upload = useUploadCompanyDocument();
@@ -75,6 +78,33 @@ export default function CompanyCategoryPage() {
   const remove = useDeleteCompanyDocument();
   const folder = useCreateCompanyFolder();
   const category = query.data?.category;
+  const pageFiles = query.data?.files?.items || [];
+  const allChosen = pageFiles.length > 0 && pageFiles.every((f) => selected.has(f.id));
+  const someChosen = pageFiles.some((f) => selected.has(f.id));
+  const selectAllRef = useRef(null);
+  const folderInput = useRef(null);
+  useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = someChosen && !allChosen; }, [someChosen, allChosen]);
+  // another folder, filter, search or page shows other files: start the selection again
+  useEffect(() => { setSelected(new Set()); }, [categoryId, folderId, segment, search, page]);
+  const toggle = (id, on) => setSelected((prev) => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
+  const toggleAll = (on) => setSelected(on ? new Set(pageFiles.map((f) => f.id)) : new Set());
+
+  // New Folder (QA R1-18): the name is read from the field itself when the form is sent, so a value put there by browser
+  // autofill or a password manager (which may not fire React's change event) still counts; the button never looks stuck.
+  const createFolder = async (e) => {
+    e.preventDefault();
+    const name = String(folderInput.current?.value ?? newFolder).replace(/\s+/g, " ").trim();
+    if (!name) { setFolderError("Type a name for the folder."); return; }
+    setFolderError(null);
+    setNotice(null);
+    try {
+      await folder.mutateAsync({ name, categoryId: Number(categoryId), parentId: folderId });
+      setNewFolder("");
+      setNotice(`Folder “${name}” added.`);
+    } catch (err) {
+      setFolderError(err?.message || "The folder could not be added.");
+    }
+  };
 
   const run = async (fn, ok) => {
     setNotice(null);
@@ -129,17 +159,30 @@ export default function CompanyCategoryPage() {
                 className={`rounded-md px-3 py-1.5 text-xs font-semibold ${segment === v ? "bg-blue-600 text-white" : "text-slate-600"}`}>{l}</button>
             ))}
           </div>
-          <form onSubmit={(e) => { e.preventDefault(); if (newFolder.trim()) run(() => folder.mutateAsync({ name: newFolder.trim(), categoryId: Number(categoryId), parentId: folderId }).then(() => setNewFolder("")), "Folder added."); }}
-            className="flex items-center gap-2">
-            <label className="sr-only" htmlFor="new-folder">New folder</label>
-            <input id="new-folder" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} placeholder="New folder" maxLength={255}
-              className="w-40 rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-            <button type="submit" disabled={!newFolder.trim()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold disabled:opacity-50">
+          <form onSubmit={createFolder} noValidate className="flex flex-wrap items-center gap-2">
+            <label className="sr-only" htmlFor="new-folder">New folder name</label>
+            <input id="new-folder" ref={folderInput} name="name" value={newFolder} autoComplete="off" placeholder="New folder name" maxLength={255}
+              onChange={(e) => { setNewFolder(e.target.value); setFolderError(null); }}
+              aria-invalid={Boolean(folderError)} aria-describedby={folderError ? "new-folder-error" : undefined}
+              className="w-44 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-[#334155] dark:bg-[#0f172a]" />
+            <button type="submit" disabled={!category || folder.isPending}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-[#334155] dark:text-slate-200">
               <FolderPlus size={16} aria-hidden="true" /> New Folder
             </button>
+            {folderError && <p id="new-folder-error" role="alert" className="w-full text-xs text-rose-700">{folderError}</p>}
           </form>
         </div>
         {notice && <p role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">{notice}</p>}
+        {selected.size > 0 && (
+          <div role="region" aria-label="Selected files" className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900">
+            <span><strong>{selected.size}</strong> selected</span>
+            <button type="button" onClick={() => setSharing({ type: "document", ids: [...selected], name: `${selected.size} documents` })}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white hover:bg-blue-700">
+              <Share2 size={14} aria-hidden="true" /> Share selected
+            </button>
+            <button type="button" onClick={() => setSelected(new Set())} className="text-blue-800 underline">Clear</button>
+          </div>
+        )}
 
         <SectionState query={query} label="Loading files" isEmpty={() => false}>
           {(data) => (
@@ -166,14 +209,28 @@ export default function CompanyCategoryPage() {
                 <div className="overflow-x-auto rounded-2xl border border-gray-200/80 bg-white shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                      <tr><th className="px-4 py-3">File</th><th className="px-4 py-3">Version</th><th className="px-4 py-3">Expires</th><th className="px-4 py-3">Status</th>
+                      <tr>
+                        <th className="w-10 px-4 py-3">
+                          <input ref={selectAllRef} type="checkbox" checked={allChosen} onChange={(e) => toggleAll(e.target.checked)}
+                            aria-label="Select all files on this page" className="h-4 w-4 rounded border-slate-300" />
+                        </th>
+                        <th className="px-4 py-3">File</th><th className="px-4 py-3">Version</th><th className="px-4 py-3">Expires</th><th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Who can see</th><th className="px-4 py-3">Read</th><th className="px-4 py-3"><span className="sr-only">Actions</span></th></tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {data.files.items.map((f) => (
-                        <tr key={f.id}>
+                        <tr key={f.id} className={selected.has(f.id) ? "bg-blue-50/60 dark:bg-blue-900/20" : undefined}>
+                          <td className="px-4 py-3">
+                            <input type="checkbox" checked={selected.has(f.id)} onChange={(e) => toggle(f.id, e.target.checked)}
+                              aria-label={`Select ${f.title}`} className="h-4 w-4 rounded border-slate-300" />
+                          </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-2 font-medium"><FileText size={16} className="text-slate-400" aria-hidden="true" />{f.title}</span>
+                            {f.file_available === false && (
+                              <span className="ml-2 inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                                <FileWarning size={12} aria-hidden="true" /> File missing
+                              </span>
+                            )}
                             <p className="text-xs text-slate-500">{f.uploaded_by?.name} · {formatDate(f.uploaded_at)}</p>
                           </td>
                           <td className="px-4 py-3">v{f.version}</td>
@@ -190,7 +247,8 @@ export default function CompanyCategoryPage() {
                             <div className="flex flex-wrap justify-end gap-1">
                               <IconButton label={`Preview ${f.title}`} onClick={() => setPreviewing(f)} icon={Eye} />
                               <IconButton label={`Who can see ${f.title}`} onClick={() => setSharing({ type: "document", id: f.id, name: f.title })} icon={Share2} />
-                              <IconButton label={`New version of ${f.title}`} onClick={() => setDialog({ mode: "version", document: f })} icon={Upload} />
+                              <IconButton label={f.file_available === false ? `Upload ${f.title} again` : `New version of ${f.title}`}
+                                onClick={() => setDialog({ mode: "version", document: f })} icon={Upload} />
                               <IconButton label={`Versions of ${f.title}`} onClick={() => setVersions(f)} icon={History} />
                               {f.ack && <IconButton label={`Read confirmations for ${f.title}`} onClick={() => setTracking(f)} icon={CheckSquare} />}
                               {f.publish_state === "published"
@@ -215,10 +273,13 @@ export default function CompanyCategoryPage() {
       <CompanyFileDialog open={Boolean(dialog)} mode={dialog?.mode} category={category} document={dialog?.document} folderId={folderId}
         onClose={() => setDialog(null)}
         onSubmit={(v) => (dialog?.mode === "version" ? version.mutateAsync(v) : upload.mutateAsync(v)).then(() => setNotice("Uploaded."))} />
-      <ShareModal open={Boolean(sharing)} targetType={sharing?.type} targetId={sharing?.id} targetName={sharing?.name || ""} onClose={() => setSharing(null)} />
+      <ShareModal open={Boolean(sharing)} targetType={sharing?.type} targetId={sharing?.id} targetIds={sharing?.ids} targetName={sharing?.name || ""}
+        onClose={() => setSharing(null)}
+        onSaved={() => { if (sharing?.ids) { setNotice(`Sharing updated for ${sharing.ids.length} documents.`); setSelected(new Set()); } }} />
       <AckTrackingDrawer open={Boolean(tracking)} document={tracking} onClose={() => setTracking(null)} />
       {versions && <VersionsPanel document={versions} onClose={() => setVersions(null)} />}
-      <FilePreviewDrawer open={Boolean(previewing)} documentId={previewing?.id} title={previewing?.title} onClose={() => setPreviewing(null)} />
+      <FilePreviewDrawer open={Boolean(previewing)} documentId={previewing?.id} title={previewing?.title} onClose={() => setPreviewing(null)}
+        missingActions={{ upload_version: previewing ? { label: "Upload it again", onClick: () => { setDialog({ mode: "version", document: previewing }); setPreviewing(null); } } : undefined }} />
     </OrganizationDocumentsLayout>
   );
 }

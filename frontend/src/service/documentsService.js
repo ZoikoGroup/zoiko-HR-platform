@@ -115,6 +115,8 @@ export const createCompanyFolder = ({ name, categoryId, parentId }) => {
 export const getAccessRule = (targetType, targetId) => api.get(`/hr/documents/access/${targetType}/${targetId}`);
 export const putAccessRule = (targetType, targetId, rule) => api.put(`/hr/documents/access/${targetType}/${targetId}`, rule);
 export const previewAccessRule = (rule) => api.post("/hr/documents/access/preview", rule);
+/** Share several company documents in one action: the same rule on each, all or nothing (QA R1-21). */
+export const putBulkAccessRule = (documentIds, rule) => api.put("/hr/documents/access/bulk", { ...rule, document_ids: documentIds });
 export const getAckTracking = (documentId, params) => api.get(`/hr/documents/company/${documentId}/acknowledgements`, { params: clean(params) });
 export const remindAcks = (documentId, employeeIds) => api.post(`/hr/documents/company/${documentId}/acknowledgements/remind`, { employee_ids: employeeIds || null });
 

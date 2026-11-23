@@ -34,4 +34,5 @@ export const useUnpublishCompanyDocument = () => useChange(svc.unpublishCompanyD
 export const useDeleteCompanyDocument = () => useChange(svc.deleteCompanyDocument);
 export const useCreateCompanyFolder = () => useChange(svc.createCompanyFolder);
 export const usePutAccessRule = () => useChange(({ targetType, targetId, rule }) => svc.putAccessRule(targetType, targetId, rule));
+export const usePutBulkAccessRule = () => useChange(({ documentIds, rule }) => svc.putBulkAccessRule(documentIds, rule));
 export const useRemindAcks = () => useChange(({ documentId, employeeIds }) => svc.remindAcks(documentId, employeeIds));

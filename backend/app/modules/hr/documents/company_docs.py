@@ -102,6 +102,8 @@ def serialize_company_file(db: Session, doc) -> dict:
         "uploaded_by": {"id": doc.uploaded_by, "name": _person_name(db, doc.uploaded_by)},
         "uploaded_at": _iso(latest.created_at if latest else doc.created_at), "updated_at": _iso(doc.updated_at),
         "access": access_resolver.summary(rule), "ack": _ack_counts(db, doc),
+        # False: the record outlived its file (lost from the server's disk); the page offers "upload it again" (QA R1-22)
+        "file_available": bool((latest is not None and storage_service.is_available(latest)) or storage_service.is_available(doc)),
     }
 
 
@@ -617,12 +619,37 @@ def get_access(db: Session, actor, target_type: str, target_id: int) -> dict:
 
 
 def put_access(db: Session, actor, target_type: str, target_id: int, data: dict, ctx=None) -> dict:
+    _apply_access(db, actor, target_type, target_id, validate_rule(db, actor.organization_id, data), ctx)
+    db.commit()
+    return get_access(db, actor, target_type, target_id)
+
+
+def bulk_put_access(db: Session, actor, document_ids: list[int], data: dict, ctx=None) -> dict:
+    """Share several company documents in one action (QA R1-21): the same rule on each, all or nothing. Every document must
+    be a company document of the caller's organization; a category the Org Admin locked refuses the whole request."""
+    ids = list(dict.fromkeys(int(i) for i in document_ids))
+    if not ids:
+        raise errors.invalid("Choose at least one document.", "document_ids")
+    org = actor.organization_id
+    clean = validate_rule(db, org, data)
+    for doc_id in ids:                                   # check them all first: nothing changes if one is wrong
+        _company_doc(db, org, doc_id)
+        cat = _target_category(db, org, "document", doc_id)
+        if cat is not None and cat.locked_by_org_admin and role_of(actor) != ORG_ADMIN:
+            raise errors.forbidden("The Organization Admin has locked who can see this category.")
+    for doc_id in ids:
+        _apply_access(db, actor, "document", doc_id, dict(clean), ctx)
+    db.commit()
+    return {"updated": len(ids), "items": [{"id": i, "access": access_resolver.summary(
+        access_resolver.effective_rule(db, org, _company_doc(db, org, i)))} for i in ids]}
+
+
+def _apply_access(db: Session, actor, target_type: str, target_id: int, clean: dict, ctx=None) -> None:
     _, _, _, _, HrDocumentVersion = _doc_models()
     org = actor.organization_id
     cat = _target_category(db, org, target_type, target_id)
     if cat is not None and cat.locked_by_org_admin and role_of(actor) != ORG_ADMIN:
         raise errors.forbidden("The Organization Admin has locked who can see this category.")
-    clean = validate_rule(db, org, data)
     if target_type == "category":
         clean["inherit"] = False                         # a category is the top of the chain
     before = get_access(db, actor, target_type, target_id)["effective"]
@@ -636,8 +663,6 @@ def put_access(db: Session, actor, target_type: str, target_id: int, data: dict,
         doc = _company_doc(db, org, target_id)
         if doc.publish_state == "published" and doc.approved_version_id:
             open_ack_round(db, doc, db.get(HrDocumentVersion, doc.approved_version_id), "initial", actor)
-    db.commit()
-    return get_access(db, actor, target_type, target_id)
 
 
 def preview_access(db: Session, actor, data: dict) -> dict:
