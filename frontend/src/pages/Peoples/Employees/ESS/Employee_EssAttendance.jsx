@@ -47,6 +47,8 @@ export default function EmployeeEssAttendance() {
   const monthQ = useMyAttendanceMonth(month);
   const data = monthQ.data;
   const current = month || data?.month;
+  const thisMonth = data?.today?.slice(0, 7);                    // the server's current month, in the person's time zone
+  const goMonth = (m) => setMonth(m && m === thisMonth ? null : m);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
@@ -118,7 +120,13 @@ export default function EmployeeEssAttendance() {
                 onPunchIn={act(punchIn)} onPunchOut={act(punchOut)} onStartBreak={act(startBreak)} onEndBreak={act(endBreak)} />
             )}
           </div>
-          <ShiftInfoCard shift={today.data?.shift} timezone={today.data?.timezone} policy={data?.policy} />
+          {today.data ? (
+            <ShiftInfoCard shift={today.data.shift} timezone={today.data.timezone} policy={data?.policy} />
+          ) : today.isError ? (
+            <p className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">Your shift could not be loaded.</p>
+          ) : (
+            <div className="h-48 animate-pulse rounded-2xl bg-slate-100" aria-label="Loading your shift" />
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6" aria-label="This month">
@@ -135,10 +143,10 @@ export default function EmployeeEssAttendance() {
 
         <section aria-label="Month" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
           <div className="mb-4 flex items-center justify-between">
-            <button type="button" aria-label="Previous month" onClick={() => current && setMonth(shiftMonth(current, -1))} className="rounded-lg p-2 hover:bg-slate-100"><ChevronLeft size={18} aria-hidden="true" /></button>
+            <button type="button" aria-label="Previous month" onClick={() => current && goMonth(shiftMonth(current, -1))} className="rounded-lg p-2 hover:bg-slate-100"><ChevronLeft size={18} aria-hidden="true" /></button>
             <h2 className="text-base font-semibold text-slate-900 dark:text-white">{current ? monthLabel(current) : "This month"}</h2>
             <button type="button" aria-label="Next month" disabled={!current || (data && current >= data.today.slice(0, 7))}
-              onClick={() => current && setMonth(shiftMonth(current, 1))} className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-30"><ChevronRight size={18} aria-hidden="true" /></button>
+              onClick={() => current && goMonth(shiftMonth(current, 1))} className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-30"><ChevronRight size={18} aria-hidden="true" /></button>
           </div>
           {monthQ.isError ? (
             <p role="alert" className="text-sm text-rose-700">{monthQ.error?.message || "Your month could not be loaded."} <button type="button" className="underline" onClick={() => monthQ.refetch()}>Retry</button></p>

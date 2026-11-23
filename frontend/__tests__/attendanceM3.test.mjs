@@ -190,3 +190,64 @@ test("step 2: an overnight check-out shows '+1 day' in the records table and the
   const drawer = screen.getByRole("dialog");
   assert.match(drawer.textContent, /Punched out06:05 AM\+1 day/);
 });
+
+test("step 3 B8: a refused punch fetches today again so the buttons match the server", async (t) => {
+  let todayCalls = 0;
+  mockApi(t, {
+    getMyAttendanceToday: async () => { todayCalls++; return todayCalls === 1 ? structuredClone(IDLE) : structuredClone(WORKING); },
+    punchIn: async () => { const e = new Error("You are already punched in."); e.code = "ATT_ALREADY_IN"; throw e; },
+  });
+  await renderPage();
+  const card = screen.getByRole("region", { name: "Punch in and out" });
+  fireEvent.click(within(card).getByRole("button", { name: /Punch in/ }));
+  await settle();
+  assert.equal(todayCalls, 2);
+  assert.ok(within(screen.getByRole("region", { name: "Punch in and out" })).getByRole("button", { name: /Punch out/ }));
+});
+
+test("step 3 B9: coming back to the current month reuses the first load (no second request for the same month)", async (t) => {
+  const calls = mockApi(t);
+  await renderPage();
+  fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+  await settle();
+  // back on November the page uses the same cache entry as the first load (null = current month), never a second
+  // "2026-11" copy; a refetch of that entry when it is stale is normal
+  assert.equal(calls.months.includes("2026-11"), false);
+  assert.deepEqual(calls.months.slice(0, 2), [null, "2026-10"]);
+  assert.equal(calls.months.at(-1), null);
+});
+
+test("step 3 B10: while today is loading the shift card does not claim there is no shift", async (t) => {
+  let release;
+  mockApi(t, { getMyAttendanceToday: () => new Promise((r) => { release = () => r(structuredClone(IDLE)); }) });
+  await renderPage();
+  assert.equal(screen.queryByText(/No shift is assigned/), null);
+  assert.ok(screen.getByLabelText("Loading your shift"));
+  release();
+  await settle();
+  assert.equal(screen.queryByLabelText("Loading your shift"), null);
+  assert.equal(screen.queryByText(/No shift is assigned/), null);
+});
+
+test("step 3 B11: on a day with no record the correction needs a check-in", async (t) => {
+  const absent = { ...structuredClone(DAY), date: "2026-11-10", status: "absent", check_in_at: null, check_out_at: null,
+    record_id: null, breaks: [], history: [], notes: null };
+  mockApi(t, { getMyAttendanceDay: async () => absent });
+  await renderPage();
+  const row = screen.getAllByRole("row").find((r) => r.textContent.includes("10 Nov 2026"));
+  fireEvent.click(within(row).getByRole("button", { name: "10 Nov 2026" }));
+  await settle();
+  const drawer = screen.getByRole("dialog");
+  fireEvent.click(within(drawer).getByRole("button", { name: /Ask for a correction|Request a correction|correction/i }));
+  await settle();
+  assert.doesNotMatch(drawer.textContent, /leave empty to keep your punch/);
+  const [checkIn, checkOut] = drawer.querySelectorAll('input[type="time"]');
+  fireEvent.change(checkOut, { target: { value: "18:00" } });
+  fireEvent.click(within(drawer).getByRole("checkbox"));
+  const send = within(drawer).getByRole("button", { name: /Send/ });
+  assert.equal(send.disabled, true, "no check-in yet");
+  fireEvent.change(checkIn, { target: { value: "09:00" } });
+  assert.equal(send.disabled, false);
+});

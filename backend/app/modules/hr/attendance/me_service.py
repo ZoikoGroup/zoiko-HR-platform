@@ -36,6 +36,17 @@ def _status_value(status):
     return getattr(status, "value", status)
 
 
+def computed_status(employee, day: date, today: date, *, shift, holiday: bool, leave, pol):
+    """The status of a day that has no stored record yet: none before joining / after leaving or in the future,
+    otherwise what the rules say (holiday, weekly off, leave, or absent once the day is over). The calendar, the records
+    table and the day drawer all use this, so a date shows the same status everywhere."""
+    if not policy_mod.employed_on(employee, day) or day > today:
+        return None
+    working = policy_mod.is_working_day(pol, shift, day)
+    return resolve(DayContext(work_date=day, holiday=holiday, working_day=working, leave=leave, shift=shift,
+                              day_closed=day < today)).status
+
+
 def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
     now = clock.utcnow()
     tz, pol = tz_of(db, employee), policy_mod.get_policy(db, employee.organization_id)
@@ -65,13 +76,8 @@ def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
         employed = policy_mod.employed_on(employee, day)
         working = policy_mod.is_working_day(pol, shift, day)
         future = day > today
-        if rec is not None:
-            status = rec.status
-        elif not employed or future:
-            status = None
-        else:
-            status = resolve(DayContext(work_date=day, holiday=day in holidays, working_day=working, leave=leaves.get(day),
-                                        shift=shift, day_closed=day < today)).status
+        status = rec.status if rec is not None else computed_status(employee, day, today, shift=shift, holiday=day in holidays,
+                                                                     leave=leaves.get(day), pol=pol)
         sv = _status_value(status)
         if employed and not future and day not in holidays and working:
             kpi["working_days"] += 1
@@ -123,6 +129,13 @@ def day_detail(db: Session, employee, day: date) -> dict:
                    AttendanceRecord.date == day, AttendanceRecord.is_deleted.isnot(True))
            .order_by(AttendanceRecord.id.desc()).first())
     out = serialize_day(db, rec, employee, day=day, tz=tz, pol=pol, now=now)
+    if rec is None:                                      # same status the calendar shows for this date
+        org = employee.organization_id
+        status = computed_status(employee, day, clock.work_date_for(now, tz),
+                                 shift=policy_mod.shift_for(db, org, employee.id, day, pol),
+                                 holiday=day in policy_mod.holidays_in_range(db, org, day, day),
+                                 leave=policy_mod.leaves_in_range(db, org, employee.id, day, day).get(day), pol=pol)
+        out["status"] = _status_value(status)
     out["notes"] = rec.notes if rec else None
     out["history"] = [] if rec is None else [
         {"action": a.action, "at": clock.iso_utc(a.created_at), "by_self": a.actor_id == employee.id,

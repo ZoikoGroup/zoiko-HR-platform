@@ -26,6 +26,8 @@ function usePunchAction(fn) {
       qc.invalidateQueries({ queryKey: ["attendance", "me", "month"] });
       qc.invalidateQueries({ queryKey: ["attendance", "me", "day"] });
     },
+    // a refused action means our copy of the day is out of date (another tab, the end-of-day job): fetch it again
+    onError: () => qc.invalidateQueries({ queryKey: keys.attendance.me.today() }),
   });
 }
 export const usePunchIn = () => usePunchAction(punchIn);

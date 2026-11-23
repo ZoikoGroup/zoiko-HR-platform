@@ -80,6 +80,7 @@ export default function DayDetailDrawer({ date, onClose }) {
               <div className="rounded-xl border border-slate-200 p-3">
                 <h3 className="mb-2 font-semibold">Request a correction</h3>
                 <CorrectionForm dateEditable={false}
+                  hasRecord={Boolean(d.record_id)}
                   initial={{ date, check_in: timeIn24(d.check_in_at, tz), check_out: timeIn24(d.check_out_at, tz),
                              kind: !d.check_in_at || !d.check_out_at ? "missed_punch" : "time_change" }}
                   onSubmitted={() => { setSent(true); setCorrecting(false); qc.invalidateQueries({ queryKey: ["attendance", "me"] }); }} />

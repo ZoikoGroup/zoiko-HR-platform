@@ -52,10 +52,13 @@ def record_for_day(db: Session, employee, day: date, *, lock: bool = False) -> O
 
 
 def open_record(db: Session, employee, now: datetime, *, lock: bool = False) -> Optional[AttendanceRecord]:
-    """The record still waiting for a punch-out (possibly yesterday's, for a night shift)."""
+    """The record still waiting for a punch-out (possibly yesterday's, for a night shift). A day the end-of-day job has
+    already closed as a missed punch-out is not open any more: it is fixed through a correction, never a late punch-out."""
+    from sqlalchemy import or_
     q = (_live(db, employee.organization_id)
          .filter(AttendanceRecord.employee_id == employee.id, AttendanceRecord.check_in_at.isnot(None),
                  AttendanceRecord.check_out_at.is_(None),
+                 or_(AttendanceRecord.status.is_(None), AttendanceRecord.status != AttendanceStatus.MISSED_PUNCH),
                  AttendanceRecord.check_in_at >= now - timedelta(minutes=MAX_SHIFT_MINUTES)))
     if lock:
         q = _lock(db, q)
@@ -119,10 +122,20 @@ def _shift_payload(shift, day: date, tz) -> Optional[dict]:
             "expected_end": clock.iso_utc(clock.to_utc(shift.end_on(day), tz))}
 
 
+def is_running(record: Optional[AttendanceRecord], now: datetime) -> bool:
+    """Still being worked: punched in, not out, within the longest allowed shift, and not closed as a missed punch-out.
+    Only such a day gets live totals; an old open day keeps its stored totals (it never grows to 52 hours)."""
+    if record is None or record.check_in_at is None or record.check_out_at is not None:
+        return False
+    if getattr(record.status, "value", record.status) == AttendanceStatus.MISSED_PUNCH.value:
+        return False
+    return record.check_in_at >= now - timedelta(minutes=MAX_SHIFT_MINUTES)
+
+
 def serialize_day(db: Session, record: Optional[AttendanceRecord], employee, *, day: date, tz, pol, now: datetime) -> dict:
     shift = policy_mod.shift_for(db, employee.organization_id, employee.id, day, pol)
     breaks = breaks_of(db, record)
-    running = record is not None and record.check_in_at is not None and record.check_out_at is None
+    running = is_running(record, now)
     worked, taken = record.worked_minutes if record else 0, record.break_minutes if record else 0
     if running:                                          # live totals for the timer
         from app.modules.hr.attendance.status_engine import compute_minutes
