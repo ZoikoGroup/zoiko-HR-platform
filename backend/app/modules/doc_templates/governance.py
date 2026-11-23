@@ -458,8 +458,9 @@ def certificate_record(db, doc: GeneratedDocument, signatures: list[DocumentSign
              "before signing. This certificate records the evidence captured by Zoiko HR. It is not a qualified electronic "
              "signature unless stated otherwise by the applicable approved jurisdiction pack.")
     rec.para(f"Consent statement {CONSENT_VERSION}: “{CONSENT_TEXT}”", "small")
-    from app.modules.doc_templates.service import verify_url
-    rec.para(f"Verify at {verify_url(doc.document_number)}", "small")
+    if doc.canonical_id not in renderer.OFFER_LETTER_IDS:      # offer letters carry no verification line
+        from app.modules.doc_templates.service import verify_url
+        rec.para(f"Verify at {verify_url(doc.document_number)}", "small")
     return rec
 
 

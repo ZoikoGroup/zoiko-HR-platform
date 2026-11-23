@@ -123,14 +123,56 @@ def layout(inp: RenderInput) -> list[El]:
         elif t == "declaration":
             out.append(El("declaration", _runs(block["text"], inp, lit), {"mode": block["mode"]}))
         elif t == "signature_block":
-            out.append(El("signatures", data={"parties": [(p, inp.signatures.get(p) or "______________________________")
-                                                          for p in block["parties"]],
-                                              # the signer's name stays on the page: the signed copy keeps these pages unchanged
+            # parties: (party, pre-signed text or ""). A pre-signed line ("Name, Title - authorised signatory for X")
+            # already names its signer; everyone else gets their name printed under the line, because the executed copy
+            # keeps these pages unchanged (the signature itself is stamped onto the line when the document is executed).
+            out.append(El("signatures", data={"parties": [(p, inp.signatures.get(p) or "") for p in block["parties"]],
                                               "names": {p: inp.signer_names[p] for p in block["parties"]
-                                                        if inp.signer_names.get(p) and not inp.signatures.get(p)}}))
+                                                        if inp.signer_names.get(p) and not inp.signatures.get(p)},
+                                              "issued_on": _safe_value(inp, "document.date"),
+                                              "employer_name": (inp.letterhead or {}).get("legal_name") or ""}))
         elif t == "page_break":
             out.append(El("page_break"))
+    # an acceptance statement belongs above the lines it is signed on, not under them
+    for i in range(len(out) - 1):
+        if out[i].kind == "signatures" and out[i + 1].kind == "declaration":
+            out[i], out[i + 1] = out[i + 1], out[i]
     return out
+
+
+def _safe_value(inp: RenderInput, key: str) -> str:
+    try:
+        return inp.value_of(key) or ""
+    except Exception:
+        return ""
+
+
+OFFER_LETTER_IDS = frozenset({"HR-HIR-011", "HR-HIR-012", "HR-HIR-014", "HR-HIR-015", "HR-HIR-016", "HR-HIR-017"})
+SIGNATURE_ANCHOR = "zsig-{party}"           # named destination on each party's signature line (see stamp_signatures)
+DATE_ANCHOR = "zdate-{party}"               # named destination on each party's date line
+
+
+def party_label(party: str, employer_name: str = "") -> str:
+    if party == "employer" and employer_name:
+        return f"For and on behalf of {employer_name}"
+    return PARTY_LABELS.get(party, party.replace("_", " ").title())
+
+
+def split_presigned(text: str) -> tuple[str, str]:
+    """'Jo Boss, CEO - authorised signatory for Acme' -> ('Jo Boss', 'CEO - authorised signatory for Acme')."""
+    name, _, role = (text or "").partition(", ")
+    return name.strip(), role.strip()
+
+
+_SEP_RE = re.compile(r"(?:\s*·\s*){2,}")
+
+
+def tidy_line(text: str) -> str:
+    """Drop the separators an empty optional value leaves behind ('· · ', a leading '·', a trailing ', ')."""
+    t = _SEP_RE.sub(" · ", text or "")
+    t = re.sub(r"^\s*·\s*|\s*·\s*$", "", t)
+    t = re.sub(r"[,\s]+$", "", t)
+    return t.strip()
 
 
 # ── HTML ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -154,6 +196,18 @@ _CSS = {
 }
 
 
+def _logo_uri(data: Optional[bytes]) -> str:
+    """A self-contained data URI for the letterhead logo (the HTML carries no external assets)."""
+    if not data:
+        return ""
+    import base64
+    head = data[:12]
+    mime = ("image/png" if head.startswith(bytes([0x89, 0x50, 0x4E, 0x47])) else
+            "image/jpeg" if head.startswith(bytes([0xFF, 0xD8])) else
+            "image/gif" if head.startswith(b"GIF") else "image/webp" if head[8:12] == b"WEBP" else "")
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}" if mime else ""
+
+
 def _check_note(state) -> str:
     if not state:
         return ""
@@ -165,12 +219,56 @@ def _html_runs(runs: list[Run]) -> str:
     return "".join(_E(r.text) for r in runs)
 
 
+def _offer_roles(elements: list) -> dict:
+    """Letter furniture before the title: the 'date · reference' line and the recipient block. id(El) -> 'meta' | 'recipient'."""
+    lead = []
+    for el in elements:
+        if el.kind == "heading":
+            break
+        if el.kind == "paragraph":
+            lead.append(el)
+    roles = {}
+    if len(lead) >= 2:
+        roles[id(lead[0])], roles[id(lead[1])] = "meta", "recipient"
+    elif len(lead) == 1:
+        roles[id(lead[0])] = "meta" if "·" in "".join(r.text for r in lead[0].runs) else "recipient"
+    return roles
+
+
+def _signature_parts(data: dict, party: str, presigned: str) -> dict:
+    """What a party's sign-off shows: label, the text in the signature space, then name / role / date under the line."""
+    names = data.get("names") or {}
+    if presigned:
+        name, role = split_presigned(presigned)
+        return {"label": party_label(party, data.get("employer_name", "")), "mark": "Issued electronically",
+                "name": name, "role": role, "date": data.get("issued_on") or ""}
+    return {"label": party_label(party, data.get("employer_name", "")), "mark": "", "name": names.get(party, ""),
+            "role": "", "date": ""}
+
+
+def _html_signatures(data: dict) -> str:
+    cols = []
+    for p, presigned in data["parties"]:
+        s = _signature_parts(data, p, presigned)
+        blank = '<span style="display:inline-block;min-width:150px;border-bottom:1px solid #94a3b8;">&nbsp;</span>'
+        cols.append(
+            '<div style="display:inline-block;width:46%;margin:0 3% 0 0;vertical-align:top;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#52677a;">{_E(s["label"])}</div>'
+            f'<div style="height:56px;display:flex;align-items:flex-end;font-style:italic;font-size:12px;color:#64748b;">{_E(s["mark"])}</div>'
+            '<div style="border-top:1px solid #334155;margin:4px 0 6px;"></div>'
+            + (f'<div style="font-weight:700;color:#102a43;">{_E(s["name"])}</div>' if s["name"] else f'<div>Name: {blank}</div>')
+            + (f'<div style="font-size:12px;color:#52677a;">{_E(s["role"])}</div>' if s["role"] else "")
+            + f'<div style="font-size:12px;margin-top:6px;">Date: {_E(s["date"]) if s["date"] else blank}</div>'
+            + "</div>")
+    return f'<div style="margin:28px 0 8px;">{"".join(cols)}</div>'
+
+
 def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
     elements = layout(inp) if elements is None else elements
     offer_design = inp.visual_profile == "offer_letter"
     parts: list[str] = []
     lists = {"bullet": "ul", "number": "ol", "check": "ul"}
-    offer_meta_pending = offer_design
+    offer_roles = _offer_roles(elements) if offer_design else {}
     if offer_design:
         parts.append('<div aria-hidden="true" style="height:5px;background:#0f4c5c;border-radius:3px;margin:0 0 24px;"></div>')
     for el in elements:
@@ -179,13 +277,18 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
             d = el.data
             letterhead_style = (_CSS["lh"] + "border-bottom-color:#0f4c5c;padding-bottom:16px;margin-bottom:22px;") if offer_design else _CSS["lh"]
             name_style = (_CSS["lh_name"] + "font-size:21px;color:#102a43;letter-spacing:-.2px;") if offer_design else _CSS["lh_name"]
-            parts.append(f'<div style="{letterhead_style}"><p style="{name_style}">{_E(d.get("legal_name") or "")}</p>')
+            logo_uri = _logo_uri(d.get("logo_bytes"))
+            if logo_uri:
+                letterhead_style += "display:flex;align-items:center;justify-content:space-between;gap:16px;"
+            parts.append(f'<div style="{letterhead_style}"><div>')
+            parts.append(f'<p style="{name_style}">{_E(d.get("legal_name") or "")}</p>')
             if d.get("trading_name") and d.get("trading_name") != d.get("legal_name"):
                 parts.append(f'<p style="{_CSS["lh_meta"]}">Trading as {_E(d["trading_name"])}</p>')
             for key in ("address", "registration"):
                 if d.get(key):
                     parts.append(f'<p style="{_CSS["lh_meta"]}">{_E(d[key])}</p>')
-            parts.append("</div>")
+            parts.append("</div>" + (f'<img src="{logo_uri}" alt="" style="max-width:170px;max-height:60px;height:auto;">'
+                                     if logo_uri else "") + "</div>")
         elif k == "heading":
             lvl = el.data.get("level", 1)
             heading_style = _CSS["h" + str(lvl)]
@@ -200,10 +303,18 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
             paragraph_text = "".join(run.text for run in el.runs)
             style_key = el.data.get("style", "normal") if el.data.get("style") != "normal" else "p"
             paragraph_style = _CSS[style_key]
-            if offer_design and offer_meta_pending:
-                paragraph_style += "font-size:11px;color:#64748b;letter-spacing:.15px;margin:0 0 8px;"
-                offer_meta_pending = False
-            elif offer_design and paragraph_text.lstrip().startswith("Pay:"):
+            role = offer_roles.get(id(el))
+            if role == "meta":
+                parts.append(f'<p style="{paragraph_style}font-size:11px;color:#64748b;letter-spacing:.15px;margin:0 0 16px;">'
+                             f'{_E(tidy_line(paragraph_text))}</p>')
+                continue
+            if role == "recipient":
+                name, _, address = tidy_line(paragraph_text).partition(", ")
+                parts.append(f'<div style="margin:0 0 6px;"><div style="font-weight:700;color:#102a43;">{_E(name)}</div>'
+                             + (f'<div style="color:#52677a;font-size:13px;">{_E(address)}</div>' if address.strip() else "")
+                             + "</div>")
+                continue
+            if offer_design and paragraph_text.lstrip().startswith("Pay:"):
                 paragraph_style += "margin:14px 0;padding:12px 14px;background:#f1f7f8;border:1px solid #d7e8e9;border-left:4px solid #0f4c5c;border-radius:5px;font-size:15px;font-weight:600;color:#102a43;"
             parts.append(f'<p style="{paragraph_style}">{_html_runs(el.runs)}</p>')
         elif k == "list":
@@ -252,19 +363,13 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
                 declaration_style += "border-color:#cbdde0;border-left:4px solid #0f4c5c;background:#f6fafb;border-radius:4px;padding:14px 16px;"
             parts.append(f'<div style="{declaration_style}">{_html_runs(el.runs)}</div>')
         elif k == "signatures":
-            sig_style = _CSS["sig"] + ("border-top:1px solid #9fb7bf;padding-top:10px;margin-top:20px;" if offer_design else "")
-            names = el.data.get("names") or {}
-            sigs = "".join(f'<div style="{sig_style}"><div style="font-size:12px;color:#4b5563;">{_E(PARTY_LABELS.get(p, p))}</div>'
-                           f'<div style="margin-top:22px;">{_E(text)}</div>'
-                           + (f'<div style="margin-top:6px;font-size:13px;">Name: {_E(names[p])}</div>' if names.get(p) else "")
-                           + "</div>" for p, text in el.data["parties"])
-            parts.append(f"<div>{sigs}</div>")
+            parts.append(_html_signatures(el.data))
         elif k == "page_break":
             parts.append('<hr style="border:none;border-top:1px dashed #d1d5db;margin:24px 0;">')
     footer = [f"Document {_E(inp.document_number)}"] if inp.document_number else []
     if inp.confidential:
         footer.append("Confidential")
-    if inp.verify_url:
+    if inp.verify_url and not offer_design:          # offer letters carry no verification line
         footer.append(f"Verify at {_E(inp.verify_url)}")
     body = "".join(parts)
     foot = f'<div style="{_CSS["footer"]}">{" · ".join(footer)}</div>' if footer else ""
@@ -376,22 +481,22 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
     if offer_design:
         st["h1"] = ParagraphStyle("offer_h1", parent=st["h1"], fontSize=21, leading=27,
                                    textColor=colors.HexColor("#102a43"), spaceBefore=15, spaceAfter=12)
-        st["h2"] = ParagraphStyle("offer_h2", parent=st["h2"], fontSize=11.5, leading=15,
-                                   textColor=colors.HexColor("#0f4c5c"), backColor=colors.HexColor("#f1f7f8"),
-                                   borderPadding=6, spaceBefore=13, spaceAfter=8)
+        st["offer_h2"] = ParagraphStyle("offer_h2", parent=st["h2"], fontSize=11, leading=14, spaceBefore=0, spaceAfter=0,
+                                         textColor=colors.HexColor("#0f4c5c"))
         st["offer_meta"] = ParagraphStyle("offer_meta", parent=st["small"], fontSize=8.5, leading=12,
-                                           textColor=colors.HexColor("#64748b"), spaceAfter=7)
+                                           textColor=colors.HexColor("#64748b"), spaceAfter=10)
+        st["offer_to"] = ParagraphStyle("offer_to", parent=base, fontName=f["bold"], fontSize=10.5, leading=14,
+                                         textColor=colors.HexColor("#102a43"))
+        st["offer_addr"] = ParagraphStyle("offer_addr", parent=base, fontSize=9, leading=12.5,
+                                           textColor=colors.HexColor("#52677a"))
         st["offer_value"] = ParagraphStyle("offer_value", parent=st["cell_b"], fontSize=9.5, leading=13,
                                             textColor=colors.HexColor("#102a43"))
         st["offer_table_header"] = ParagraphStyle("offer_table_header", parent=st["cell_b"], fontSize=9, leading=12,
                                                    textColor=colors.white)
         st["offer_pay"] = ParagraphStyle("offer_pay", parent=base, fontName=f["bold"], fontSize=11.5, leading=16,
-                                         textColor=colors.HexColor("#102a43"), backColor=colors.HexColor("#f1f7f8"),
-                                         borderColor=colors.HexColor("#d7e8e9"), borderWidth=0.6, borderPadding=8,
-                                         spaceBefore=5, spaceAfter=12)
-        st["offer_decl"] = ParagraphStyle("offer_decl", parent=st["decl"], backColor=colors.HexColor("#f6fafb"),
-                                           borderColor=colors.HexColor("#9fb7bf"), borderWidth=0.8, borderPadding=9,
-                                           spaceBefore=9, spaceAfter=13)
+                                         textColor=colors.HexColor("#102a43"))
+        st["offer_decl"] = ParagraphStyle("offer_decl", parent=base, fontSize=10, leading=14,
+                                           textColor=colors.HexColor("#102a43"))
         st["lh_name"] = ParagraphStyle("offer_lh_name", parent=st["lh_name"], fontSize=16, leading=20,
                                         textColor=colors.HexColor("#102a43"))
     story = []
@@ -400,7 +505,17 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
                        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)])
     page = _landscape(A4) if inp.landscape else A4
     width = page[0] - 40 * mm
-    offer_meta_pending = offer_design
+    offer_roles = _offer_roles(elements) if offer_design else {}
+    teal, ink = colors.HexColor("#0f4c5c"), colors.HexColor("#102a43")
+
+    def band(content, *, size_style, bg, accent, pad=7, after=8, before=0):
+        """A full-width shaded row with an accent bar: the same left edge as the text and tables around it."""
+        t = Table([[Paragraph(content, size_style)]], colWidths=[width])
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), bg), ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                               ("TOPPADDING", (0, 0), (-1, -1), pad), ("BOTTOMPADDING", (0, 0), (-1, -1), pad)]))
+        return [Spacer(1, before), t, Spacer(1, after)] if before else [t, Spacer(1, after)]
+
     for el in elements:
         k = el.kind
         if k == "letterhead":
@@ -411,35 +526,54 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
             for key in ("address", "registration"):
                 if d.get(key):
                     rows.append(Paragraph(_xml(d[key]), st["lh_meta"]))
-            logo = d.get("logo_path")
+            logo = io.BytesIO(d["logo_bytes"]) if d.get("logo_bytes") else d.get("logo_path")
+            img = None
             if logo:
                 try:
                     img = Image(logo)
-                    ratio = img.imageHeight / float(img.imageWidth or 1)
-                    img.drawWidth, img.drawHeight = 28 * mm, 28 * mm * ratio
-                    t = Table([[rows, img]], colWidths=[width - 32 * mm, 32 * mm])
+                    iw, ih = float(img.imageWidth or 1), float(img.imageHeight or 1)
+                    scale = min(45 * mm / iw, 16 * mm / ih)            # fits a 45 x 16 mm box, aspect kept
+                    img.drawWidth, img.drawHeight = iw * scale, ih * scale
+                    img.hAlign = "RIGHT"
                 except Exception:
-                    t = Table([[rows]], colWidths=[width])
+                    img = None
+            if img is not None:
+                t = Table([[rows, img]], colWidths=[width - 50 * mm, 50 * mm])
             else:
                 t = Table([[rows]], colWidths=[width])
             t.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 1.8 if offer_design else 1.2,
                                     colors.HexColor("#0f4c5c" if offer_design else "#1f2937")),
-                                   ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                   ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                   ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("ALIGN", (-1, 0), (-1, 0), "RIGHT"),
                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
             story += [t, Spacer(1, 10)]
         elif k == "heading":
-            story.append(Paragraph(_xml_runs(el.runs), st["h" + str(el.data.get("level", 1))]))
+            level = el.data.get("level", 1)
+            if offer_design and level == 2:
+                parts = band(_xml_runs(el.runs), size_style=st["offer_h2"], bg=colors.HexColor("#f1f7f8"), accent=teal,
+                             pad=5, after=7, before=8)
+                parts[1].keepWithNext = True
+                parts[-1].keepWithNext = True
+                story += parts
+            else:
+                story.append(Paragraph(_xml_runs(el.runs), st["h" + str(level)]))
         elif k == "paragraph":
             style = el.data.get("style", "normal")
             paragraph_text = "".join(run.text for run in el.runs)
-            if offer_design and offer_meta_pending:
-                paragraph_style = st["offer_meta"]
-                offer_meta_pending = False
+            role = offer_roles.get(id(el))
+            if role == "meta":
+                story.append(Paragraph(_xml(tidy_line(paragraph_text)), st["offer_meta"]))
+            elif role == "recipient":
+                name, _, address = tidy_line(paragraph_text).partition(", ")
+                story.append(Paragraph(_xml(name), st["offer_to"]))
+                if address.strip():
+                    story.append(Paragraph(_xml(address), st["offer_addr"]))
+                story.append(Spacer(1, 4))
             elif offer_design and paragraph_text.lstrip().startswith("Pay:"):
-                paragraph_style = st["offer_pay"]
+                story += band(_xml_runs(el.runs), size_style=st["offer_pay"], bg=colors.HexColor("#f1f7f8"), accent=teal,
+                              pad=8, after=10, before=4)
             else:
-                paragraph_style = st["p" if style == "normal" else style]
-            story.append(Paragraph(_xml_runs(el.runs), paragraph_style))
+                story.append(Paragraph(_xml_runs(el.runs), st["p" if style == "normal" else style]))
         elif k == "list":
             if el.data["style"] == "check":
                 for r in el.runs:
@@ -503,44 +637,43 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
                 box = "&#9745; " if s_.get("done") else "&#9744; "
                 story.append(Paragraph(box + _xml(it["label"] + extra + (f" — {note}" if note else "")), st["p"]))
         elif k == "declaration":
-            story.append(Paragraph(_xml_runs(el.runs), st["offer_decl"] if offer_design else st["decl"]))
-        elif k == "signatures":
-            names = el.data.get("names") or {}
-            cells = [[Paragraph(_xml(PARTY_LABELS.get(p, p)), st["label"]), Spacer(1, 16), Paragraph(_xml(text), st["cell"])]
-                     + ([Spacer(1, 4), Paragraph(_xml(f"Name: {names[p]}"), st["cell"])] if names.get(p) else [])
-                     for p, text in el.data["parties"]]
-            pairs = [cells[i:i + 2] for i in range(0, len(cells), 2)]
-            rows = [[c for c in pair] + ([""] if len(pair) == 1 else []) for pair in pairs]
-            t = Table(rows, colWidths=[width / 2] * 2)
-            signature_style = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                               ("TOPPADDING", (0, 0), (-1, -1), 12)]
             if offer_design:
-                signature_style.extend([("LINEABOVE", (0, 0), (-1, -1), 0.8, colors.HexColor("#9fb7bf")),
-                                        ("RIGHTPADDING", (0, 0), (-1, -1), 14)])
-            t.setStyle(TableStyle(signature_style))
-            story.append(KeepTogether([Spacer(1, 6), t]))
+                story += band(_xml_runs(el.runs), size_style=st["offer_decl"], bg=colors.HexColor("#f6fafb"), accent=teal,
+                              pad=9, after=4, before=6)
+            else:
+                story.append(Paragraph(_xml_runs(el.runs), st["decl"]))
+        elif k == "signatures":
+            story.append(KeepTogether([Spacer(1, 10), _pdf_signatures(el.data, width, st, f)]))
         elif k == "page_break":
             story.append(PageBreak())
 
     footer_bits = [inp.document_number] if inp.document_number else []
     confidential = inp.confidential
-    verify = inp.verify_url
+    verify = "" if offer_design else inp.verify_url          # offer letters carry no verification line
 
     class _Numbered(rl_canvas.Canvas):
         def __init__(self, *a, **kw):
             super().__init__(*a, **kw)
             self._pages = []
+            self._zanchors = []                 # (name, x, y) named destinations drawn on the current page
 
         def showPage(self):
             self._pages.append(dict(self.__dict__))
+            self._zanchors = []
             self._startPage()
 
         def save(self):
             total = len(self._pages)
+            named = {}
             for state in self._pages:
                 self.__dict__.update(state)
                 self._footer(total)
+                for name, x, y in state.get("_zanchors") or []:     # registered now, so they point at the right page
+                    named[name] = self.bookmarkPage(name, fit="XYZ", left=round(x, 2), top=round(y, 2))
                 super().showPage()
+            if named:                                   # ReportLab only writes destinations something refers to
+                from reportlab.pdfbase.pdfdoc import PDFDictionary
+                self._doc.Catalog.Dests = PDFDictionary({n: named[n] for n in sorted(named)})
             super().save()
 
         def _footer(self, total):
@@ -562,7 +695,9 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
             self.restoreState()
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=page, leftMargin=20 * mm, rightMargin=20 * mm,
+    # The frame pads its content by 6pt on each side: the margins absorb that, so text, tables and the header/footer rules
+    # all start at 20 mm (full-width tables used to be 12pt wider than the frame and sat 6pt left of the text).
+    doc = SimpleDocTemplate(buf, pagesize=page, leftMargin=20 * mm - 6, rightMargin=20 * mm - 6,
                             topMargin=23 * mm if offer_design else 18 * mm, bottomMargin=22 * mm,
                             title=inp.title, author=inp.author or "", subject=inp.document_number or "",
                             creator="Zoiko HR document engine", producer="Zoiko HR", keywords="", invariant=1)
@@ -570,6 +705,146 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
         story = [Spacer(1, 1)]
     doc.build(story, canvasmaker=_Numbered)
     return buf.getvalue()
+
+
+SIGN_SPACE = 15 * 2.834645669          # 15 mm of blank space above each signature line, where the signature goes
+
+
+def _pdf_signatures(data: dict, width: float, st: dict, f: dict):
+    """Two sign-offs per row. Each: party label, signature space, the line (a named destination marks it so the signature
+    can be stamped on it at execution), then name, role and date under the line."""
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Flowable, Paragraph, Spacer, Table, TableStyle
+
+    class _Line(Flowable):
+        def __init__(self, w, anchor, lead=""):
+            super().__init__()
+            self.w, self.anchor, self.lead = w, anchor, lead
+
+        def wrap(self, *_):
+            return self.w, 12 if self.lead else 2
+
+        def draw(self):
+            c = self.canv
+            x0 = 0
+            if self.lead:                                  # "Date:" followed by a short line
+                c.setFont(f["regular"], 9)
+                c.setFillColor(colors.HexColor("#334155"))
+                c.drawString(0, 3, self.lead)
+                x0 = c.stringWidth(self.lead, f["regular"], 9) + 4
+            c.setStrokeColor(colors.HexColor("#334155"))
+            c.setLineWidth(0.6 if self.lead else 0.9)
+            c.line(x0, 1, self.w if not self.lead else min(self.w, x0 + 120), 1)
+            ax, ay = c.absolutePosition(x0, 1)
+            if hasattr(c, "_zanchors"):
+                c._zanchors.append((self.anchor, ax, ay))
+
+    label = ParagraphStyle("sig_label", parent=st["label"], fontName=f["bold"], fontSize=7.5, leading=10,
+                           textColor=colors.HexColor("#52677a"))
+    mark = ParagraphStyle("sig_mark", parent=st["label"], fontSize=8.5, leading=11, textColor=colors.HexColor("#64748b"))
+    name = ParagraphStyle("sig_name", parent=st["cell_b"], fontSize=10, leading=13, textColor=colors.HexColor("#102a43"))
+    role = ParagraphStyle("sig_role", parent=st["label"], fontSize=8.5, leading=11)
+    gap = 14
+    col = (width - gap) / 2
+    cells = []
+    for p, presigned in data["parties"]:
+        s = _signature_parts(data, p, presigned)
+        cell = [Paragraph(_xml(s["label"].upper()), label)]
+        if s["mark"]:
+            cell += [Spacer(1, SIGN_SPACE - 13), Paragraph("<i>" + _xml(s["mark"]) + "</i>", mark), Spacer(1, 2)]
+        else:
+            cell.append(Spacer(1, SIGN_SPACE))
+        cell += [_Line(col, SIGNATURE_ANCHOR.format(party=p)), Spacer(1, 4)]
+        cell.append(Paragraph(_xml(s["name"]), name) if s["name"] else Paragraph(_xml("Name:"), role))
+        if s["role"]:
+            cell.append(Paragraph(_xml(s["role"]), role))
+        cell.append(Spacer(1, 6))
+        cell.append(Paragraph(_xml("Date: " + s["date"]), role) if s["date"] else _Line(col, DATE_ANCHOR.format(party=p), "Date:"))
+        cells.append(cell)
+    rows = []
+    for i in range(0, len(cells), 2):
+        pair = cells[i:i + 2]
+        rows.append([pair[0], "", pair[1] if len(pair) > 1 else ""])
+    t = Table(rows, colWidths=[col, gap, col])
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                           ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0),
+                           ("BOTTOMPADDING", (0, 0), (-1, -1), 14)]))
+    return t
+
+
+def stamp_signatures(pdf: bytes, marks: list[dict]) -> bytes:
+    """Draw each signature on its party's signature line, and the signing date on its date line, in a copy of `pdf`.
+
+    marks: [{"party", "image": png bytes or None, "typed": str, "date": str}]. Lines are found through the named
+    destinations the renderer leaves on them; a document rendered before those existed (or a party with no line) is
+    returned unchanged for that party."""
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.lib import colors
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    reader = PdfReader(io.BytesIO(pdf))
+    try:
+        dests = reader.named_destinations
+    except Exception:
+        dests = {}
+
+    def where(name):
+        d = dests.get(name) or dests.get("/" + name)       # a /Dests key reads back as a PDF name
+        if d is None:
+            return None
+        try:
+            return reader.get_destination_page_number(d), float(d.left), float(d.top)
+        except Exception:
+            return None
+
+    overlays: dict[int, list] = {}
+    for m in marks:
+        line = where(SIGNATURE_ANCHOR.format(party=m["party"]))
+        if line:
+            overlays.setdefault(line[0], []).append(("sig", line[1], line[2], m))
+        date_line = where(DATE_ANCHOR.format(party=m["party"]))
+        if date_line and m.get("date"):
+            overlays.setdefault(date_line[0], []).append(("date", date_line[1], date_line[2], m))
+    if not overlays:
+        return pdf
+    writer = PdfWriter(clone_from=reader)
+    fonts = _fonts()
+    for page_no, items in overlays.items():
+        page = writer.pages[page_no]
+        w, h = float(page.mediabox.width), float(page.mediabox.height)
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(w, h), invariant=1)
+        for kind, x, y, m in items:
+            if kind == "date":
+                c.setFont(fonts["regular"], 9)
+                c.setFillColor(colors.HexColor("#102a43"))
+                c.drawString(x + 2, y + 2.5, m["date"])
+                continue
+            box_w, box_h = 62 * 2.834645669, SIGN_SPACE - 6
+            drawn = False
+            if m.get("image"):
+                try:
+                    img = ImageReader(io.BytesIO(m["image"]))
+                    iw, ih = img.getSize()
+                    scale = min(box_w / max(iw, 1), box_h / max(ih, 1))
+                    c.drawImage(img, x + 2, y + 2, width=iw * scale, height=ih * scale, mask="auto")
+                    drawn = True
+                except Exception:
+                    drawn = False
+            if not drawn and m.get("typed"):
+                size = 20
+                while size > 10 and c.stringWidth(m["typed"], "Times-Italic", size) > box_w:
+                    size -= 1
+                c.setFont("Times-Italic", size)
+                c.setFillColor(colors.HexColor("#1e3a8a"))
+                c.drawString(x + 2, y + 5, m["typed"])
+        c.save()
+        page.merge_page(PdfReader(io.BytesIO(buf.getvalue())).pages[0])
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 def append_pdf(original: bytes, appendix: bytes) -> bytes:

@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui with context %}
+{% set title = "Onboarding documents to review" %}
+{% set preheader = candidate_name ~ " has handed back onboarding documents." %}
+{% set badge = "To review" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because you are an admin at {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Onboarding documents to review</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong> has handed back the onboarding documents below. Items submitted for review are waiting for you in Zoiko HR.</p>
+{% call ui.details() %}
+{{ ui.detail_row("New hire", candidate_name, first=True) }}
+{{ ui.detail_row("Position", position or "Not set") }}
+{% for d in items %}{{ ui.detail_row(d.title, d.status) }}{% endfor %}
+{% endcall %}
+{{ ui.button(review_url, "Review the documents") }}
+{{ ui.signoff() }}
+{% endblock %}

@@ -88,7 +88,7 @@ def test_exactly_one_zoiko_hr_logo_per_email(rendered):
         assert "color:#06508d" in img, label
         if out.branding.get("tenant_name"):
             # an organization's email: its own brand heads it, Zoiko HR is "Powered by" in the footer
-            assert 'width="120"' in img and 'height="21"' in img, label
+            assert 'width="96"' in img and 'height="17"' in img, label
             assert out.html.index('class="org-wordmark') < out.html.index(img), label
             assert "Powered by" in out.html, label
         else:
@@ -168,11 +168,11 @@ def test_organization_is_the_main_brand_and_zoiko_hr_logo_stays(monkeypatch):
 
 def test_uploaded_organization_logo_is_inlined_in_the_header(monkeypatch):
     logo = email_service._org_logo_for_email(_png((900, 300)))
-    assert logo and (logo[1], logo[2]) == (144, 48)  # fits 200x48, aspect ratio kept
+    assert logo and (logo[1], logo[2]) == (96, 32)  # fits 110x32 (smaller than the name beside it), aspect kept
     monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding(org_logo=logo))
     out = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1)
-    assert '<img class="org-logo" src="cid:org-logo" width="144" height="48" alt="Acme"' in out.html
-    assert 'class="org-wordmark' not in out.html
+    assert '<img class="org-logo" src="cid:org-logo" width="96" height="32" alt=""' in out.html
+    assert 'class="org-wordmark' in out.html and ">Acme</p>" in out.html     # the name heads the email beside its logo
     assert out.inline_data == (("org-logo", logo[0]),)
     assert out.html.count('class="zhr-logo zhr-logo-light"') == 1  # Zoiko HR logo never removed
 
@@ -537,3 +537,22 @@ def test_every_template_imports_components_with_context():
             source = f.read()
         if "_components.html" in source:
             assert '{% import "_layouts/_components.html" as ui with context %}' in source, os.path.basename(path)
+
+
+def test_org_emails_send_questions_to_the_org_hr_contact(monkeypatch):
+    """People-facing organization emails name the organization's HR contact; account/billing emails keep Zoiko support."""
+    from app.services import email_service
+
+    def branding(organization_id=None, db=None):
+        b = dict(email_service._BRANDING_DEFAULTS)
+        b.update(company_name="Acme", tenant_name="Acme", org_hr_name="Neha Iyer", org_hr_email="hr@acme.test")
+        return b
+
+    monkeypatch.setattr(email_service, "_get_org_branding", branding)
+    ctx = {"subject": "x", "title": "x", "preheader": "x"}
+    people = email_service.render_email("workflow_message.html", {**ctx, "paragraphs": ["Hi"]}, organization_id=1).html
+    assert "Contact Neha Iyer in the Acme HR team" in people and 'href="mailto:hr@acme.test"' in people
+    assert email_service.footer_contact_for("invoice_sent.html") == "platform"
+    assert email_service.footer_contact_for("org_admin_invite.html") == "platform"
+    assert email_service.footer_contact_for("evaluation_started.html") == "platform"
+    assert email_service.footer_contact_for("onboarding_invite.html") == "hr"

@@ -977,6 +977,15 @@ class OnboardingDocument(Base):
     document_id             = Column(Integer, ForeignKey("generated_documents.id"), nullable=True, index=True)
     status                  = Column(String(50), default="pending", nullable=False)
     rejection_reason        = Column(Text, nullable=True)
+    # the submission pipeline (onboarding_submissions): what kind of item this is, its review trail and resubmissions
+    kind                    = Column(String(20), nullable=True)          # upload | form | package (None: derived)
+    form_submission_id      = Column(Integer, ForeignKey("onboarding_form_submissions.id"), nullable=True, index=True)
+    version                 = Column(Integer, nullable=False, default=1, server_default="1")
+    history                 = Column(JSON, nullable=True)                # earlier versions: [{version, status, submitted_at, ...}]
+    submitted_at            = Column(DateTime, nullable=True)
+    reviewed_by             = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    reviewed_at             = Column(DateTime, nullable=True)
+    details_changed         = Column(Boolean, nullable=False, default=False, server_default="false")   # sent, unsigned, hire's details changed since
     is_deleted              = Column(Boolean, default=False, nullable=False)
     created_by              = Column(String(100), nullable=True)
     created_at              = Column(DateTime, server_default=func.now(), nullable=False)
@@ -1087,7 +1096,8 @@ class OnboardingSettings(Base):
     reminder_days              = Column(Integer, default=3, nullable=False)   # remind about outstanding documents every N days (0 = never)
     require_checklists_complete = Column(Boolean, default=True, nullable=False)
     require_documents_approved = Column(Boolean, default=True, nullable=False)
-    welcome_message            = Column(Text, nullable=True)
+    welcome_message            = Column(Text, nullable=True)       # plain text; see welcome_message.py (default filled)
+    welcome_signature          = Column(String(120), nullable=True)  # sign-off of the welcome e-mail
     last_reminder_run          = Column(Date, nullable=True)
     updated_at                 = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -1422,6 +1432,7 @@ class RecruitmentOffer(Base):
     approved_at         = Column(DateTime, nullable=True)
     issued_at           = Column(DateTime, nullable=True)
     accepted_at         = Column(DateTime, nullable=True)
+    welcome_email_sent_at = Column(DateTime, nullable=True)        # the one offer-accepted welcome e-mail (idempotency)
     decline_reason      = Column(Text, nullable=True)
     document_id         = Column(Integer, ForeignKey("generated_documents.id"), nullable=True)
     amends_offer_id     = Column(Integer, ForeignKey("recruitment_offers.id"), nullable=True)

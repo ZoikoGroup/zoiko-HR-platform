@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Download, Eye, FileSignature, Hourglass, Info, Loader2, Send, ShieldAlert, UserRound } from "lucide-react";
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import OfferPackageV2Section from "./OfferPackageV2Section";
+import { openFile } from "../../../utils/fileViewer";
 import { downloadHirePackageDocument, downloadHirePackageZip, getHirePackage, getHirePackagePreview, saveHirePackageInputs, sendOnboardingPackage,
   sendOnboardingPortalInvite } from "../../../service/hrService";
 
@@ -150,10 +151,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
     setPreviewing(category);
     try {
       const res = await getHirePackagePreview(hireId, category);
-      const url = URL.createObjectURL(res.blob);
-      const win = window.open(url, "_blank", "noopener");
-      if (!win) onError?.("The browser blocked the preview tab. Allow pop-ups for this site and try again.");
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      openFile(res.blob, res.filename || `${category}-preview.pdf`, "preview");
     } catch (e) {
       onError?.(e?.message || "The preview could not be generated.");
     } finally {
@@ -166,12 +164,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
     setDownloading(key);
     try {
       const res = await fetcher();
-      const url = URL.createObjectURL(res.blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.filename;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      openFile(res.blob, res.filename, "download");
     } catch (e) {
       onError?.(e?.message || "The download failed.");
     } finally {

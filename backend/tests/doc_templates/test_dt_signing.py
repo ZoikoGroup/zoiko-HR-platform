@@ -298,7 +298,35 @@ def test_signature_block_prints_the_candidate_name_so_the_signed_copy_is_not_bla
         signatures={"employer": "Jo Boss, CEO"}, signer_names={"candidate": "Priya Sharma", "employer": "Someone Else"},
         document_number="D-1", title="Offer", letterhead={"legal_name": "Acme"}, visual_profile="offer_letter")
     html = renderer.render_html(inp)
-    assert "Name: Priya Sharma" in html
+    assert "Priya Sharma" in html and "Jo Boss" in html
     assert "Someone Else" not in html            # a pre-signed employer line already names its signer
-    text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(renderer.render_pdf(inp))).pages)
-    assert "Name: Priya Sharma" in text
+    pdf = renderer.render_pdf(inp)
+    text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(pdf)).pages)
+    assert "Priya Sharma" in text and "Jo Boss" in text
+    # the candidate's name sits under a signature line that execution can find and sign on
+    dests = pypdf.PdfReader(io.BytesIO(pdf)).named_destinations
+    assert "/zsig-candidate" in dests and "/zdate-candidate" in dests
+
+
+def test_offer_letter_has_no_verify_line_and_signature_is_stamped_above_the_name():
+    import io
+
+    import pypdf
+
+    from app.modules.doc_templates import renderer
+
+    inp = renderer.RenderInput(
+        blocks=[{"type": "paragraph", "text": "Hello"},
+                {"type": "signature_block", "parties": ["employer", "candidate"]},
+                {"type": "declaration", "text": "I accept this offer.", "mode": "sign"}],
+        value_of=lambda k: "", raw_values={}, clause_text=lambda k: "", required_clause_keys=[],
+        signer_names={"candidate": "Priya Sharma"}, document_number="D-1", title="Offer", letterhead={"legal_name": "Acme"},
+        verify_url="https://app.example.com/verify/D-1", visual_profile="offer_letter")
+    html = renderer.render_html(inp)
+    assert "Verify at" not in html
+    assert html.index("I accept this offer.") < html.index("Priya Sharma")     # accepted above the lines it is signed on
+    pdf = renderer.render_pdf(inp)
+    assert "Verify at" not in renderer.pdf_text(pdf)
+    signed = renderer.stamp_signatures(pdf, [{"party": "candidate", "image": None, "typed": "Priya S", "date": "21 November 2026"}])
+    assert signed != pdf and "21 November 2026" in renderer.pdf_text(signed)
+    assert renderer.stamp_signatures(pdf, [{"party": "witness", "image": None, "typed": "X", "date": ""}]) == pdf

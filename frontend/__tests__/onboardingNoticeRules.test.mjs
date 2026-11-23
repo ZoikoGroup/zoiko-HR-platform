@@ -46,6 +46,8 @@ test("notice rules: add a rule for an employee type and the header Save sends it
   ];
   const rules = [{ employee_type: "all", applies_when: "any", value: 30, unit: "calendar_days", active: true }];
   t.mock.module("../src/service/hrService.js", { exports: {
+    previewWelcomeMessage: async () => ({ subject: "Offer accepted", email_html: "<p>preview</p>", blocks: [], signature: "" }),
+    sendTestWelcomeMessage: async () => ({ sent: true, to: "hr@acme.test" }),
     getOnboardingSettings: async () => SETTINGS,
     getOnboardingChecklistTemplates: async () => [],
     saveOnboardingSettings: async (p) => p,

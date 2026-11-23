@@ -106,7 +106,8 @@ def test_offer_end_to_end_generate_approve_issue_sign_accept_onboard(world):
     row = world.db.get(GeneratedDocument, letter["id"])
     text = " ".join(renderer.pdf_text(storage.get_store().get(row.pdf_path)).split())
     for expected in ("Conditional offer of employment", "Dear Casey", "Two satisfactory references", "GBP", "42,000.00",
-                     "Dana Director, Director - authorised signatory for Tenant A Employer Ltd",
+                     # the issuing signatory: name under the signature line, role on the line below it
+                     "Dana Director", "Director - authorised signatory for Tenant A Employer Ltd",
                      "Each condition must be satisfied before your employment starts"):
         assert expected in text, expected
     assert world.put("a_hr", f"/hr/recruitment/offers/{o['id']}", json={"salary": 1}).status_code == 400, "issued: amend, don't edit"
@@ -121,6 +122,11 @@ def test_offer_end_to_end_generate_approve_issue_sign_accept_onboard(world):
     assert hire.work_country == "GB", "the onboarding record carries the offer's jurisdiction"
     ack = world.db.query(GeneratedDocument).filter_by(canonical_id="HR-HIR-019").one()
     assert ack.status == "ISSUED" and ack.source_ref == f"recruitment_offer:{o['id']}"
+    # the acceptance confirmation rides in the one offer-accepted welcome email (link + attachment), not an email of its own
+    to_candidate = [(t, c) for (to, t, c) in world.mail if to == cand.email]
+    welcome = [c for t, c in to_candidate if t == "offer_accepted_welcome.html"]
+    assert len(welcome) == 1 and welcome[0]["documents"] and "/sign/" in welcome[0]["documents"][0]["url"]
+    assert not [t for t, _ in to_candidate if t in ("candidate_document_available.html", "onboarding_invite.html")]
 
 
 def test_generating_an_unconfigured_cross_border_offer_uses_preview_without_attestation(world):

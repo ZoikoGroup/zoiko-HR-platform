@@ -29,7 +29,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.modules.doc_templates import signing, state, storage
+from app.modules.doc_templates import renderer, signing, state, storage
 from app.modules.doc_templates.models import GeneratedDocument, TemplateDefinition
 from app.modules.hr import onboarding_package_content as C
 from app.modules.hr import onboarding_package_render as R
@@ -1361,6 +1361,7 @@ def _engagement_summary(db, hire) -> dict:
 BOARD_STATES = ("not_sent", "awaiting_signature", "awaiting_acknowledgement", "awaiting_upload", "needs_review", "completed",
                 "available", "declined", "rejected")
 _BOARD_ACTIVE = ("offer_sent", "offer_accepted", "pre_joining", "in_progress")
+_DONE = ("completed", "available")          # == onboarding_submissions.DONE_STATES: needs_review is not done
 
 
 def status_board(db, organization_id: int, *, include_finished: bool = False) -> dict:
@@ -1413,7 +1414,7 @@ def status_board(db, organization_id: int, *, include_finished: bool = False) ->
             out.append({"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "position": hire.position,
                         "status": hire.status, "joining_date": hire.joining_date.isoformat() if hire.joining_date else None,
                         "sent_at": pkg.get("sent_at"), "documents": docs, "counts": counts,
-                        "done": counts["completed"] + counts["available"],
+                        "done": sum(n for s, n in counts.items() if s in _DONE),
                         "total": sum(1 for v in docs.values() if v["state"] != "not_included")})
         return {"documents": documents, "hires": out, "totals": totals}
 
@@ -1455,6 +1456,8 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
     ctx = render_context(db, hire, cat, cfg=cfg, final=True, esign=(mode == "SIGN"), secure_link=secure_link,
                          contract_id=number if cat == "employment_contract" else None, fresh=True)
     pdf = R.render_pdf(cat, ctx)
+    if "{{" in renderer.pdf_text(pdf):              # readiness: never issue a document with an unfilled placeholder
+        raise NotReady(cat)
     source = dict(ctx.source or {})
     key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.pdf", pdf)
     _store_files(hire, cat, key)
@@ -1493,6 +1496,8 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
                                  category=cat, created_by="system")
         db.add(row)
     row.title, row.file_path, row.document_id, row.status, row.rejection_reason = d["title"], file_path, gen_id, status, None
+    row.details_changed, row.kind = False, "package"
+    row.details_changed = False          # freshly issued from the current details; the reissue warning no longer applies
     db.flush()
     details = dict(hire.profile_details or {})              # the version and mode this document was issued under
     issued = dict(details.get("_package_issued") or {})
@@ -1504,10 +1509,43 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
                            "variant_checksum": source.get("variant_checksum"), "starter_revision": source.get("starter_revision"),
                            "content_checksum": source.get("content_checksum"), "values_checksum": snapshot,
                            "clauses": sorted(k for k, v in (ctx.clauses or {}).items() if (v or {}).get("text")),
-                           "rendered_sha256": hashlib.sha256(pdf).hexdigest()}
+                           "rendered_sha256": hashlib.sha256(pdf).hexdigest(), "worker_checksum": worker_checksum(ctx.values)}
     details["_package_issued"] = issued
     hire.profile_details = details
     return row
+
+
+class NotReady(Exception):
+    """The rendered document still shows a "{{…}}" placeholder: it is held, not issued."""
+
+
+def worker_checksum(values: dict) -> str:
+    """The new hire's own details printed in a document (worker.*): compared when they change their details later."""
+    mine = {k: v for k, v in (values or {}).items() if str(k).startswith("worker.")}
+    return hashlib.sha256(json.dumps(mine, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def flag_details_changed(db, hire) -> int:
+    """After the new hire changes their details: a document already sent but not yet signed / acknowledged / returned that
+    printed different details is flagged "Details changed – reissue" for HR. A sent document itself is never altered."""
+    try:
+        with values_cache(db):
+            current = worker_checksum(_values_for(db, hire, _config_for(db, hire.organization_id)))
+        n = 0
+        for row in _rows(db, hire).values():
+            meta = issued_meta(row)
+            if not meta.get("worker_checksum") or row.status != "requested" or row.details_changed:
+                continue
+            if meta["worker_checksum"] != current:
+                row.details_changed = True
+                n += 1
+        if n:
+            db.commit()
+        return n
+    except Exception:
+        db.rollback()
+        logger.exception("details-changed check failed for new hire %s", hire.id)
+        return 0
 
 
 def _fallback_actor(db, hire) -> int:
@@ -1569,7 +1607,12 @@ def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[
             state.transition(db, old, "SUPERSEDED", actor_id=getattr(actor, "id", None),
                              detail={"reason": "replaced by the onboarding package document sent by HR"})
             signing.revoke_candidate_tokens(db, old)
-        _issue_one(db, hire, d, cfg, actor, secure_link, row)
+        try:
+            _issue_one(db, hire, d, cfg, actor, secure_link, row)
+        except NotReady:
+            held.append({"category": cat, "title": d["title"], "ready": False, "missing_fields": ["unfilled placeholder"],
+                         "missing_clauses": []})
+            continue
         issued.append({"category": cat, "title": d["title"], "mode": d["mode"]})
     details = dict(hire.profile_details or {})
     pkg = dict(details.get("_package") or {})
@@ -1671,11 +1714,8 @@ def acknowledge(db, hire, doc: OnboardingDocument, *, text_version: str, ip: Opt
     details["_acknowledgements"] = acks
     hire.profile_details = details
     doc.status = "approved"
-    db.commit()
-    from app.modules.hr.service import log_onboarding_activity
-    log_onboarding_activity(db, hire.id, "Document acknowledged", f"{hire.candidate_name} acknowledged receipt of '{doc.title}'.",
-                            hire.organization_id)
-    sync_onboarding_document_checklist(db, hire)
+    from app.modules.hr import onboarding_submissions
+    onboarding_submissions.on_submitted(db, hire, "acknowledge", doc)      # row, activity, HR digest, checklist, one commit
 
 
 def save_outside_activities(db, hire, data: dict) -> None:
@@ -1796,20 +1836,25 @@ CHECKLIST_NAME = "Onboarding Documents & Agreements"
 ITEM_VERB = {"SIGN": "Sign", "ACKNOWLEDGE": "Acknowledge", "COMPLETE": "Complete and return"}
 
 
-def sync_onboarding_document_checklist(db: Session, hire: OnboardingNewHire) -> None:
-    """Mirror documents that need the new hire to act into their checklist (voluntary and information documents are left out,
-    so they never hold up completion)."""
+def sync_onboarding_document_checklist(db: Session, hire: OnboardingNewHire, *, commit: bool = True) -> None:
+    """Mirror every item the new hire is asked for (uploads, structured forms, package documents to sign / acknowledge /
+    complete) into their checklist. requested → "Open", pending → "Submitted – HR to review", approved / verified / executed →
+    done (completed + completed_at persisted), rejected → "Returned – <reason>". Voluntary and information documents are left
+    out, so they never hold up completion. Engine-ticked items (verified starter / emergency / bank forms) are persisted too."""
     from app.modules.hr.models import OnboardingChecklist, OnboardingChecklistItem
+    from app.modules.hr import onboarding_submissions as S
     docs = (db.query(OnboardingDocument)
             .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
             .order_by(OnboardingDocument.id).all())
-    # only package documents the new hire must act on; ordinary uploads are already covered by "documents approved"
-    actionable = [d for d in docs if mode_of(d) in ("SIGN", "ACKNOWLEDGE", "COMPLETE") and d.status != NO_ACTION_STATUS]
+    actionable = [d for d in docs if S.needs_action(d)]
+    _persist_engine_ticks(db, hire)
     checklist = (db.query(OnboardingChecklist)
                  .filter(OnboardingChecklist.onboarding_new_hire_id == hire.id, OnboardingChecklist.name == CHECKLIST_NAME,
                          OnboardingChecklist.is_deleted == False).first())  # noqa: E712
     if checklist is None:
         if not actionable:
+            if commit:
+                db.commit()
             return
         checklist = OnboardingChecklist(organization_id=hire.organization_id, onboarding_new_hire_id=hire.id, name=CHECKLIST_NAME,
                                         description="Sign, acknowledge or complete your onboarding documents.", category="HR",
@@ -1821,19 +1866,14 @@ def sync_onboarding_document_checklist(db: Session, hire: OnboardingNewHire) -> 
     for d in actionable:
         key = f"doc_{d.id}"
         wanted.add(key)
-        mode = mode_of(d)
-        done = d.status == "approved"
-        title = f"{ITEM_VERB.get(mode, 'Review')} {d.title}"
-        desc = (f"Done · {d.title}" if done else
-                {"SIGN": "Waiting for the new hire's electronic signature", "ACKNOWLEDGE": "Waiting for acknowledgement of receipt",
-                 "COMPLETE": "Waiting for the completed form" if d.status != "pending" else "Uploaded – HR to review"}
-                .get(mode, "Waiting for the document to be approved"))
+        done = S.status_done(d.status)
         it = existing.get(key)
         if it is None:
             it = OnboardingChecklistItem(organization_id=hire.organization_id, checklist_id=checklist.id, item_key=key,
                                          due_date=hire.joining_date or date.today(), owner_role="employee")
             db.add(it)
-        it.title, it.description, it.mandatory = title[:200], desc, True
+            checklist.items.append(it)
+        it.title, it.description, it.mandatory = S.checklist_title(d)[:200], S.checklist_description(d), True
         it.completed, it.completed_at = done, (it.completed_at or datetime.utcnow()) if done else None
     for key, it in existing.items():             # documents removed, or now voluntary / informational
         if key.startswith("doc_") and key not in wanted:
@@ -1842,7 +1882,22 @@ def sync_onboarding_document_checklist(db: Session, hire: OnboardingNewHire) -> 
     live = [i for i in checklist.items if not i.is_deleted]
     done_n = sum(1 for i in live if i.completed)
     checklist.status = "completed" if live and done_n == len(live) else ("in_progress" if done_n else "pending")
-    db.commit()
+    if commit:
+        db.commit()
+
+
+def _persist_engine_ticks(db, hire) -> None:
+    """Template checklist items linked to a structured form (onb001 / onb003 / onb017) are ticked for real once verified."""
+    from app.modules.hr import onboarding_documents as OD
+    from app.modules.hr.models import OnboardingFormSubmission
+    items = [it for it in OD._hire_items(db, hire) if it.item_key in OD.PEOPLE_ITEM_SOURCES and not it.completed]
+    for it in items:
+        sub = (db.query(OnboardingFormSubmission)
+               .filter(OnboardingFormSubmission.new_hire_id == hire.id,
+                       OnboardingFormSubmission.canonical_id == OD.PEOPLE_ITEM_SOURCES[it.item_key],
+                       OnboardingFormSubmission.status == "VERIFIED").first())
+        if sub is not None:
+            it.completed, it.completed_at = True, sub.verified_at or datetime.utcnow()
 
 
 # ── signing links (used by the portal) ───────────────────────────────────────────────────────────────────────────────
@@ -2044,8 +2099,10 @@ def _email_package_submitted(db, hire) -> int:
                 continue
             d = {"title": row.title or doc_meta(db, hire, cat)["title"]}
             state = _row_state(db, row)
-            done = state in ("completed", "available", "needs_review")
-            word = _DONE_WORDS.get(mode_of(row), "Completed") if done else state.replace("_", " ").capitalize()
+            from app.modules.hr.onboarding_submissions import is_done     # one rule for "done" (board, checklist, e-mail)
+            done = is_done(state)
+            word = (_DONE_WORDS.get(mode_of(row), "Completed") if done else
+                    "Submitted – HR to review" if state == "needs_review" else state.replace("_", " ").capitalize())
             documents.append({"title": d["title"], "status": word})
         recipients = {a.email: a.first_name or "there" for a in onboarding_flow._admins(db, hire.organization_id) if a.email}
         if hire.manager is not None and hire.manager.email:

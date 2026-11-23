@@ -1270,9 +1270,15 @@ def accept_offer(db: Session, offer_id: int, organization_id: Optional[int] = No
                 candidate.status = RecruitmentCandidateStatus.HIRED
                 db.commit()
                 db.refresh(candidate)
-            _handle_candidate_hired(db, candidate, candidate.organization_id)
+            from app.modules.hr import onboarding_flow
+            with onboarding_flow.invite_deferred():       # the link goes out in the one offer-accepted e-mail below
+                _handle_candidate_hired(db, candidate, candidate.organization_id)
 
     notify.notify_offer_outcome(db, offer, accepted=True)
+    if not _from_engine:
+        # an e-signed letter: recruitment_documents.on_offer_executed sends it once the acceptance record exists
+        from app.modules.hr import onboarding_flow
+        onboarding_flow.send_offer_accepted_welcome(db, offer)
     return offer
 
 

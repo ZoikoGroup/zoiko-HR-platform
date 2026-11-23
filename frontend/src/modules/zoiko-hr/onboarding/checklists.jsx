@@ -15,6 +15,7 @@ import { getPackageStatusBoard } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
 import { Card, EmptyState, FilterSelect, KpiCard, KpiGrid, PersonCell, SearchInput, SecondaryButton, StatusPill } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
+import useLiveRefresh from "../../../utils/useLiveRefresh";
 
 // what each state means for HR, and how it looks (states: onboarding_package.BOARD_STATES on the server)
 const STATES = {
@@ -72,15 +73,17 @@ export default function OnboardingChecklists() {
   const [scope, setScope] = useState("");             // "" = hires still onboarding, "all" = with completed ones
   const [stateFilter, setStateFilter] = useState("");
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
-    getPackageStatusBoard(scope === "all")
-      .then((data) => setBoard(data || { documents: [], hires: [], totals: {} }))
-      .catch((e) => setError(e?.message || "The document status could not be loaded."))
-      .finally(() => setLoading(false));
+  // `quiet`: a background refresh (focus, every 30 s, after an action) keeps the board on screen and its last error
+  const load = useCallback((quiet = false) => {
+    if (!quiet) { setLoading(true); setError(""); }
+    return getPackageStatusBoard(scope === "all")
+      .then((data) => { setBoard(data || { documents: [], hires: [], totals: {} }); setError(""); })
+      .catch((e) => { if (!quiet) setError(e?.message || "The document status could not be loaded."); })
+      .finally(() => { if (!quiet) setLoading(false); });
   }, [scope]);
   useEffect(() => { load(); }, [load]);
+  // submissions, reviews and signatures happen elsewhere (the portal, Documents): follow them without a manual refresh
+  useLiveRefresh(() => load(true), 30000);
 
   const documents = board?.documents || [];
   const hires = useMemo(() => {
@@ -101,7 +104,7 @@ export default function OnboardingChecklists() {
 
   return (
     <OnboardingLayout title="Onboarding Checklists" subtitle="The status of each new hire's onboarding documents."
-      actions={<SecondaryButton icon={RefreshCw} onClick={load} disabled={loading}>Refresh</SecondaryButton>}>
+      actions={<SecondaryButton icon={RefreshCw} onClick={() => load()} disabled={loading}>Refresh</SecondaryButton>}>
       <div className="space-y-5">
         <KpiGrid cols={4}>
           <KpiCard label="Documents completed" icon={CheckCircle2} tone="green" loading={loading && !board}
@@ -127,7 +130,7 @@ export default function OnboardingChecklists() {
             <div role="alert" className="m-4 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span className="min-w-0 flex-1 break-words">{error}</span>
-              <button type="button" onClick={load} className="font-semibold underline">Retry</button>
+              <button type="button" onClick={() => load()} className="font-semibold underline">Retry</button>
             </div>
           ) : loading && !board ? (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-gray-500">
