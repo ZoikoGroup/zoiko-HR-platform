@@ -2,7 +2,7 @@
 exit documents, activity, settings and checklist templates
 
 Revision ID: eebc54645fb2
-Revises: d030f23705b4
+Revises: 4c8e1f2a9b7d
 Create Date: 2026-11-23 17:30:29.189736
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'eebc54645fb2'
-down_revision: Union[str, Sequence[str], None] = 'd030f23705b4'
+down_revision: Union[str, Sequence[str], None] = '4c8e1f2a9b7d'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
