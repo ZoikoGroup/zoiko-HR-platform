@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { CheckSquare, Eye, EyeOff, FileText, Folder, FolderPlus, History, RefreshCw, Send, Share2, Trash2, Upload } from "lucide-react";
+import {
+  CheckSquare, Download, Eye, EyeOff, FileText, Folder, FolderOpen, FolderPlus, Globe2, History, Mail, Pencil, RefreshCw, Share2, Trash2, Upload, X,
+} from "lucide-react";
 import { OrganizationDocumentsLayout } from "../ui";
 import SectionState from "../components/SectionState";
 import DocsBreadcrumb from "../components/DocsBreadcrumb";
@@ -11,13 +13,21 @@ import CompanyFileDialog from "../components/CompanyFileDialog";
 import AckTrackingDrawer from "../components/AckTrackingDrawer";
 import FilePreviewDrawer from "../components/FilePreviewDrawer";
 import Pager from "../components/Pager";
+import ActionMenu from "../components/ActionMenu";
+import ConfirmDialog from "../components/ConfirmDialog";
+import FolderDialog from "../components/FolderDialog";
+import PublishStatusChip from "../components/PublishStatusChip";
 import {
-  useCompanyItems, useCompanyVersions, useCreateCompanyFolder, useDeleteCompanyDocument, usePublishCompanyDocument,
-  useUnpublishCompanyDocument, useUploadCompanyDocument, useUploadCompanyVersion,
+  useCompanyItems, useCompanyVersions, useCreateCompanyFolder, useDeleteCompanyDocument, useDeleteCompanyFolder, usePublishCompanyDocument,
+  useRenameCompanyFolder, useUnpublishCompanyDocument, useUploadCompanyDocument, useUploadCompanyVersion,
 } from "../hooks/useCompanyDocuments";
+import { getDocumentFile } from "../../../../service/hrService";
+import { saveBlobAs } from "../../../../utils/documents";
 import { formatDate, formatDateTime } from "../../../../utils/dateTime";
 
 const SEGMENTS = [["all", "All"], ["expiring_soon", "Expiring soon"], ["expired", "Expired"]];
+const NOTICE_MS = 5000;
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function VersionsPanel({ document: doc, onClose }) {
   const query = useCompanyVersions(doc?.id);
@@ -50,8 +60,11 @@ function VersionsPanel({ document: doc, onClose }) {
 
 /**
  * Admin → Company Documents, level 2 (docs/new_docs/ZHR-DOCS-ARCH-001 §17 A3): the folders and files of one category.
- * Upload and Share sit under the breadcrumb and act on the open category (or folder); New Folder and Refresh too; each file can be shared, versioned, published / unpublished, tracked for read
- * confirmations and removed.
+ * Works the same for every category (Onboarding, Company Policies, Employee Handbook, Payslip Templates, …).
+ * Upload, New folder and Share act on what is open (the category, or the folder inside it). Folder cards show what they
+ * hold and have a "⋯" menu (Open, Rename, Who can see, Delete). Each file row keeps Preview and Download as icons, a
+ * labelled Publish / Unpublish button (always confirmed) and a "⋯" menu for the rest. Results name the file and the
+ * effect, and clear themselves after a few seconds.
  */
 export default function CompanyCategoryPage() {
   const { categoryId } = useParams();
@@ -60,26 +73,35 @@ export default function CompanyCategoryPage() {
   const [segment, setSegment] = useState("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [dialog, setDialog] = useState(null);          // { mode: 'new'|'version', document? }
-  const [sharing, setSharing] = useState(null);        // { type, id, name }
+  const [dialog, setDialog] = useState(null);             // { mode: 'new'|'version', document? }
+  const [sharing, setSharing] = useState(null);           // { type, id, name }
   const [tracking, setTracking] = useState(null);
   const [versions, setVersions] = useState(null);
   const [previewing, setPreviewing] = useState(null);
-  const [newFolder, setNewFolder] = useState("");
-  const [notice, setNotice] = useState(null);
+  const [folderDialog, setFolderDialog] = useState(null); // { mode: 'create'|'rename', folder? }
+  const [confirm, setConfirm] = useState(null);           // { title, message, confirmLabel, danger, run, done }
+  const [notice, setNotice] = useState(null);             // { tone: 'success'|'error', text }
   const query = useCompanyItems(categoryId, { folder_id: folderId || undefined, expiry: segment, search: search.trim() || undefined, page, per_page: 50 });
   const upload = useUploadCompanyDocument();
   const version = useUploadCompanyVersion();
   const publish = usePublishCompanyDocument();
   const unpublish = useUnpublishCompanyDocument();
   const remove = useDeleteCompanyDocument();
-  const folder = useCreateCompanyFolder();
+  const createFolder = useCreateCompanyFolder();
+  const renameFolder = useRenameCompanyFolder();
+  const deleteFolder = useDeleteCompanyFolder();
   const category = query.data?.category;
 
-  const run = async (fn, ok) => {
-    setNotice(null);
-    try { await fn(); if (ok) setNotice(ok); } catch (e) { setNotice(e?.message || "That didn't work."); }
-  };
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => clearTimeout(t);
+  }, [notice]);
+  const ok = (text) => setNotice({ tone: "success", text });
+  const fail = (e) => setNotice({ tone: "error", text: e?.message || "That didn't work. Please try again." });
+  const closeConfirm = useCallback(() => setConfirm(null), []);
+  const closeFolderDialog = useCallback(() => setFolderDialog(null), []);
+
   const goFolder = (id) => { const p = new URLSearchParams(params); if (id) p.set("folder", String(id)); else p.delete("folder"); setParams(p); setPage(1); };
 
   const crumbs = [{ label: "Documents", to: "/zoiko-hr/documents" }, { label: "Company Documents", to: "/zoiko-hr/documents/company-documents" },
@@ -88,6 +110,57 @@ export default function CompanyCategoryPage() {
 
   const openFolder = folderId ? (query.data?.breadcrumb || []).at(-1) : null;
   const targetName = openFolder?.name || category?.name || "";
+
+  const audienceText = (access) => {
+    if (!access || access.visibility === "admin_only") return "Only admins can see it until you change Who can see.";
+    const count = typeof access.audience_count === "number" ? ` (${access.audience_count} ${access.audience_count === 1 ? "person" : "people"})` : "";
+    return `${access.label}${count} will be able to see it.`;
+  };
+  const askPublish = (f) => setConfirm({
+    title: `Publish ${f.title}?`, confirmLabel: "Publish now",
+    message: <p>{audienceText(f.access)}</p>,
+    run: () => publish.mutateAsync({ documentId: f.id }),
+    done: () => ok(f.access?.visibility === "admin_only" || !f.access
+      ? `“${f.title}” is published, but only admins can see it.`
+      : `“${f.title}” is published. ${f.access.label} can see it now.`),
+  });
+  const askUnpublish = (f) => setConfirm({
+    title: `Unpublish ${f.title}?`, confirmLabel: "Unpublish",
+    message: <p>Employees will stop seeing it straight away. The file and its versions are kept, and you can publish it again later.</p>,
+    run: () => unpublish.mutateAsync(f.id),
+    done: () => ok(`“${f.title}” is unpublished. Employees can no longer see it.`),
+  });
+  const askRemove = (f) => setConfirm({
+    title: `Remove ${f.title}?`, confirmLabel: "Remove", danger: true,
+    message: <p>It disappears from {category?.name || "this category"} and from employees. Its history stays in the audit log.</p>,
+    run: () => remove.mutateAsync(f.id),
+    done: () => ok(`“${f.title}” was removed.`),
+  });
+  const askDeleteFolder = (f) => setConfirm({
+    title: `Delete folder ${f.name}?`, confirmLabel: "Delete folder", danger: true,
+    message: (f.file_count || f.folder_count)
+      ? <p>“{f.name}” still has {[f.file_count ? plural(f.file_count, "file") : null, f.folder_count ? plural(f.folder_count, "folder") : null].filter(Boolean).join(" and ")}. Move or remove them first.</p>
+      : <p>Deleting a folder cannot be undone. Only empty folders can be deleted.</p>,
+    run: () => deleteFolder.mutateAsync(f.id),
+    done: () => ok(`Folder “${f.name}” was deleted.`),
+  });
+  const uploadNotice = ({ uploaded, failed }, d) => {
+    if (d?.mode === "version") {
+      if (uploaded.length) ok(`New version of “${d.document?.title}” uploaded.`);
+      return;
+    }
+    if (!failed.length) {
+      ok(uploaded.length === 1 ? `“${uploaded[0]}” uploaded to ${targetName}.` : `${uploaded.length} files uploaded to ${targetName}.`);
+    } else {
+      setNotice({ tone: "error", text: `${uploaded.length} of ${uploaded.length + failed.length} files uploaded to ${targetName}. Not uploaded: ${failed.join(", ")}.` });
+    }
+  };
+  const download = async (f) => {
+    try {
+      const { blob, filename } = await getDocumentFile(f.id);
+      saveBlobAs(blob, filename || f.title);
+    } catch (e) { fail(e); }
+  };
 
   return (
     <OrganizationDocumentsLayout title="Company Documents" subtitle="Upload, share and version company-wide files."
@@ -99,7 +172,7 @@ export default function CompanyCategoryPage() {
       )}>
       <div className="space-y-5">
         <DocsBreadcrumb items={crumbs} />
-        {/* Upload and Share act on what is open: the chosen category, or the folder inside it. */}
+        {/* Upload, New folder and Share act on what is open: the chosen category, or the folder inside it. */}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200/80 bg-white px-4 py-3 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold text-slate-900 dark:text-white">{targetName || "Category"}</h2>
@@ -109,6 +182,10 @@ export default function CompanyCategoryPage() {
             <button type="button" onClick={() => setDialog({ mode: "new" })} disabled={!category}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
               <Upload size={16} aria-hidden="true" /> Upload to {targetName || "category"}
+            </button>
+            <button type="button" onClick={() => setFolderDialog({ mode: "create" })} disabled={!category}
+              className="flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-[#334155] dark:text-slate-200">
+              <FolderPlus size={16} aria-hidden="true" /> New folder
             </button>
             <button type="button" disabled={!category}
               onClick={() => setSharing({ type: folderId ? "folder" : "category", id: folderId || Number(categoryId), name: targetName })}
@@ -129,31 +206,36 @@ export default function CompanyCategoryPage() {
                 className={`rounded-md px-3 py-1.5 text-xs font-semibold ${segment === v ? "bg-blue-600 text-white" : "text-slate-600"}`}>{l}</button>
             ))}
           </div>
-          <form onSubmit={(e) => { e.preventDefault(); if (newFolder.trim()) run(() => folder.mutateAsync({ name: newFolder.trim(), categoryId: Number(categoryId), parentId: folderId }).then(() => setNewFolder("")), "Folder added."); }}
-            className="flex items-center gap-2">
-            <label className="sr-only" htmlFor="new-folder">New folder</label>
-            <input id="new-folder" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} placeholder="New folder" maxLength={255}
-              className="w-40 rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-            <button type="submit" disabled={!newFolder.trim()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold disabled:opacity-50">
-              <FolderPlus size={16} aria-hidden="true" /> New Folder
-            </button>
-          </form>
         </div>
-        {notice && <p role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">{notice}</p>}
+        {notice && <Notice notice={notice} onClose={() => setNotice(null)} />}
 
         <SectionState query={query} label="Loading files" isEmpty={() => false}>
           {(data) => (
             <>
               {data.folders.length > 0 && (
-                <ul className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                <ul aria-label="Folders" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {data.folders.map((f) => (
-                    <li key={f.id} className="flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white px-3 py-2">
-                      <button type="button" onClick={() => goFolder(f.id)} className="flex flex-1 items-center gap-2 text-left text-sm font-medium">
-                        <Folder size={16} className="text-amber-500" aria-hidden="true" /> {f.name}
+                    <li key={f.id} className="flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white px-3 py-2 dark:border-[#334155] dark:bg-[#1e293b]">
+                      <button type="button" onClick={() => goFolder(f.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                        <Folder size={18} className="shrink-0 text-amber-500" aria-hidden="true" />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{f.name}</span>
+                          {typeof f.file_count === "number" && (
+                            <span className="block text-xs text-slate-500">
+                              {f.file_count || f.folder_count
+                                ? [plural(f.file_count, "file"), f.folder_count ? plural(f.folder_count, "folder") : null].filter(Boolean).join(" · ")
+                                : "Empty"}
+                            </span>
+                          )}
+                        </span>
                       </button>
-                      <button type="button" aria-label={`Who can see ${f.name}`} onClick={() => setSharing({ type: "folder", id: f.id, name: f.name })} className="rounded p-1 text-slate-500 hover:bg-slate-100">
-                        <Share2 size={14} aria-hidden="true" />
-                      </button>
+                      <ActionMenu label={`More actions for folder ${f.name}`} items={[
+                        { label: "Open", icon: FolderOpen, onSelect: () => goFolder(f.id) },
+                        { label: "Rename", icon: Pencil, onSelect: () => setFolderDialog({ mode: "rename", folder: f }) },
+                        { label: "Who can see", icon: Share2, onSelect: () => setSharing({ type: "folder", id: f.id, name: f.name }) },
+                        { label: "Email", icon: Mail, onSelect: () => setSharing({ type: "folder", id: f.id, name: f.name, tab: "email" }) },
+                        { label: "Delete", icon: Trash2, danger: true, onSelect: () => askDeleteFolder(f) },
+                      ]} />
                     </li>
                   ))}
                 </ul>
@@ -170,37 +252,45 @@ export default function CompanyCategoryPage() {
                         <th className="px-4 py-3">Who can see</th><th className="px-4 py-3">Read</th><th className="px-4 py-3"><span className="sr-only">Actions</span></th></tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {data.files.items.map((f) => (
-                        <tr key={f.id}>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center gap-2 font-medium"><FileText size={16} className="text-slate-400" aria-hidden="true" />{f.title}</span>
-                            <p className="text-xs text-slate-500">{f.uploaded_by?.name} · {formatDate(f.uploaded_at)}</p>
-                          </td>
-                          <td className="px-4 py-3">v{f.version}</td>
-                          <td className={`px-4 py-3 ${f.expiry_state === "expired" ? "text-rose-700 font-semibold" : f.expiry_state === "expiring_soon" ? "text-amber-700 font-semibold" : ""}`}>
-                            {f.expiry_date ? formatDate(f.expiry_date) : "—"}
-                          </td>
-                          <td className="px-4 py-3">
-                            {f.status === "pending_approval" ? <StatusChip status="pending_approval" href={`/zoiko-hr/documents/approvals?item=${f.id}`} />
-                              : <span className="text-xs">{f.publish_state === "published" ? "Published" : f.publish_state === "scheduled" ? `Scheduled ${formatDateTime(f.publish_at)}` : "Unpublished"}</span>}
-                          </td>
-                          <td className="px-4 py-3"><AccessBadge access={f.access} /></td>
-                          <td className="px-4 py-3">{f.ack ? <button type="button" onClick={() => setTracking(f)} className="text-xs font-semibold text-blue-700 hover:underline">{f.ack.acknowledged}/{f.ack.acknowledged + f.ack.pending}</button> : "—"}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap justify-end gap-1">
-                              <IconButton label={`Preview ${f.title}`} onClick={() => setPreviewing(f)} icon={Eye} />
-                              <IconButton label={`Who can see ${f.title}`} onClick={() => setSharing({ type: "document", id: f.id, name: f.title })} icon={Share2} />
-                              <IconButton label={`New version of ${f.title}`} onClick={() => setDialog({ mode: "version", document: f })} icon={Upload} />
-                              <IconButton label={`Versions of ${f.title}`} onClick={() => setVersions(f)} icon={History} />
-                              {f.ack && <IconButton label={`Read confirmations for ${f.title}`} onClick={() => setTracking(f)} icon={CheckSquare} />}
-                              {f.publish_state === "published"
-                                ? <IconButton label={`Unpublish ${f.title}`} onClick={() => run(() => unpublish.mutateAsync(f.id), "Unpublished.")} icon={EyeOff} />
-                                : <IconButton label={`Publish ${f.title} now`} onClick={() => run(() => publish.mutateAsync({ documentId: f.id }), "Published.")} icon={Send} />}
-                              <IconButton label={`Remove ${f.title}`} onClick={() => run(() => remove.mutateAsync(f.id), "Removed.")} icon={Trash2} danger />
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {data.files.items.map((f) => {
+                        const pending = f.status === "pending_approval";
+                        const published = f.publish_state === "published";
+                        return (
+                          <tr key={f.id}>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex items-center gap-2 font-medium"><FileText size={16} className="text-slate-400" aria-hidden="true" />{f.title}</span>
+                              <p className="text-xs text-slate-500">{f.uploaded_by?.name} · {formatDate(f.uploaded_at)}</p>
+                            </td>
+                            <td className="px-4 py-3">v{f.version}</td>
+                            <td className={`px-4 py-3 ${f.expiry_state === "expired" ? "text-rose-700 font-semibold" : f.expiry_state === "expiring_soon" ? "text-amber-700 font-semibold" : ""}`}>
+                              {f.expiry_date ? formatDate(f.expiry_date) : "—"}
+                            </td>
+                            <td className="px-4 py-3"><PublishStatusChip file={f} /></td>
+                            <td className="px-4 py-3">
+                              <AccessBadge access={f.access} />
+                              <ClashNote file={f} onShare={() => setSharing({ type: "document", id: f.id, name: f.title })} />
+                            </td>
+                            <td className="px-4 py-3">{f.ack ? <button type="button" onClick={() => setTracking(f)} className="text-xs font-semibold text-blue-700 hover:underline">{f.ack.acknowledged}/{f.ack.acknowledged + f.ack.pending}</button> : "—"}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <IconButton label={`Preview ${f.title}`} onClick={() => setPreviewing(f)} icon={Eye} />
+                                <IconButton label={`Download ${f.title}`} onClick={() => download(f)} icon={Download} />
+                                {!pending && (published
+                                  ? <TextButton label={`Unpublish ${f.title}`} text="Unpublish" icon={EyeOff} onClick={() => askUnpublish(f)} />
+                                  : <TextButton label={`Publish ${f.title} now`} text="Publish" icon={Globe2} primary onClick={() => askPublish(f)} />)}
+                                <ActionMenu label={`More actions for ${f.title}`} items={[
+                                  { label: "Who can see", icon: Share2, onSelect: () => setSharing({ type: "document", id: f.id, name: f.title }) },
+                                  { label: "Email", icon: Mail, onSelect: () => setSharing({ type: "document", id: f.id, name: f.title, tab: "email" }) },
+                                  { label: "New version", icon: Upload, onSelect: () => setDialog({ mode: "version", document: f }) },
+                                  { label: "Versions", icon: History, onSelect: () => setVersions(f) },
+                                  { label: "Read confirmations", icon: CheckSquare, onSelect: () => setTracking(f), hidden: !f.ack },
+                                  { label: "Remove", icon: Trash2, danger: true, onSelect: () => askRemove(f) },
+                                ]} />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -213,13 +303,62 @@ export default function CompanyCategoryPage() {
       </div>
 
       <CompanyFileDialog open={Boolean(dialog)} mode={dialog?.mode} category={category} document={dialog?.document} folderId={folderId}
+        existingTitles={(query.data?.files?.items || []).map((f) => f.title)}
         onClose={() => setDialog(null)}
-        onSubmit={(v) => (dialog?.mode === "version" ? version.mutateAsync(v) : upload.mutateAsync(v)).then(() => setNotice("Uploaded."))} />
-      <ShareModal open={Boolean(sharing)} targetType={sharing?.type} targetId={sharing?.id} targetName={sharing?.name || ""} onClose={() => setSharing(null)} />
+        onSubmit={(v) => (dialog?.mode === "version" ? version.mutateAsync(v) : upload.mutateAsync(v))}
+        onFinished={(r) => uploadNotice(r, dialog)} />
+      <FolderDialog open={Boolean(folderDialog)} mode={folderDialog?.mode} initialName={folderDialog?.folder?.name || ""} placeName={targetName}
+        onClose={closeFolderDialog}
+        onSubmit={(name) => (folderDialog?.mode === "rename"
+          ? renameFolder.mutateAsync({ folderId: folderDialog.folder.id, name }).then(() => ok(`Folder “${folderDialog.folder.name}” renamed to “${name}”.`))
+          : createFolder.mutateAsync({ name, categoryId: Number(categoryId), parentId: folderId }).then(() => ok(`Folder “${name}” created in ${targetName}.`)))} />
+      <ConfirmDialog open={Boolean(confirm)} title={confirm?.title || ""} message={confirm?.message} confirmLabel={confirm?.confirmLabel}
+        danger={confirm?.danger} onClose={closeConfirm}
+        onConfirm={async () => { await confirm.run(); confirm.done?.(); }} />
+      <ShareModal open={Boolean(sharing)} targetType={sharing?.type} targetId={sharing?.id} targetName={sharing?.name || ""}
+        initialTab={sharing?.tab || "portal"} onClose={() => setSharing(null)}
+        onEmailed={(s) => ok(`“${s.target_name}” emailed to ${s.counts?.sent ?? 0} ${s.counts?.sent === 1 ? "person" : "people"}${s.counts?.failed ? `; ${s.counts.failed} failed` : ""}.`)} />
       <AckTrackingDrawer open={Boolean(tracking)} document={tracking} onClose={() => setTracking(null)} />
       {versions && <VersionsPanel document={versions} onClose={() => setVersions(null)} />}
       <FilePreviewDrawer open={Boolean(previewing)} documentId={previewing?.id} title={previewing?.title} onClose={() => setPreviewing(null)} />
     </OrganizationDocumentsLayout>
+  );
+}
+
+/** When the publish state and "Who can see" disagree, say so plainly next to the audience. */
+function ClashNote({ file, onShare }) {
+  if (file.status === "pending_approval") return null;
+  if (file.publish_state !== "published" && file.publish_state !== "scheduled") {
+    return <p className="mt-1 text-xs text-slate-500">No one yet (not published)</p>;
+  }
+  if (file.publish_state === "published" && file.access?.visibility === "admin_only") {
+    return (
+      <p className="mt-1 text-xs text-amber-800">
+        Published, but only admins can see it.{" "}
+        <button type="button" onClick={onShare} className="font-semibold underline" aria-label={`Share ${file.title} with employees`}>Share</button>
+      </p>
+    );
+  }
+  return null;
+}
+
+function Notice({ notice, onClose }) {
+  const error = notice.tone === "error";
+  return (
+    <div role={error ? "alert" : "status"}
+      className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-2 text-sm ${error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+      <span>{notice.text}</span>
+      <button type="button" onClick={onClose} aria-label="Dismiss message" className="rounded p-0.5 hover:bg-black/5"><X size={14} aria-hidden="true" /></button>
+    </div>
+  );
+}
+
+function TextButton({ label, text, icon: Icon, onClick, primary }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label}
+      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold ${primary ? "border-blue-200 text-blue-700 hover:bg-blue-50" : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-[#334155] dark:text-slate-200"}`}>
+      <Icon size={14} aria-hidden="true" />{text}
+    </button>
   );
 }
 

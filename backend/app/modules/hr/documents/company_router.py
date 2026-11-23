@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.modules.hr.documents import company_docs as svc
+from app.modules.hr.documents import share_service
 from app.modules.hr.documents.audit_service import RequestCtx, request_ctx
 from app.modules.hr.documents.permissions import DocAction, require_doc_permission
 from app.modules.hr.documents.precheck import MAX_BYTES
@@ -26,6 +27,7 @@ class CategoryIn(BaseModel):
     reack_interval_months: Optional[int] = None
     auto_unpublish_on_expiry: Optional[bool] = None
     locked_by_org_admin: Optional[bool] = None
+    is_hidden: Optional[bool] = None
     sort_order: Optional[int] = None
 
 
@@ -61,8 +63,9 @@ def _bool(v: Optional[str]) -> Optional[bool]:
 
 @router.get("/company-categories", summary="Company document categories with file counts and who can see them")
 def categories(access: Optional[str] = Query(None, pattern="^(admin_only|all|restricted)$"), search: Optional[str] = Query(None, max_length=120),
+               include_hidden: bool = Query(False, description="Also return hidden categories (marked is_hidden)"),
                db: Session = Depends(get_db), user=Depends(require_doc_permission(DocAction.COMPANY_MANAGE))):
-    return svc.category_cards(db, user, access, search)
+    return svc.category_cards(db, user, access, search, include_hidden=include_hidden)
 
 
 @router.post("/company-categories", status_code=201, summary="Add a company document category")
@@ -77,7 +80,8 @@ def update_category(category_id: int, body: CategoryIn, db: Session = Depends(ge
     return svc.update_category(db, user, category_id, body.model_dump(exclude_unset=True), ctx)
 
 
-@router.delete("/company-categories/{category_id}", status_code=204, summary="Remove an empty custom category")
+@router.delete("/company-categories/{category_id}", status_code=204,
+               summary="Remove an empty custom category (built-in categories can only be hidden)")
 def delete_category(category_id: int, db: Session = Depends(get_db),
                     user=Depends(require_doc_permission(DocAction.COMPANY_MANAGE)), ctx: RequestCtx = Depends(request_ctx)):
     svc.delete_category(db, user, category_id, ctx)
@@ -162,6 +166,43 @@ def put_access(target_type: str, target_id: int, body: AccessIn, db: Session = D
 @router.post("/access/preview", summary="How many people a rule would reach (nothing is saved)")
 def preview_access(body: AccessIn, db: Session = Depends(get_db), user=Depends(require_doc_permission(DocAction.COMPANY_SHARE))):
     return svc.preview_access(db, user, body.model_dump())
+
+
+# ── email sharing (Company Documents P4) ──────────────────────────────────────────────────────────────────────────
+
+class ShareEmailIn(BaseModel):
+    target_type: str = Field(..., pattern=TARGET)
+    target_id: int
+    mode: str = Field("link", pattern="^(link|attachment)$")
+    employee_ids: list[int] = Field(default_factory=list, max_length=200)
+    department_ids: list[int] = Field(default_factory=list, max_length=100)
+    emails: list[str] = Field(default_factory=list, max_length=20)
+    message: Optional[str] = Field(None, max_length=1000)
+    grant_portal_access: bool = False
+
+
+@router.get("/email-status", summary="Whether email sending is set up (no settings are returned)")
+def email_status(db: Session = Depends(get_db), user=Depends(require_doc_permission(DocAction.COMPANY_SHARE))):
+    return share_service.email_status(db)
+
+
+@router.post("/shares/email", status_code=201, summary="Email a company file, folder or category (portal link or attachments)")
+def share_by_email(body: ShareEmailIn, db: Session = Depends(get_db), user=Depends(require_doc_permission(DocAction.COMPANY_SHARE)),
+                   ctx: RequestCtx = Depends(request_ctx)):
+    return share_service.create_email_share(db, user, ctx=ctx, **body.model_dump())
+
+
+@router.get("/shares", summary="Email shares, newest first, with each recipient's delivery status")
+def shares(target_type: Optional[str] = Query(None, pattern=TARGET), target_id: Optional[int] = Query(None),
+           page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=100),
+           db: Session = Depends(get_db), user=Depends(require_doc_permission(DocAction.COMPANY_SHARE))):
+    return share_service.list_shares(db, user, target_type, target_id, page, per_page)
+
+
+@router.post("/shares/{share_id}/retry", summary="Send an email share again to the recipients it failed for")
+def retry_share(share_id: int, db: Session = Depends(get_db), user=Depends(require_doc_permission(DocAction.COMPANY_SHARE)),
+                ctx: RequestCtx = Depends(request_ctx)):
+    return share_service.retry(db, user, share_id, ctx)
 
 
 @router.get("/company/{document_id}/acknowledgements", summary="Who has read a document, and who has not yet")
