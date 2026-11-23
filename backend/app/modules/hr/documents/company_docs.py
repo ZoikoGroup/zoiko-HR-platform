@@ -64,6 +64,18 @@ def _company_doc(db: Session, org: int, document_id: int):
     return doc
 
 
+def current_rounds(db: Session, document_ids) -> dict:
+    """{document_id: latest HrDocumentAckRound} for many documents in one query."""
+    ids = list(document_ids)
+    if not ids:
+        return {}
+    out = {}
+    for r in (db.query(HrDocumentAckRound).filter(HrDocumentAckRound.document_id.in_(ids))
+              .order_by(HrDocumentAckRound.document_id, HrDocumentAckRound.round_no)):
+        out[r.document_id] = r                          # ordered by round: the last one per document wins
+    return out
+
+
 def current_round(db: Session, doc) -> Optional[HrDocumentAckRound]:
     return (db.query(HrDocumentAckRound).filter(HrDocumentAckRound.document_id == doc.id)
             .order_by(HrDocumentAckRound.round_no.desc()).first())
@@ -755,11 +767,14 @@ def my_company_documents(db: Session, user, category_id: Optional[int] = None, s
         rows = [(d, r) for d, r in rows if needle in (d.title or "").lower()]
     cats = {c.id: c for c in db.query(HrCompanyDocumentCategory).filter(HrCompanyDocumentCategory.organization_id == user.organization_id)}
     folders = _folder_paths(db, user.organization_id, {d.folder_id for d, _ in rows if getattr(d, "folder_id", None)})
+    ack_ids = [d.id for d, r in rows if r.require_ack]
+    rounds = current_rounds(db, ack_ids)                 # one query, not one per document
     mine = {(a.document_id, a.round_no): a for a in db.query(HrDocumentAcknowledgement)
-            .filter(HrDocumentAcknowledgement.employee_id == user.id)}
+            .filter(HrDocumentAcknowledgement.employee_id == user.id,
+                    HrDocumentAcknowledgement.document_id.in_(ack_ids or [0]))}
     groups: dict = {}
     for doc, rule in rows:
-        rnd = current_round(db, doc) if rule.require_ack else None
+        rnd = rounds.get(doc.id) if rule.require_ack else None
         ack = mine.get((doc.id, rnd.round_no)) if rnd else None
         cat = cats.get(doc.company_category_id)
         item = {"id": doc.id, "title": doc.title, "description": doc.description,
