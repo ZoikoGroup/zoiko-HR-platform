@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useAttendanceToday } from "../hooks/useAttendanceToday";
-import { timeIn } from "../constants";
+import { formatClockTime, timeIn } from "../constants";
 
 const TILES = [
   ["total", "Total", "text-slate-900"], ["present", "Present", "text-emerald-700"], ["late", "Late", "text-amber-700"],
@@ -92,7 +92,7 @@ export default function TodayPanel() {
                     <li key={w.employee_id} className="flex items-center justify-between py-1.5">
                       <span>{w.overdue && <AlertTriangle size={14} className="mr-1 inline text-amber-600" aria-label="Overdue" />}{w.name}
                         <span className="ml-1 text-xs text-slate-500">{w.department}</span></span>
-                      <span className="font-mono text-xs text-slate-500">{w.shift_start ? `shift ${w.shift_start}` : "no shift"}</span>
+                      <span className="font-mono text-xs text-slate-500">{w.shift_start ? `shift ${formatClockTime(w.shift_start)}` : "no shift"}</span>
                     </li>
                   ))}
                 </ul>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import { Plus, Pencil, Trash2, Search, X, ToggleLeft, ToggleRight } from "lucide-react";
 import HRPage from "../../../components/HRPage";
+import { formatClockTime } from "./constants";
 import {
   getShifts,
   createShift,
@@ -249,8 +250,8 @@ export default function AttendanceShifts() {
                           {s.shift_type || "General"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700 font-mono">{s.start_time}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 font-mono">{s.end_time}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 font-mono">{formatClockTime(s.start_time)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 font-mono">{formatClockTime(s.end_time)}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{s.grace_time_minutes ?? 15} min</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{s.break_duration_minutes ?? 60} min</td>
                       <td className="px-4 py-3">

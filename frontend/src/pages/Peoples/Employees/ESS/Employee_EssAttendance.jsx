@@ -7,7 +7,7 @@ import ShiftInfoCard from "../../../../modules/zoiko-hr/attendance/components/Sh
 import AttendanceCalendar from "../../../../modules/zoiko-hr/attendance/components/AttendanceCalendar";
 import AttendanceStatusChip from "../../../../modules/zoiko-hr/attendance/components/AttendanceStatusChip";
 import DayDetailDrawer from "../../../../modules/zoiko-hr/attendance/components/DayDetailDrawer";
-import { errorText, formatMinutes, STATUS } from "../../../../modules/zoiko-hr/attendance/constants";
+import { errorText, formatClockTime, formatMinutes, STATUS } from "../../../../modules/zoiko-hr/attendance/constants";
 import {
   useEndBreak, useMyAttendanceMonth, useMyAttendanceToday, usePunchIn, usePunchOut, useStartBreak,
 } from "../../../../modules/zoiko-hr/attendance/hooks/useMyAttendance";
@@ -123,8 +123,9 @@ export default function EmployeeEssAttendance() {
           <Kpi label="Absent days" value={k ? k.absent : "—"} tone={k?.absent ? "text-rose-700" : "text-slate-900"}
             hint={k?.missed_punch ? `${k.missed_punch} missed punch-out` : null} />
           <Kpi label="Avg daily hours" value={k ? formatMinutes(k.avg_worked_minutes) : "—"} hint="Net of breaks" />
-          <Kpi label="Overtime" value={k ? formatMinutes(k.approved_overtime_minutes) : "—"}
-            hint={k ? `${formatMinutes(k.overtime_minutes)} beyond the standard day` : null} />
+          {/* card and note read the same figure (overtime_minutes); approved overtime is a separate, smaller figure */}
+          <Kpi label="Overtime" value={k ? formatMinutes(k.overtime_minutes) : "—"}
+            hint={k ? `Beyond the standard day · ${formatMinutes(k.approved_overtime_minutes)} approved` : null} />
         </div>
 
         <section aria-label="Month" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
@@ -172,8 +173,8 @@ export default function EmployeeEssAttendance() {
                     <tr key={d.date} className="cursor-pointer hover:bg-slate-50" onClick={() => setSelected(d.date)}>
                       <td className="px-4 py-3"><button type="button" className="font-medium text-blue-700 hover:underline" onClick={(e) => { e.stopPropagation(); setSelected(d.date); }}>{formatDate(d.date)}</button></td>
                       <td className="px-4 py-3 text-xs text-slate-600">{d.shift || "—"}</td>
-                      <td className="px-4 py-3 font-mono">{d.check_in || "—"}</td>
-                      <td className="px-4 py-3 font-mono">{d.check_out || "—"}</td>
+                      <td className="px-4 py-3 font-mono">{formatClockTime(d.check_in)}</td>
+                      <td className="px-4 py-3 font-mono">{formatClockTime(d.check_out)}</td>
                       <td className="px-4 py-3">{d.worked_minutes ? formatMinutes(d.worked_minutes) : "—"}</td>
                       <td className="px-4 py-3">{d.break_minutes ? formatMinutes(d.break_minutes) : "—"}</td>
                       <td className="px-4 py-3"><AttendanceStatusChip status={d.status} /></td>

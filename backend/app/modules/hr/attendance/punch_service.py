@@ -92,7 +92,7 @@ def recompute(db: Session, record: AttendanceRecord, employee, *, pol=None, now:
         working_day=policy_mod.is_working_day(pol, shift, day),
         leave=policy_mod.approved_leave_on(db, record.organization_id, employee.id, day),
         shift=shift, grace_minutes=pol.grace_minutes, standard_minutes=pol.standard_minutes,
-        half_day_min_minutes=pol.half_day_min_minutes,
+        half_day_min_minutes=pol.half_day_min_minutes, min_present_minutes=pol.min_present_minutes,
         check_in_local=clock.to_local(record.check_in_at, tz), check_out_local=clock.to_local(record.check_out_at, tz),
         check_in_utc=record.check_in_at, check_out_utc=record.check_out_at,
         breaks_utc=[(b.start_at, b.end_at) for b in breaks_of(db, record)],
@@ -131,6 +131,7 @@ def serialize_day(db: Session, record: Optional[AttendanceRecord], employee, *, 
     status = getattr(record.status, "value", record.status) if record else None
     return {
         "date": day.isoformat(), "timezone": tz.key, "status": status,
+        "as_of": clock.iso_utc(now),                     # the server time the live totals were taken at (the timer's base)
         "check_in_at": clock.iso_utc(record.check_in_at) if record else None,
         "check_out_at": clock.iso_utc(record.check_out_at) if record else None,
         "worked_minutes": worked, "break_minutes": taken,

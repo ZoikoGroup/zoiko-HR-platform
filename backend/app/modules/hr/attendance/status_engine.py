@@ -9,6 +9,7 @@ Order of precedence:
     approved leave        -> ON_LEAVE (work-from-home leave: REMOTE; half-day leave with a punch: HALF_DAY)
     no punch-in           -> ABSENT once the day is closed (still open: no status yet)
     punched in, no punch-out, day closed -> MISSED_PUNCH (0 hours until a correction is approved)
+    net worked < minimum to count        -> ABSENT (the punches are kept)
     net worked < half-day threshold      -> HALF_DAY
     check-in after shift start + grace   -> LATE
     otherwise                            -> PRESENT
@@ -30,6 +31,7 @@ class ShiftInfo:
     break_minutes: int = 60           # allowance shown to the employee (not deducted automatically)
     standard_minutes: int = 480
     half_day_min_minutes: Optional[int] = None
+    min_present_minutes: Optional[int] = None
     working_days: Optional[tuple] = None      # ("mon", ...) or None = organization working days
 
     @property
@@ -61,6 +63,7 @@ class DayContext:
     grace_minutes: int = 10           # used when there is no shift
     standard_minutes: int = 480       # used when there is no shift
     half_day_min_minutes: int = 240
+    min_present_minutes: int = 60     # below this a completed day is absent (attendance.min_present_hours)
     check_in_local: Optional[datetime] = None
     check_out_local: Optional[datetime] = None
     check_in_utc: Optional[datetime] = None
@@ -112,6 +115,8 @@ def resolve(ctx: DayContext) -> Resolution:
     shift = ctx.shift
     standard = shift.standard_minutes if shift else ctx.standard_minutes
     half_min = (shift.half_day_min_minutes if shift and shift.half_day_min_minutes is not None else ctx.half_day_min_minutes)
+    present_min = (shift.min_present_minutes if shift and shift.min_present_minutes is not None else ctx.min_present_minutes)
+    present_min = min(present_min or 0, half_min)      # never above the half-day threshold
     grace = shift.grace_minutes if shift else ctx.grace_minutes
     has_in = ctx.check_in_utc is not None
     missed_out = has_in and ctx.check_out_utc is None and ctx.day_closed
@@ -154,6 +159,10 @@ def resolve(ctx: DayContext) -> Resolution:
         return out
     if ongoing:
         out.status = S.LATE if late > 0 else S.PRESENT      # provisional while the day runs
+        return out
+    if worked < present_min:
+        out.status = S.ABSENT
+        out.late_minutes = 0
         return out
     if worked < half_min:
         out.status = S.HALF_DAY

@@ -50,6 +50,31 @@ def test_short_day_is_a_half_day_even_when_late():
     assert (r.status, r.worked_minutes) == (S.HALF_DAY, 210)
 
 
+# QA R1-24: below the minimum worked time (default 60 min) a completed day is absent, not a half day
+@pytest.mark.parametrize("worked,expected", [
+    (1, S.ABSENT), (13, S.ABSENT), (59, S.ABSENT),          # min - 1
+    (60, S.HALF_DAY),                                       # exactly the minimum
+    (239, S.HALF_DAY), (240, S.PRESENT),                    # exactly the half-day threshold counts in full
+])
+def test_minimum_worked_time_before_a_day_counts(worked, expected):
+    r = resolve(ctx(at(9), at(9) + timedelta(minutes=worked)))
+    assert (r.status, r.worked_minutes) == (expected, worked)
+    if expected == S.ABSENT:
+        assert r.late_minutes == 0
+
+
+def test_a_shift_can_override_the_minimum_worked_time_and_it_never_exceeds_the_half_day_threshold():
+    short = ShiftInfo(shift_id=3, name="Short", start=(9, 0), end=(18, 0), standard_minutes=480, min_present_minutes=15)
+    assert resolve(ctx(at(9), at(9, 14), shift=short)).status == S.ABSENT
+    assert resolve(ctx(at(9), at(9, 15), shift=short)).status == S.HALF_DAY
+    assert resolve(ctx(at(9), at(9, 20), shift=None, min_present_minutes=30)).status == S.ABSENT
+    # a minimum above the half-day threshold is capped at the threshold
+    assert resolve(ctx(at(9), at(10), half_day_min_minutes=30, min_present_minutes=90, shift=None)).status == S.PRESENT
+
+
+def test_the_minimum_does_not_apply_while_the_day_is_running():
+    assert resolve(ctx(at(9), None, now_utc=at(9, 1))).status == S.PRESENT
+
 def test_overtime_is_net_minutes_beyond_the_standard_day():
     r = resolve(ctx(at(9), at(19, 30), breaks=[(at(13), at(13, 30))]))
     assert (r.status, r.worked_minutes, r.overtime_minutes) == (S.PRESENT, 600, 120)

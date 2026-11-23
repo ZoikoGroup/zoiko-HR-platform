@@ -51,7 +51,7 @@ test("today's counts, the expected sentence and the time zone", async (t) => {
   assert.deepEqual(["Total", "Present", "Late", "Not checked in", "On leave", "Remote", "On a break", "Off today"].map(tile),
     ["5", "1", "1", "1", "1", "1", "1", "0"]);
   assert.match(panel.textContent, /75% of the 4 people expected today are in\. 1 missed punch-out\./);
-  assert.match(panel.textContent, /2026-11-18 · Asia\/Kolkata · updated 10:00/);
+  assert.match(panel.textContent, /2026-11-18 · Asia\/Kolkata · updated 10:00 AM/);
 });
 
 test("departments and the people not checked in", async (t) => {
@@ -61,7 +61,7 @@ test("departments and the people not checked in", async (t) => {
   assert.match(within(depts).getByText("Engineering").closest("li").textContent, /2\/4 in · 1 late · 1 on leave · 1 not in/);
   const waiting = screen.getByRole("list", { name: "Not checked in yet" });
   assert.ok(within(waiting).getByLabelText("Overdue"));
-  assert.match(waiting.textContent, /Emp Person.*Engineering.*shift 09:00/);
+  assert.match(waiting.textContent, /Emp Person.*Engineering.*shift 09:00 AM/);
 });
 
 test("the department filter asks the server again and refresh reloads", async (t) => {
