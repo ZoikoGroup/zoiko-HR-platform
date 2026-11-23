@@ -43,7 +43,7 @@ export default function PunchCard({ today, busy, onPunchIn, onPunchOut, onStartB
 
   const btn = "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60";
   return (
-    <section aria-label="Punch in and out" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
+    <section aria-label="Punch in and out" className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Today{tz ? ` · ${tz}` : ""}</p>

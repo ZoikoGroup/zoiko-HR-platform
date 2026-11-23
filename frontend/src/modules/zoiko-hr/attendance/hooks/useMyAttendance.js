@@ -1,5 +1,5 @@
 /** My attendance (attendance plan M2/M3): today, the month and one day, plus the punch actions. */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../../../service/queryKeys";
 import {
   endBreak, getMyAttendanceDay, getMyAttendanceMonth, getMyAttendanceToday, punchIn, punchOut, startBreak,
@@ -9,7 +9,9 @@ export function useMyAttendanceToday() {
   return useQuery({ queryKey: keys.attendance.me.today(), queryFn: getMyAttendanceToday, refetchInterval: 5 * 60 * 1000 });
 }
 export function useMyAttendanceMonth(month) {
-  return useQuery({ queryKey: keys.attendance.me.month(month), queryFn: () => getMyAttendanceMonth(month) });
+  // while another month loads the last one stays on screen (dimmed), so the page does not jump
+  return useQuery({ queryKey: keys.attendance.me.month(month), queryFn: () => getMyAttendanceMonth(month),
+                    placeholderData: keepPreviousData });
 }
 export function useMyAttendanceDay(date) {
   return useQuery({ queryKey: keys.attendance.me.day(date), queryFn: () => getMyAttendanceDay(date), enabled: Boolean(date) });

@@ -4,7 +4,7 @@ import { formatClockTime, timeIn } from "../constants";
 /** The person's shift today: timing, grace and break allowance, and when the day is expected to end. */
 export default function ShiftInfoCard({ shift, timezone, policy }) {
   return (
-    <section aria-label="My shift" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
+    <section aria-label="My shift" className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
       <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400"><Clock3 size={14} aria-hidden="true" /> My shift</p>
       {shift ? (
         <>

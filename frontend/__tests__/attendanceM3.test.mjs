@@ -155,7 +155,7 @@ test("the records table filters, and the month can be changed", async (t) => {
   const calls = mockApi(t);
   await renderPage();
   const table = screen.getByRole("region", { name: "Attendance records" });
-  fireEvent.click(within(table).getByRole("tab", { name: "Late" }));
+  fireEvent.change(within(table).getByLabelText("Status"), { target: { value: "late" } });
   const rows = within(table).getAllByRole("row").slice(1);
   assert.equal(rows.length, 1);
   assert.ok(within(rows[0]).getByText("09:40 AM"));
@@ -183,6 +183,7 @@ test("step 2: an overnight check-out shows '+1 day' in the records table and the
   const nightDay = { ...structuredClone(DAY), date: "2026-11-03", check_in_at: "2026-11-03T15:30:00Z", check_out_at: "2026-11-04T00:35:00Z" };
   mockApi(t, { getMyAttendanceMonth: async () => night, getMyAttendanceDay: async () => nightDay });
   await renderPage();
+  fireEvent.change(screen.getByLabelText("Rows"), { target: { value: "31" } });      // 3 Nov is on page 2 of 10
   const row = screen.getAllByRole("row").find((r) => r.textContent.includes("03 Nov 2026"));
   assert.match(row.textContent, /09:00 PM/);
   assert.match(row.textContent, /06:05 AM\s*\+1 day/);
@@ -253,4 +254,57 @@ test("step 3 B11: on a day with no record the correction needs a check-in", asyn
   assert.equal(send.disabled, true, "no check-in yet");
   fireEvent.change(checkIn, { target: { value: "09:00" } });
   assert.equal(send.disabled, false);
+});
+
+// ── step 4: the cleaned-up page ─────────────────────────────────────────────────────────────────────────────────────
+
+test("step 4: the summary names its period; the calendar says each status in words, marks today and explains a day", async (t) => {
+  const month = structuredClone(MONTH);
+  month.days[24].holiday = true;                                         // 25 Nov: a future holiday is shown as planned
+  mockApi(t, { getMyAttendanceMonth: async () => month });
+  await renderPage();
+  assert.ok(screen.getByRole("heading", { name: "November 2026 so far" }));
+  const grid = screen.getByRole("grid", { name: "Attendance calendar" });
+  const late = within(grid).getByRole("gridcell", { name: "2026-11-03: Late" });
+  assert.match(late.textContent, /3\s*Late/);                                       // text, not colour alone
+  const tip = document.getElementById(late.getAttribute("aria-describedby"));
+  assert.equal(tip.textContent, "Late · In 09:40 AM · Out 06:00 PM · 7h 20m");
+  assert.equal(within(grid).getByRole("gridcell", { name: /2026-11-18/ }).getAttribute("aria-current"), "date");
+  assert.match(within(grid).getByRole("gridcell", { name: /2026-11-18/ }).textContent, /Today/);
+  const holiday = within(grid).getByRole("gridcell", { name: /2026-11-25/ });
+  assert.match(holiday.textContent, /Hol/);
+  assert.match(document.getElementById(holiday.getAttribute("aria-describedby")).textContent, /Holiday \(planned\)/);
+  const legend = within(screen.getByRole("list", { name: "Legend" })).getAllByRole("listitem").map((li) => li.textContent);
+  assert.ok(legend.some((x) => x.includes("Late")) && legend.some((x) => x.includes("Holiday")));
+  assert.equal(legend.some((x) => x.includes("Missed punch-out")), false);       // only statuses this month has
+});
+
+test("step 4: history searches the date as shown, pages through days, and lists cards on small screens", async (t) => {
+  mockApi(t);
+  await renderPage();
+  const table = screen.getByRole("region", { name: "Attendance records" });
+  assert.match(within(table).getByRole("navigation", { name: "Pages" }).textContent, /1–10 of 17 days/);
+  fireEvent.click(within(table).getByRole("button", { name: "Next" }));
+  assert.match(within(table).getByRole("navigation", { name: "Pages" }).textContent, /11–17 of 17 days.*Page 2 of 2/);
+  fireEvent.change(within(table).getByLabelText("Search"), { target: { value: "10 Nov" } });
+  const rows = within(table).getAllByRole("row").slice(1);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].textContent, /10 Nov 2026.*Absent/);
+  assert.ok(within(table).getByRole("list", { name: "Attendance records list" }));
+  const headers = within(table).getAllByRole("columnheader").map((th) => th.textContent);
+  assert.deepEqual(headers, ["Date", "Shift", "Check-in", "Check-out", "Break", "Worked", "Overtime", "Status"]);
+});
+
+test("step 4: changing month keeps the last month on screen (dimmed) until the next one arrives", async (t) => {
+  let releaseOct;
+  mockApi(t, { getMyAttendanceMonth: (m) => (m === "2026-10" ? new Promise((r) => { releaseOct = () => r({ ...structuredClone(MONTH), month: "2026-10" }); }) : Promise.resolve(structuredClone(MONTH))) });
+  await renderPage();
+  fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+  await settle(3);
+  assert.ok(screen.getByRole("grid", { name: "Attendance calendar" }), "no skeleton jump");
+  assert.equal(screen.queryByLabelText("Loading month"), null);
+  releaseOct();
+  await settle();
+  // the summary ("October 2026", no "so far" for a past month) and the calendar both name the month
+  assert.equal(screen.getAllByRole("heading", { name: "October 2026" }).length, 2);
 });

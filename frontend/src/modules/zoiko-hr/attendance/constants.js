@@ -2,16 +2,28 @@
 
 import { formatTime12h as formatClockTime } from "../../../utils/dateTime";
 
+// label: the words · short: what a calendar cell shows (status in text, never colour alone) · chip: a label pill ·
+// cell: a colour swatch (legend) · tint: a calendar cell's background. Red is kept for real problems only (absent,
+// missed punch-out); late is amber.
 export const STATUS = {
-  present: { label: "Present", chip: "bg-emerald-50 text-emerald-800 ring-emerald-200", cell: "bg-emerald-500" },
-  late: { label: "Late", chip: "bg-amber-50 text-amber-800 ring-amber-200", cell: "bg-amber-400" },
-  half_day: { label: "Half day", chip: "bg-orange-50 text-orange-800 ring-orange-200", cell: "bg-orange-400" },
-  absent: { label: "Absent", chip: "bg-rose-50 text-rose-800 ring-rose-200", cell: "bg-rose-500" },
-  on_leave: { label: "On leave", chip: "bg-blue-50 text-blue-800 ring-blue-200", cell: "bg-blue-500" },
-  remote: { label: "Remote", chip: "bg-teal-50 text-teal-800 ring-teal-200", cell: "bg-teal-500" },
-  holiday: { label: "Holiday", chip: "bg-violet-50 text-violet-800 ring-violet-200", cell: "bg-violet-400" },
-  weekly_off: { label: "Weekly off", chip: "bg-slate-100 text-slate-600 ring-slate-200", cell: "bg-slate-300" },
-  missed_punch: { label: "Missed punch-out", chip: "bg-rose-50 text-rose-700 ring-rose-300", cell: "bg-white ring-2 ring-rose-400" },
+  present: { label: "Present", short: "P", chip: "bg-emerald-50 text-emerald-800 ring-emerald-200", cell: "bg-emerald-500",
+    tint: "bg-emerald-50 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100" },
+  late: { label: "Late", short: "Late", chip: "bg-amber-50 text-amber-800 ring-amber-200", cell: "bg-amber-400",
+    tint: "bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100" },
+  half_day: { label: "Half day", short: "½", chip: "bg-orange-50 text-orange-800 ring-orange-200", cell: "bg-orange-400",
+    tint: "bg-orange-50 text-orange-900 dark:bg-orange-900/30 dark:text-orange-100" },
+  absent: { label: "Absent", short: "Abs", chip: "bg-rose-50 text-rose-800 ring-rose-200", cell: "bg-rose-500",
+    tint: "bg-rose-50 text-rose-900 dark:bg-rose-900/30 dark:text-rose-100" },
+  on_leave: { label: "On leave", short: "Leave", chip: "bg-violet-50 text-violet-800 ring-violet-200", cell: "bg-violet-500",
+    tint: "bg-violet-50 text-violet-900 dark:bg-violet-900/30 dark:text-violet-100" },
+  remote: { label: "Remote", short: "WFH", chip: "bg-teal-50 text-teal-800 ring-teal-200", cell: "bg-teal-500",
+    tint: "bg-teal-50 text-teal-900 dark:bg-teal-900/30 dark:text-teal-100" },
+  holiday: { label: "Holiday", short: "Hol", chip: "bg-blue-50 text-blue-800 ring-blue-200", cell: "bg-blue-400",
+    tint: "bg-blue-50 text-blue-900 dark:bg-blue-900/30 dark:text-blue-100" },
+  weekly_off: { label: "Weekly off", short: "Off", chip: "bg-slate-100 text-slate-600 ring-slate-200", cell: "bg-slate-300",
+    tint: "bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-300" },
+  missed_punch: { label: "Missed punch-out", short: "No out", chip: "bg-rose-50 text-rose-700 ring-rose-300", cell: "bg-white ring-2 ring-rose-400",
+    tint: "bg-white text-rose-800 ring-1 ring-inset ring-rose-300 dark:bg-slate-900 dark:text-rose-200" },
 };
 
 export const LEGEND = ["present", "late", "half_day", "absent", "on_leave", "remote", "holiday", "weekly_off", "missed_punch"];
