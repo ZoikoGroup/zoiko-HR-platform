@@ -302,6 +302,9 @@ const routeOverrides = {
   "/zoiko-hr/learning/training-programs": <ZoikoHRLearning />,
   "/zoiko-hr/learning/assessments": <ZoikoHRLearning />,
   "/zoiko-hr/learning/reports": <ZoikoHRLearning />,
+  "/zoiko-hr/learning/enrollments": <ZoikoHRLearning />,
+  "/zoiko-hr/learning/certifications": <ZoikoHRLearning />,
+  "/zoiko-hr/learning/skills": <ZoikoHRLearning />,
   // Compensation
   "/zoiko-hr/compensation": <ZoikoHRCompDashboard />,
   "/zoiko-hr/compensation/salary-structures": <ZoikoHRCompSalaryStructures />,

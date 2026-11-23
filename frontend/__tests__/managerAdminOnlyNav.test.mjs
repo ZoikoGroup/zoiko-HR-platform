@@ -8,7 +8,8 @@ import { ROLES, ROLE_DISALLOWED_PREFIXES } from "../src/config/roles.js";
 const walk = (items) => items.flatMap((i) => [i, ...(i.children ? walk(i.children) : [])]);
 const hrefs = (role) => walk(filterSectionsForRole(sections, role, ["hr"]).flatMap((s) => s.items)).map((i) => i.href).filter(Boolean);
 
-const ADMIN_ONLY = ["/zoiko-hr/learning", "/zoiko-hr/learning/reports", "/zoiko-hr/travel"];
+const ADMIN_ONLY = ["/zoiko-hr/learning", "/zoiko-hr/learning/enrollments", "/zoiko-hr/learning/certifications",
+  "/zoiko-hr/learning/skills", "/zoiko-hr/learning/reports", "/zoiko-hr/travel"];
 const MANAGER_KEEPS = ["/zoiko-hr/learning/courses", "/zoiko-hr/learning/training-programs", "/zoiko-hr/learning/assessments",
   "/zoiko-hr/travel/requests", "/zoiko-hr/travel/approvals", "/zoiko-hr/travel/expenses", "/zoiko-hr/travel/settings"];
 
@@ -26,5 +27,7 @@ test("org admin and HR admin still see them", () => {
 });
 
 test("the router also turns a manager away from Learning reports", () => {
-  assert.ok(ROLE_DISALLOWED_PREFIXES[ROLES.MANAGER].includes("/zoiko-hr/learning/reports"));
+  for (const p of ["reports", "enrollments", "certifications", "skills"]) {
+    assert.ok(ROLE_DISALLOWED_PREFIXES[ROLES.MANAGER].includes(`/zoiko-hr/learning/${p}`), p);
+  }
 });
