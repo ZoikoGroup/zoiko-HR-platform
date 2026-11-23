@@ -151,3 +151,91 @@ def test_b6_an_hr_locked_day_is_not_changed_by_a_leave_decision(api, clock_at):
     assert api.put(f"/hr/leaves/{leave.id}/review", json={"status": "approved"}).status_code == 200
     api.db.refresh(rec)
     assert rec.status == AttendanceStatus.REMOTE
+
+
+# ── step 5: what today asks of the person, the next shift change, a shift notice to acknowledge (read-only) ──────────
+
+def _night(api):
+    from app.modules.hr.models import Shift, ShiftType
+    s = Shift(name="Night", shift_type=ShiftType.NIGHT, start_time="21:00", end_time="06:00", grace_time_minutes=5,
+              standard_hours=8.5, organization_id=1)
+    api.db.add(s)
+    api.db.commit()
+    return s
+
+
+def test_step5_today_says_required_hours_and_the_next_shift_change(api, shift, clock_at):
+    from app.modules.hr.attendance.models import EmployeeShift
+    night = _night(api)
+    emp = api.people["emp"]
+    clock_at(ist(10, 0))
+    api.as_("emp")
+    body = api.get("/hr/me/attendance/today").json()
+    assert body["required_minutes"] == 480 and body["next_shift_change"] is None and body["pending_shift_notice"] is None
+    # from Monday 23 Nov the person moves to nights
+    current = api.db.query(EmployeeShift).filter_by(employee_id=emp.id).one()
+    current.effective_to = date(2026, 11, 22)
+    api.db.add(EmployeeShift(organization_id=1, employee_id=emp.id, shift_id=night.id, effective_from=date(2026, 11, 23)))
+    api.db.commit()
+    body = api.get("/hr/me/attendance/today").json()
+    assert body["next_shift_change"] == {"date": "2026-11-23", "shift": {"name": "Night", "start": "21:00", "end": "06:00",
+                                                                       "crosses_midnight": True}}
+
+
+def test_step5_no_shift_uses_the_organization_day_and_an_ending_assignment_is_a_change_to_no_shift(api, clock_at):
+    from app.modules.hr.attendance.models import EmployeeShift
+    night = _night(api)
+    emp = api.people["emp"]
+    clock_at(ist(10, 0))
+    api.as_("emp")
+    body = api.get("/hr/me/attendance/today").json()
+    assert body["shift"] is None and body["required_minutes"] == 480                    # the organization's standard day
+    api.db.add(EmployeeShift(organization_id=1, employee_id=emp.id, shift_id=night.id, effective_from=date(2025, 1, 1),
+                             effective_to=date(2026, 11, 20)))
+    api.db.commit()
+    body = api.get("/hr/me/attendance/today").json()
+    assert body["required_minutes"] == 510                                              # the night shift's 8.5 h
+    assert body["next_shift_change"] == {"date": "2026-11-21", "shift": None}
+
+
+def test_step5_a_shift_notice_waiting_for_acknowledgement_is_offered_until_acknowledged(api, shift, clock_at):
+    from app.modules.doc_templates import state as doc_state
+    from app.modules.doc_templates.models import GeneratedDocument
+    from app.modules.hr.models import ShiftNotice
+    emp = api.people["emp"]
+    doc = GeneratedDocument(document_number="TIM-004-1", organization_id=1, canonical_id="HR-TIM-004", family_id="HR-TIM",
+                            title="Shift change notice", kind="NOTICE", legal_risk="L1", sensitivity="S1", output_mode="PDF",
+                            execution_mode="ACKNOWLEDGE", audience="EMPLOYEE", approval_policy="A0", subject_type="employee", requested_by=api.people["hr"].id,
+                            subject_id=emp.id, recipient_employee_id=emp.id)
+    doc_state._set(doc, "ISSUED")
+    other = GeneratedDocument(document_number="TIM-004-2", organization_id=1, canonical_id="HR-TIM-004", family_id="HR-TIM",
+                              title="Shift change notice", kind="NOTICE", legal_risk="L1", sensitivity="S1", output_mode="PDF",
+                              execution_mode="ACKNOWLEDGE", audience="EMPLOYEE", approval_policy="A0", subject_type="employee", requested_by=api.people["hr"].id,
+                              subject_id=api.people["emp2"].id, recipient_employee_id=api.people["emp2"].id)
+    doc_state._set(other, "ISSUED")
+    api.db.add_all([doc, other])
+    api.db.commit()
+    api.db.add_all([ShiftNotice(organization_id=1, employee_id=emp.id, kind="change", shift_id=shift.id, start_date=date(2026, 11, 30),
+                                document_id=doc.id),
+                    ShiftNotice(organization_id=1, employee_id=api.people["emp2"].id, kind="change", shift_id=shift.id,
+                                start_date=date(2026, 11, 30), document_id=other.id)])
+    api.db.commit()
+    clock_at(ist(10, 0))
+    api.as_("emp")
+    notice = api.get("/hr/me/attendance/today").json()["pending_shift_notice"]
+    assert notice["kind"] == "change" and notice["start_date"] == "2026-11-30"
+    assert notice["document"]["id"] == doc.id and notice["document"]["title"] == "Shift change notice"   # only their own
+    # someone whose notice is already acknowledged is not asked again (documents change status only through
+    # doc_templates.state, so this one is set up acknowledged through it)
+    done = GeneratedDocument(document_number="TIM-004-3", organization_id=1, canonical_id="HR-TIM-004", family_id="HR-TIM",
+                             title="Shift change notice", kind="NOTICE", legal_risk="L1", sensitivity="S1", output_mode="PDF",
+                             execution_mode="ACKNOWLEDGE", audience="EMPLOYEE", approval_policy="A0", subject_type="employee", requested_by=api.people["hr"].id,
+                             subject_id=api.people["mgr"].id, recipient_employee_id=api.people["mgr"].id)
+    doc_state._set(done, "ACKNOWLEDGED")
+    api.db.add(done)
+    api.db.commit()
+    api.db.add(ShiftNotice(organization_id=1, employee_id=api.people["mgr"].id, kind="assignment", shift_id=shift.id,
+                           start_date=date(2026, 11, 30), document_id=done.id))
+    api.db.commit()
+    api.as_("mgr")
+    assert api.get("/hr/me/attendance/today").json()["pending_shift_notice"] is None

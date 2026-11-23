@@ -112,11 +112,13 @@ test("the shift card, and the message when no shift is assigned", async (t) => {
   const shift = screen.getByRole("region", { name: "My shift" });
   assert.ok(within(shift).getByText("General"));
   assert.ok(within(shift).getByText("09:00 AM – 06:00 PM"));
-  assert.ok(within(shift).getByText(/10 min grace/));
+  assert.ok(within(shift).getByText(/10 min before you count as late/));
   cleanup();
-  mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), shift: null }) });
+  mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), shift: null, required_minutes: 480 }) });
   await renderPage();
-  assert.match(screen.getByRole("region", { name: "My shift" }).textContent, /No shift is assigned/);
+  // step 5: a plain empty state, not figures that would look like a perfect record
+  assert.match(screen.getByRole("region", { name: "My shift" }).textContent, /No shift assigned yet\. Contact HR\./);
+  assert.match(screen.getByRole("region", { name: "My shift" }).textContent, /8h 00m day/);
 });
 
 test("KPIs count working days only", async (t) => {
@@ -307,4 +309,16 @@ test("step 4: changing month keeps the last month on screen (dimmed) until the n
   await settle();
   // the summary ("October 2026", no "so far" for a past month) and the calendar both name the month
   assert.equal(screen.getAllByRole("heading", { name: "October 2026" }).length, 2);
+});
+
+// ── step 5: shift details and the shift-notice banner ───────────────────────────────────────────────────────────────
+
+test("step 5: the shift card shows the hours required today and the next shift change, in 12-hour time", async (t) => {
+  mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), required_minutes: 510,
+    next_shift_change: { date: "2026-11-23", shift: { name: "Night", start: "21:00", end: "06:00", crosses_midnight: true } } }) });
+  await renderPage();
+  const shift = screen.getByRole("region", { name: "My shift" });
+  assert.match(shift.textContent, /Required today\s*8h 30m/);
+  assert.match(shift.textContent, /From 23 Nov 2026:\s*Night · 09:00 PM – 06:00 AM \(next day\)/);
+  assert.equal(screen.queryByRole("region", { name: "Shift notice" }), null);
 });

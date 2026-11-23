@@ -9,6 +9,7 @@ import AttendanceStatusChip from "../../../../modules/zoiko-hr/attendance/compon
 import DayDetailDrawer from "../../../../modules/zoiko-hr/attendance/components/DayDetailDrawer";
 import { dayOffset, errorText, formatClockTime, formatMinutes, LEGEND, STATUS } from "../../../../modules/zoiko-hr/attendance/constants";
 import NextDayHint from "../../../../modules/zoiko-hr/attendance/components/NextDayHint";
+import ShiftNoticeBanner from "../../../../modules/zoiko-hr/attendance/components/ShiftNoticeBanner";
 import {
   useEndBreak, useMyAttendanceMonth, useMyAttendanceToday, usePunchIn, usePunchOut, useStartBreak,
 } from "../../../../modules/zoiko-hr/attendance/hooks/useMyAttendance";
@@ -156,7 +157,8 @@ export default function EmployeeEssAttendance() {
           </div>
           <div className="min-h-[13rem]">
             {today.data ? (
-              <ShiftInfoCard shift={today.data.shift} timezone={today.data.timezone} policy={data?.policy} />
+              <ShiftInfoCard shift={today.data.shift} timezone={today.data.timezone} requiredMinutes={today.data.required_minutes}
+                nextChange={today.data.next_shift_change} />
             ) : today.isError ? (
               <p className={`${card} h-full p-5 text-sm text-slate-500`}>Your shift could not be loaded.</p>
             ) : (
@@ -164,6 +166,9 @@ export default function EmployeeEssAttendance() {
             )}
           </div>
         </div>
+
+        {/* a shift notice to acknowledge (step 5): only while one is waiting */}
+        <ShiftNoticeBanner notice={today.data?.pending_shift_notice} onAcknowledged={() => today.refetch()} />
 
         {/* the month's summary: one row, its period named, one definition per figure */}
         <section aria-labelledby="att-summary-title" className={loadingOther ? "opacity-60 transition-opacity" : "transition-opacity"}>
