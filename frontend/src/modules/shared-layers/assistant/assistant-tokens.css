@@ -167,3 +167,13 @@
     transition-duration: 0.01ms;
   }
 }
+
+/* QA-R1-4: room for the launcher (assistantDock.js sets the attribute only while it is on screen). It sits 24px from
+   the bottom-right corner and is 56px tall, so the page gets 104px at the bottom: the last row (pagination, "load
+   more", action links) scrolls clear of it at every width. Bottom action bars keep their right end clear instead. */
+html[data-assistant-dock="launcher"] .portal-main {
+  padding-bottom: 6.5rem;
+}
+html[data-assistant-dock="launcher"] .portal-main :is(.sticky.bottom-0, .fixed.bottom-0.inset-x-0, .fixed.bottom-0.left-0.right-0) {
+  padding-right: 6rem;
+}
