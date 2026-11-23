@@ -1,0 +1,25 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui with context %}
+{% set title = "Documents shared with you" %}
+{% set preheader = sender_name ~ " shared " ~ (files[0].title if file_count == 1 else file_count ~ " documents") ~ " with you." %}
+{% set badge = "Documents" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">{% if file_count == 1 %}A document was shared with you{% else %}{{ file_count }} documents were shared with you{% endif %}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ sender_name }} shared {% if file_count == 1 %}this document{% else %}these documents{% endif %} from <strong>{{ target_name }}</strong> with you.</p>
+{% if message %}
+{% call ui.notice("Message from " ~ sender_name) %}{{ message }}{% endcall %}
+{% endif %}
+{% call ui.details() %}
+{% for f in files %}{{ ui.detail_row("Document" if file_count == 1 else "Document " ~ loop.index, f.title, first=loop.first) }}{% endfor %}
+{% endcall %}
+{% if mode == "link" %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Open {% if file_count == 1 %}it{% else %}them{% endif %} in the employee portal. You may need to sign in first.</p>
+{{ ui.button(action_url, "Open in Zoiko HR") }}
+{{ ui.link_fallback(action_url) }}
+{% else %}
+<p class="t-body dm-text-body" style="{{ S.p }}">{% if file_count == 1 %}The document is{% else %}The documents are{% endif %} attached to this email. Please keep {% if file_count == 1 %}it{% else %}them{% endif %} confidential and don't forward {% if file_count == 1 %}it{% else %}them{% endif %} outside the people it was meant for.</p>
+{% endif %}
+{{ ui.signoff() }}
+{% endblock %}

@@ -8,6 +8,7 @@
 | Baseline | `main` @ `f77a7ca` |
 | Date | 2026-11-19 |
 | Scope | Admin portal (Dashboard, Employee Documents, Company Documents, Approval Workflow); Employee portal (all Documents tabs); Automation layer |
+| Follow-up | Company Documents refresh (folders, bulk upload, category settings, email sharing): [ZHR-DOCS-002](ZHR-DOCS-002-company-documents-refresh.md) |
 | Stack | FastAPI + SQLAlchemy 2 + Alembic + PostgreSQL. React 19 + Vite, plain JSX, react-router 7, react-query 5, Tailwind 4 |
 
 Legend:

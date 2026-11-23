@@ -231,6 +231,8 @@ _SELF_HEALED_TABLES = (
     # above; the correction requests gained kind / requested_status / requested_breaks. The duplicate merge, UTC backfill
     # and unique index run only through `alembic upgrade head` (never on boot).
     "attendance_correction_requests",
+    # Company Documents refresh (migration c2d3e4f5a6b7): company categories gained is_hidden
+    "hr_company_document_categories",
 )
 
 

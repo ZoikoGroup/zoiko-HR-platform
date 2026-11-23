@@ -240,6 +240,10 @@ SENDER_SAMPLES = [
     ("send_document_reminder_email", dict(
         email="sam@acme.test", first_name="Sam", document_label="Document AC-2026-000042", document_number="AC-2026-000042",
         action_phrase="sign", due_at_local="Oct 15, 2026", organization_id=42)),
+    ("send_document_share_email", dict(
+        email="sam@acme.test", first_name="Sam", sender_name="Harper Lee", target_name="Onboarding Documents",
+        files=[{"title": "Welcome pack"}, {"title": "Code of conduct"}], mode="link", message="Please read these before Monday.",
+        action_url=f"{APP}/employee/documents/company", organization_id=42)),
     ("send_document_executed_email", dict(
         email="hr@acme.test", first_name="Harper", document_label="Document AC-2026-000042", document_number="AC-2026-000042",
         completed_at_local="Oct 12, 2026 10:30 UTC", organization_id=42)),

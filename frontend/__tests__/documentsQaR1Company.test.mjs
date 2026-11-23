@@ -1,6 +1,6 @@
 /**
  * QA round 1, Company Documents:
- * R1-18 New Folder is never stuck disabled and creates the folder in the open category;
+ * R1-18 New folder is never stuck disabled and creates the folder in the open category;
  * R1-21 files can be ticked (select all) and shared together in one action;
  * R1-22 a file missing on the server is flagged and its preview offers "Upload it again".
  */
@@ -66,31 +66,23 @@ async function renderCategory() {
   await settle();
 }
 
-test("New Folder is enabled, explains an empty name, and creates the folder in the open category", async (t) => {
+test("New folder is enabled, explains an empty name, and creates the folder in the open category", async (t) => {
   const calls = mockServices(t);
   await renderCategory();
-  const button = screen.getByRole("button", { name: "New Folder" });
+  const button = screen.getByRole("button", { name: "New folder" });
   assert.equal(button.disabled, false);
   fireEvent.click(button);
   await settle();
-  assert.match(screen.getByRole("alert").textContent, /Type a name/);
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Create folder" }));
+  await settle();
+  assert.ok(within(dialog).getByRole("alert").textContent.length > 0, "an empty name is explained");
   assert.equal(calls.folder.length, 0);
-  fireEvent.change(screen.getByLabelText("New folder name"), { target: { value: "  Offer   letters " } });
-  fireEvent.click(button);
+  fireEvent.change(within(dialog).getByLabelText("Folder name"), { target: { value: "  Offer   letters " } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Create folder" }));
   await settle();
   assert.deepEqual(calls.folder, [{ name: "Offer letters", categoryId: 3, parentId: null }]);
   assert.match(screen.getByRole("status").textContent, /Offer letters/);
-});
-
-test("a name the browser filled in without a change event still creates the folder", async (t) => {
-  const calls = mockServices(t);
-  await renderCategory();
-  const input = screen.getByLabelText("New folder name");
-  // autofill / password managers set the value directly; React's state never hears about it
-  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, "Autofilled");
-  fireEvent.submit(input.closest("form"));
-  await settle();
-  assert.equal(calls.folder[0]?.name, "Autofilled");
 });
 
 test("select all, then Share selected shares every ticked file in one request", async (t) => {

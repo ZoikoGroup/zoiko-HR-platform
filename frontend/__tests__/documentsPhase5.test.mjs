@@ -125,11 +125,12 @@ test("inside a category: files with version, access and read progress; new versi
   assert.ok(within(row).getByText("v2"));
   assert.ok(within(row).getByText(/Restricted \(12\)/));
   assert.ok(within(row).getByRole("button", { name: "3/12" }));
-  assert.ok(screen.getByRole("button", { name: "Upload to Company Policies" }) && screen.getByRole("button", { name: /New Folder/ }) && screen.getByRole("button", { name: /Refresh/ }));
+  assert.ok(screen.getByRole("button", { name: "Upload to Company Policies" }) && screen.getByRole("button", { name: /New folder/i }) && screen.getByRole("button", { name: /Refresh/ }));
   // Upload and Share live in the content area for the chosen category, not in the page header.
   assert.ok(screen.getByRole("button", { name: "Share Company Policies" }));
   assert.equal(screen.getByRole("button", { name: "Upload to Company Policies" }).closest("header"), null);
-  fireEvent.click(within(row).getByRole("button", { name: "New version of Code of conduct" }));
+  fireEvent.click(within(row).getByRole("button", { name: "More actions for Code of conduct" }));
+  fireEvent.click(within(row).getByRole("menuitem", { name: "New version" }));
   const dialog = screen.getByRole("dialog", { name: /New version of Code of conduct/ });
   fireEvent.change(within(dialog).getByLabelText("File"), { target: { files: [new File(["%PDF"], "v3.pdf")] } });
   fireEvent.click(within(dialog).getByRole("checkbox", { name: /Material change/ }));
@@ -139,6 +140,8 @@ test("inside a category: files with version, access and read progress; new versi
   assert.deepEqual({ ...calls.version[0], file: calls.version[0].file.name },
     { documentId: 10, file: "v3.pdf", changeNotes: undefined, expiryDate: undefined, materialChange: false });
   fireEvent.click(within(row).getByRole("button", { name: "Unpublish Code of conduct" }));
+  assert.deepEqual(calls.unpublish, []);                       // asks first
+  fireEvent.click(within(screen.getByRole("alertdialog", { name: "Unpublish Code of conduct?" })).getByRole("button", { name: "Unpublish" }));
   await settle();
   assert.deepEqual(calls.unpublish, [10]);
 });
@@ -161,7 +164,7 @@ test("a new company upload sends the category's read-confirmation default and a 
   await renderAt("CompanyCategoryPage.jsx", "/c/1", "/c/:categoryId");
   fireEvent.click(screen.getByRole("button", { name: "Upload to Company Policies" }));
   const dialog = screen.getByRole("dialog", { name: /Upload to Company Policies/ });
-  fireEvent.change(within(dialog).getByLabelText("File"), { target: { files: [new File(["%PDF"], "policy.pdf")] } });
+  fireEvent.change(within(dialog).getByLabelText("Files"), { target: { files: [new File(["%PDF"], "policy.pdf")] } });
   fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Travel policy" } });
   fireEvent.change(within(dialog).getByLabelText(/Publish at/), { target: { value: "2030-01-01T09:00" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Upload" }));

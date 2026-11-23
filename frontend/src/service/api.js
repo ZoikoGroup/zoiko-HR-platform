@@ -150,7 +150,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
       }
       if (typeof data?.error === "string") extra = { ...extra, code: data.error };
       // Documents module details: the failed upload checks, who holds a review lock, which field is wrong.
-      for (const key of ["checks", "locked_by_name", "locked_until", "field", "problems"]) {
+      for (const key of ["checks", "locked_by_name", "locked_until", "field", "problems", "names", "employees", "files"]) {
         if (data?.[key] !== undefined) extra = { ...extra, [key]: data[key] };
       }
       if (data?.feature_key && data?.upgrade_url) {
