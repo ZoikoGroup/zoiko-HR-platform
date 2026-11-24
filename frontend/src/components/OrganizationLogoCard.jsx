@@ -78,10 +78,10 @@ export default function OrganizationLogoCard({ organizationName, className = "" 
 
   const name = organizationName || "Your organisation";
   return (
-    <section aria-labelledby="org-logo-title" className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
+    <section aria-labelledby={titleId} className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 id="org-logo-title" className="text-base font-semibold text-slate-900">Organization logo</h3>
+          <h3 id={titleId} className="text-base font-semibold text-slate-900">Organization logo</h3>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Shown at the top of every email your organisation sends (interview invitations and results, offers, onboarding) and on
             offer documents. PNG, JPG or WebP up to {MAX_MB} MB; a wide logo on a transparent background works best.
