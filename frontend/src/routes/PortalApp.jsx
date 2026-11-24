@@ -66,6 +66,24 @@ const ZoikoHROnboardingDocuments = lazyRoute(() => import("../modules/zoiko-hr/o
 const ZoikoHROnboardingChecklists = lazyRoute(() => import("../modules/zoiko-hr/onboarding/checklists.jsx"));
 const ZoikoHROnboardingSettings = lazyRoute(() => import("../modules/zoiko-hr/onboarding/settings.jsx"));
 const ZoikoHRDocsSetupWizard = lazyRoute(() => import("../modules/zoiko-hr/onboarding/docs-setup/DocsSetupWizard.jsx"));
+// Offboarding module (HR and organisation admins)
+const OffboardingDashboard = lazyRoute(() => import("../modules/zoiko-hr/offboarding/dashboard.jsx"));
+const OffboardingCases = lazyRoute(() => import("../modules/zoiko-hr/offboarding/cases.jsx"));
+const OffboardingCaseDetail = lazyRoute(() => import("../modules/zoiko-hr/offboarding/CaseDetail.jsx"));
+const OffboardingNewExit = lazyRoute(() => import("../modules/zoiko-hr/offboarding/new-exit.jsx"));
+const OffboardingResignations = lazyRoute(() => import("../modules/zoiko-hr/offboarding/resignations.jsx"));
+const OffboardingClearance = lazyRoute(() => import("../modules/zoiko-hr/offboarding/clearance.jsx"));
+const OffboardingAssets = lazyRoute(() => import("../modules/zoiko-hr/offboarding/assets.jsx"));
+const OffboardingSettlements = lazyRoute(() => import("../modules/zoiko-hr/offboarding/settlements.jsx"));
+const OffboardingInterviews = lazyRoute(() => import("../modules/zoiko-hr/offboarding/interviews.jsx"));
+const OffboardingSettings = lazyRoute(() => import("../modules/zoiko-hr/offboarding/settings.jsx"));
+// My Exit (the person's own exit) and Offboarding Tasks (clearance work for other people's exits)
+const MyExitResign = lazyRoute(() => import("../pages/Peoples/Employees/ESS/MyExit/Resign.jsx"));
+const MyExitStatus = lazyRoute(() => import("../pages/Peoples/Employees/ESS/MyExit/ExitStatus.jsx"));
+const MyExitTasks = lazyRoute(() => import("../pages/Peoples/Employees/ESS/MyExit/ExitTasks.jsx"));
+const MyExitInterview = lazyRoute(() => import("../pages/Peoples/Employees/ESS/MyExit/ExitInterview.jsx"));
+const MyExitDocuments = lazyRoute(() => import("../pages/Peoples/Employees/ESS/MyExit/ExitDocuments.jsx"));
+const MyOffboardingTasks = lazyRoute(() => import("../pages/Peoples/Employees/ESS/OffboardingTasks.jsx"));
 const ZoikoHRLearning = lazyRoute(() => import("../modules/zoiko-hr/learning/learning.jsx"));
 
 const EssDashboard = lazyRoute(() => import("../modules/zoiko-hr/ess/dashboard.jsx"));
@@ -288,6 +306,17 @@ const routeOverrides = {
   "/zoiko-hr/onboarding/settings": <ZoikoHROnboardingSettings />,
   // "Set up docs for your organisation" (same roles as Settings: the /zoiko-hr/onboarding prefix)
   "/zoiko-hr/onboarding/settings/docs-setup": <ZoikoHRDocsSetupWizard />,
+  // Offboarding: one module, its sections are the tabs of OffboardingLayout
+  "/zoiko-hr/offboarding": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingDashboard /></PlanGate>,
+  "/zoiko-hr/offboarding/cases": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingCases /></PlanGate>,
+  "/zoiko-hr/offboarding/cases/:id": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingCaseDetail /></PlanGate>,
+  "/zoiko-hr/offboarding/new": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingNewExit /></PlanGate>,
+  "/zoiko-hr/offboarding/resignations": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingResignations /></PlanGate>,
+  "/zoiko-hr/offboarding/clearance": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingClearance /></PlanGate>,
+  "/zoiko-hr/offboarding/assets": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingAssets /></PlanGate>,
+  "/zoiko-hr/offboarding/settlements": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingSettlements /></PlanGate>,
+  "/zoiko-hr/offboarding/interviews": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingInterviews /></PlanGate>,
+  "/zoiko-hr/offboarding/settings": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><OffboardingSettings /></PlanGate>,
   // Assets
   "/zoiko-hr/assets": <AssetsDashboard />,
   "/zoiko-hr/assets/my-assets": <MyAssets />,
@@ -469,6 +498,14 @@ const routeOverrides = {
   "/employee/ess/requests":   <Navigate to="/employee/learning" replace />,
   "/employee/ess/settings":   <EmployeeEssSettings />,
   "/employee/ess/time-requests": <EmployeeTimeRequests />,
+  // My Exit folder and Offboarding Tasks
+  "/employee/ess/exit": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyExitStatus /></PlanGate>,
+  "/employee/ess/exit/resign": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyExitResign /></PlanGate>,
+  "/employee/ess/exit/status": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyExitStatus /></PlanGate>,
+  "/employee/ess/exit/tasks": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyExitTasks /></PlanGate>,
+  "/employee/ess/exit/interview": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyExitInterview /></PlanGate>,
+  "/employee/ess/exit/documents": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyExitDocuments /></PlanGate>,
+  "/employee/ess/offboarding-tasks": <PlanGate featureKey="hr.lifecycle.offboarding" title="Offboarding"><MyOffboardingTasks /></PlanGate>,
 
   // Learning
   "/employee/learning":                   <EmployeeLearningModule />,

@@ -92,6 +92,11 @@ SENDER_SAMPLES = [
         email="it@acme.test", assignee_name="Robin", candidate_name="Sam Rivera", position="Backend Engineer",
         organization_name="Acme Corp", tasks=[{"title": "Set up laptop", "due": "Oct 30, 2026"}],
         checklists_url=f"{APP}/zoiko-hr/onboarding/checklists", joining_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_offboarding_email", dict(
+        email="it@acme.test", recipient_name="Robin", heading="Offboarding tasks assigned to you",
+        intro="Sam Rivera is leaving on 23 Dec 2026. These clearance tasks are yours.",
+        rows=[("Revoke system and e-mail access", "Due 23 Dec 2026")],
+        button_url_path="/employee/ess/offboarding-tasks", button_label="Open my offboarding tasks", organization_id=42)),
     ("send_orientation_invite", dict(
         email="sam@mail.com", first_name="Sam", organization_name="Acme Corp", session_title="Company orientation",
         date_display="Mon, Nov 02, 2026", time_display="10:00", location="HQ, Floor 3", meeting_link="https://meet.example.com/o",

@@ -1199,6 +1199,19 @@ def send_orientation_invite(email, first_name, organization_name, session_title,
     }, db=db, organization_id=organization_id)
 
 
+def send_offboarding_email(email, recipient_name, heading, intro, rows=None, button_url_path=None, button_label=None,
+                           db=None, organization_id=None):
+    """Offboarding notices (resignation to decide, exit accepted, clearance tasks, exit documents link). rows: [(label,
+    value)]. button_url_path is a path in the Zoiko HR app; the e-mail links to FRONTEND_URL + path. Never carries the
+    reason for leaving or HR notes."""
+    base = _login_url()[: -len("/login")]
+    return send_approval_email(email, "offboarding_notice.html", {
+        "subject": f"{heading} | {{{{company_name}}}}",
+        "recipient_name": recipient_name, "heading": heading, "intro": intro, "rows": list(rows or []),
+        "button_url": f"{base}{button_url_path}" if button_url_path else "", "button_label": button_label,
+    }, db=db, organization_id=organization_id)
+
+
 def send_onboarding_completed(email, recipient_name, candidate_name, employee_code, position, organization_name,
                               employees_url, joining_date_display=None, db=None, organization_id=None):
     """Tell admins and the manager that a new hire finished onboarding and became an employee."""

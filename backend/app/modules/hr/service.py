@@ -814,11 +814,16 @@ def deactivate_employee(db: Session, employee_id: int, organization_id: Optional
         status="completed",
         reason="Employee deactivated via admin action",
     )
+    from app.core.privacy.sessions import revoke_all_sessions
+    revoke_all_sessions(employee)
     db.add(event)
     db.commit()
     db.refresh(employee)
     from app.modules.hr.documents.hooks import on_employee_exited
     on_employee_exited(db, employee, exit_date=event.event_date, exit_type="deactivated")
+    from app.modules.hr.offboarding.service import record_immediate_exit
+    record_immediate_exit(db, employee, exit_type="termination", last_working_day=event.event_date,
+                          reason="Employee deactivated via admin action")
     return employee
 
 
@@ -5889,28 +5894,9 @@ def transfer_employee(db: Session, data: TransferEmployeeRequest, organization_i
 
 
 def resign_employee(db: Session, data: ResignationRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:
-    employee = get_employee_by_id(db, data.employee_id, organization_id)
-    
-    employee.status = EmployeeStatus.RESIGNED
-    employee.is_active = False
-    
-    event = EmployeeLifecycle(
-        employee_id=data.employee_id,
-        organization_id=employee.organization_id,
-        event_type="resignation",
-        event_date=data.resignation_date,
-        status="completed",
-        new_value={
-            "status": "resigned",
-            "last_working_date": str(data.last_working_date)
-        },
-        reason=data.reason
-    )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
-    
-    return event
+    """Delegates to the single implementation in the employee module (sessions, documents exit handling, exit case)."""
+    from app.modules.employee.service import resign_employee as _resign_employee
+    return _resign_employee(db, data, organization_id)
 
 
 def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:

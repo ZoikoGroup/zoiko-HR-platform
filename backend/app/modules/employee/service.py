@@ -2909,6 +2909,8 @@ def deactivate_employee(db: Session, employee_id: int, organization_id: Optional
         before = {"status": json_safe(employee.status), "is_active": json_safe(employee.is_active)}
         employee.is_active = False
         employee.status = EmployeeStatus.TERMINATED
+        from app.core.privacy.sessions import revoke_all_sessions
+        revoke_all_sessions(employee)                         # joiner-mover-leaver: every session ends now
 
         event = EmployeeLifecycle(
             employee_id=employee_id,
@@ -2928,6 +2930,8 @@ def deactivate_employee(db: Session, employee_id: int, organization_id: Optional
             changes=diff(before, {"status": json_safe(employee.status),
                                   "is_active": json_safe(employee.is_active)}),
         )
+        _after_exit(db, employee, exit_type="termination", last_working_day=datetime.now().date(),
+                    reason="Employee deactivated via admin action", actor=actor)
 
         _notify_email(
             "send_employee_account_status_email",
@@ -3701,11 +3705,23 @@ def transfer_employee(db: Session, data: TransferEmployeeRequest, organization_i
     return event
 
 
-def resign_employee(db: Session, data: ResignationRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:
-    employee = get_employee_by_id(db, data.employee_id)
+def _after_exit(db: Session, employee: Employee, *, exit_type: str, last_working_day=None, reason=None, actor=None) -> None:
+    """Everything every exit path must do after the account is closed: the documents module's exit handling (tasks
+    cancelled, review locks released, employee.exited) and an Offboarding case for clearance, assets and settlement."""
+    from app.modules.hr.documents.hooks import on_employee_exited
+    on_employee_exited(db, employee, exit_date=last_working_day, exit_type=exit_type, last_working_day=last_working_day)
+    from app.modules.hr.offboarding.service import record_immediate_exit
+    record_immediate_exit(db, employee, exit_type=exit_type, last_working_day=last_working_day, reason=reason, actor=actor)
+
+
+def resign_employee(db: Session, data: ResignationRequest, organization_id: Optional[int] = None,
+                    actor=None) -> EmployeeLifecycle:
+    from app.core.privacy.sessions import revoke_all_sessions
+    employee = get_employee_by_id(db, data.employee_id, organization_id)
 
     employee.status = EmployeeStatus.RESIGNED
     employee.is_active = False
+    revoke_all_sessions(employee)
 
     event = EmployeeLifecycle(
         employee_id=data.employee_id,
@@ -3722,6 +3738,7 @@ def resign_employee(db: Session, data: ResignationRequest, organization_id: Opti
     db.add(event)
     db.commit()
     db.refresh(event)
+    _after_exit(db, employee, exit_type="resignation", last_working_day=data.last_working_date, reason=data.reason, actor=actor)
 
     _notify_email(
         "send_employee_lifecycle_email",
@@ -3737,12 +3754,15 @@ def resign_employee(db: Session, data: ResignationRequest, organization_id: Opti
     return event
 
 
-def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:
+def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optional[int] = None,
+                  actor=None) -> EmployeeLifecycle:
     """The single implementation of an employee exit (hr.service.exit_employee delegates here)."""
+    from app.core.privacy.sessions import revoke_all_sessions
     employee = get_employee_by_id(db, data.employee_id, organization_id)
 
     employee.status = EmployeeStatus.TERMINATED
     employee.is_active = False
+    revoke_all_sessions(employee)
 
     event = EmployeeLifecycle(
         employee_id=data.employee_id,
@@ -3759,8 +3779,9 @@ def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optio
     db.add(event)
     db.commit()
     db.refresh(event)
-    from app.modules.hr.documents.hooks import on_employee_exited
-    on_employee_exited(db, employee, exit_date=data.exit_date, exit_type=data.exit_type)
+    exit_type = {"voluntary": "resignation", "involuntary": "termination"}.get(str(data.exit_type or "").lower(),
+                                                                                str(data.exit_type or "").lower())
+    _after_exit(db, employee, exit_type=exit_type, last_working_day=data.exit_date, reason=data.reason, actor=actor)
 
     _notify_email(
         "send_employee_lifecycle_email",

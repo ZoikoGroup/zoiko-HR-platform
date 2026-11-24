@@ -92,6 +92,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     // their own attendance: an organization admin punches in and requests corrections too (attendance plan Q9)
     "/employee/ess/attendance",
     "/employee/ess/time-requests",
+    // their own exit (My Exit) and clearance tasks assigned to them for other people's exits
+    "/employee/ess/exit",
+    "/employee/ess/offboarding-tasks",
     // their own files: an organization admin is also an employee (every Documents tab is shown to them)
     "/employee/documents/my-files",
     "/employee/documents/payslips",
@@ -147,6 +150,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     // their own attendance: an HR admin punches in and requests corrections too (attendance plan Q9)
     "/employee/ess/attendance",
     "/employee/ess/time-requests",
+    // their own exit (My Exit) and clearance tasks assigned to them for other people's exits
+    "/employee/ess/exit",
+    "/employee/ess/offboarding-tasks",
     // their own files: an HR admin is also an employee (every Documents tab is shown to them)
     "/employee/documents/my-files",
     "/employee/documents/payslips",
@@ -249,6 +255,8 @@ export const ROLE_DISALLOWED_PREFIXES = {
   // (A manager's own onboarding tasks are on their dashboard, not under /zoiko-hr/onboarding.)
   [ROLES.MANAGER]: [
     "/zoiko-hr/onboarding",
+    // the Offboarding module is HR's; a manager decides a direct report's resignation in Offboarding Tasks
+    "/zoiko-hr/offboarding",
     "/zoiko-hr/workforce-planning/job-descriptions",
     "/zoiko-hr/compensation/approvals",
     "/zoiko-hr/employee-management/reports",

@@ -667,6 +667,52 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `notification_templates` (default PLATFORM_META; most sensitive column rank 0)
 - **PLATFORM_META**: `id`, `organization_id`, `key`, `channel`, `subject`, `body`, `locale`, `is_active`, `updated_by`, `updated_at`
 
+## `offboarding_activity` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `case_id`, `actor_id`, `action`, `message`, `hr_only`
+
+## `offboarding_asset_returns` (default PERSONAL_BASIC; most sensitive column rank 4)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `case_id`, `asset_id`, `asset_name`, `asset_tag`, `status`, `condition`, `received_by`, `resolved_at`
+- **PERSONAL_CONFIDENTIAL**: `note`
+- **FINANCIAL**: `recovery_amount`
+
+## `offboarding_cases` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `reportees_to_id`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `case_number`, `exit_type`, `status`, `source`, `reason_category`, `hr_notes`, `resignation_date`, `requested_last_day`, `notice_days`, `notice_end_date`, `notice_handling`, `last_working_day`, `rehire_eligible`, `rehire_notes`, `requested_by`, `decided_by`, `decided_at`, `decision_note`, `withdrawal_requested_at`, `access_revoked_at`, `exited_at`, `closed_at`, `closed_by`
+- **SPECIAL_CATEGORY**: `reason`, `withdrawal_reason`
+
+## `offboarding_checklist_templates` (default PLATFORM_META; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `exit_types`, `items`, `is_default`, `is_active`, `created_by`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `name`, `department_id`
+
+## `offboarding_documents` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 6)
+- **PLATFORM_META**: `id`, `organization_id`
+- **PERSONAL_BASIC**: `case_id`
+- **PERSONAL_CONFIDENTIAL**: `kind`, `title`, `content`, `issued_by`, `issued_at`, `revoked_at`, `access_expires_at`, `downloaded_at`
+- **SECRET**: `access_token_hash`
+
+## `offboarding_exit_interviews` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `case_id`
+- **PERSONAL_CONFIDENTIAL**: `status`, `questions`, `answers`, `would_recommend`, `hr_summary`, `sent_at`, `submitted_at`
+- **SPECIAL_CATEGORY**: `primary_reason`
+
+## `offboarding_settings` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `organization_id`, `config`, `updated_by`, `updated_at`
+
+## `offboarding_settlements` (default FINANCIAL; most sensitive column rank 4)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `case_id`, `updated_by`
+- **FINANCIAL**: `currency`, `leave_days`, `daily_rate`, `earnings`, `deductions`, `net_amount`, `status`, `notes`, `approved_by`, `approved_at`, `paid_on`, `payment_reference`
+
+## `offboarding_tasks` (default PERSONAL_BASIC; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`, `sort_order`, `created_at`
+- **PERSONAL_BASIC**: `case_id`, `title`, `description`, `owner_role`, `assignee_id`, `mandatory`, `due_date`, `status`, `completed_by`, `completed_at`, `reminded_at`
+- **PERSONAL_CONFIDENTIAL**: `note`
+- **SPECIAL_CATEGORY**: `exception_reason`
+
 ## `onboarding_activities` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`

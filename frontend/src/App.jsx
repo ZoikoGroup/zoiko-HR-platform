@@ -15,6 +15,7 @@ import HomeRedirect from "./components/HomeRedirect";
 const ForgotPasswordPage = lazyRoute(() => import("./pages/auth/ForgotPasswordPage"));
 const ResetPasswordPage = lazyRoute(() => import("./pages/auth/ResetPasswordPage"));
 const OnboardingPortalPage = lazyRoute(() => import("./pages/OnboardingPortalPage"));
+const ExitDocumentsPage = lazyRoute(() => import("./pages/ExitDocumentsPage"));
 const TermsPage = lazyRoute(() => import("./pages/legal/TermsPage"));
 const HrProductsPage = lazyRoute(() => import("./pages/public/HrProductsPage"));
 const RequestPricingPage = lazyRoute(() => import("./pages/public/RequestPricingPage"));
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/onboarding-portal/:token" element={<OnboardingPortalPage />} />
+        <Route path="/exit-documents/:token" element={<ExitDocumentsPage />} />
         {/* Candidate e-signature (single-use link) and public document verification: no app shell, no sign-in. */}
         <Route path="/sign/:token" element={<CandidateSignPage />} />
         <Route path="/verify/:documentNumber" element={<VerifyDocumentPage />} />

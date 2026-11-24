@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui with context %}
+{% set title = heading %}
+{% set preheader = intro %}
+{% set badge = "Offboarding" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because of an exit recorded at {{ company_name or "your organisation" }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">{{ heading }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>,</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ intro }}</p>
+{% if rows %}
+{% call ui.details() %}
+{% for r in rows %}{{ ui.detail_row(r[0], r[1], first=loop.first) }}{% endfor %}
+{% endcall %}
+{% endif %}
+{% if button_url %}{{ ui.button(button_url, button_label or "Open Zoiko HR") }}{% endif %}
+{{ ui.signoff() }}
+{% endblock %}
