@@ -23,3 +23,8 @@ export const deleteAttendanceRecord = ({ id, reason }) => api.delete(`/hr/attend
 export const getAttendanceRecordAudit = (id) => api.get(`/hr/attendance/records/${id}/audit`);
 export const getAttendanceToday = (params) => api.get("/hr/attendance/dashboard/today", { params: clean(params) });
 export const listAttendanceApprovals = (params) => api.get("/hr/attendance/approvals", { params: clean(params) });
+
+// ── shift assignments (My Attendance plan step 6: who works which shift over which period) ──────────────────────────
+export const listShiftAssignments = (params) => api.get("/hr/attendance/shift-assignments", { params: clean(params) });
+export const assignShift = (body) => api.post("/hr/attendance/shift-assignments", body);
+export const endShiftAssignment = ({ id, effective_to }) => api.post(`/hr/attendance/shift-assignments/${id}/end`, { effective_to });

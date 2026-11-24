@@ -232,11 +232,16 @@ def test_the_month_view_fills_every_day_and_counts_working_days_only(api, shift,
     assert by["2026-11-18"]["status"] is None                     # today, not punched yet
     assert by["2026-11-19"]["future"] and by["2026-11-19"]["status"] is None
     k = body["kpis"]
-    # working days 1–18 Nov: 13 weekdays, minus the holiday on the 4th = 12 (today counts as a working day)
-    assert k["working_days"] == 12
+    # working days 1–17 Nov: 12 weekdays, minus the holiday on the 4th = 11. Today (18th) is not due yet: no punch-in.
+    # (before B4 today counted, giving 12)
+    assert k["working_days"] == 11
     assert (k["present"], k["late"], k["half_day"], k["on_leave"], k["holiday"]) == (1, 1, 1, 2, 1)
-    assert k["absent"] == 12 - 2 - 1 - 2 - 1                       # the rest of the past working days (not today)
-    assert k["attended_days"] == 2.5 and k["punctuality_rate"] == 50 and k["approved_overtime_minutes"] == 60
+    assert k["absent"] == 11 - 2 - 1 - 2                           # the rest of the past working days
+    # B4: the 2 leave days are excused, so 2.5 attended of 9 expected (before: 2.5 of 12 = 21%)
+    assert (k["expected_days"], k["attended_days"], k["attendance_rate"]) == (9, 2.5, 28)
+    # B5: punch-ins on 2, 3 and 9 Nov; only the 3rd was late -> 2 of 3 (before: present/(present+late) = 50%)
+    assert (k["punched_days"], k["on_time_days"], k["punctuality_rate"]) == (3, 2, 67)
+    assert k["approved_overtime_minutes"] == 60
     assert k["avg_worked_minutes"] == (540 + 540 + 180) // 3
 
 
@@ -254,7 +259,7 @@ def test_days_before_joining_have_no_status(api, shift, clock_at):
     body = api.get("/hr/me/attendance").json()
     by = {d["date"]: d for d in body["days"]}
     assert by["2026-11-09"]["status"] is None and by["2026-11-10"]["status"] == "absent"
-    assert body["kpis"]["working_days"] == 7                       # 10–18 Nov weekdays
+    assert body["kpis"]["working_days"] == 6                       # 10–17 Nov weekdays; today (18th) not punched yet
 
 
 def test_one_days_detail_shows_breaks_and_history(api, shift, clock_at):

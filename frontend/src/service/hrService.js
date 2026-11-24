@@ -1042,6 +1042,10 @@ export const updateDesignation = (id, payload) =>
   api.put(`/hr/designations/${id}`, payload).then(data => ({ data }));
 export const deleteDesignation = (id) =>
   api.delete(`/hr/designations/${id}`).then(data => ({ data }));
+/** Give a designation to existing people: { employee_ids, sync_job_title } → { assigned, unchanged, employees }. */
+export const assignDesignation = (id, payload) => api.post(`/hr/designations/${id}/assign`, payload);
+/** Who holds a designation (current people first): [{ id, name, employee_code, job_title, status }]. */
+export const getDesignationHolders = (id) => api.get(`/hr/designations/${id}/employees`);
 
 // ── (Employee management endpoints moved to src/service/employee.js) ──────────
 

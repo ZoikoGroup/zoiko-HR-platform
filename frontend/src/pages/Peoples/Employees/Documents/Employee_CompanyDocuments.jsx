@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { BookOpen, CheckCircle2, ClipboardList, FileText, Folder, GraduationCap, RefreshCw, Scale, Search, ShieldCheck } from "lucide-react";
 import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
@@ -30,6 +31,7 @@ const ALL = "all";
  */
 export default function CompanyDocuments() {
   const [groups, setGroups] = useState([]);
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [category, setCategory] = useState(ALL);
@@ -45,7 +47,7 @@ export default function CompanyDocuments() {
     setLoading(true);
     setError(null);
     getMyCompanyDocuments()
-      .then((res) => setGroups(Array.isArray(res?.groups) ? res.groups : []))
+      .then((res) => { setGroups(Array.isArray(res?.groups) ? res.groups : []); setViewerIsAdmin(Boolean(res?.viewer_is_admin)); })
       .catch((err) => { setError(err?.message || "Failed to load company documents"); setGroups([]); })
       .finally(() => setLoading(false));
   };
@@ -83,6 +85,13 @@ export default function CompanyDocuments() {
 
   return (
     <EmployeeDocumentsLayout title="Company documents" subtitle="Documents the company has shared with you">
+      {viewerIsAdmin && (
+        <p role="note" className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          You are seeing every published company document because you are an administrator. To upload, share or manage
+          them, go to{" "}
+          <Link to="/zoiko-hr/documents/company-documents" className="font-semibold underline">Zoiko HR → Documents → Company Documents</Link>.
+        </p>
+      )}
       <div className="space-y-6">
         <IssuedDocumentsSection embedded refreshKey={refreshKey} onLoadingChange={setIssuedLoading} />
 

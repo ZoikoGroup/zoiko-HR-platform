@@ -514,7 +514,9 @@ def test_events_catalog_endpoint(world):
                     "onboarding.payroll_details_verified", "attendance.overtime.approved", "compensation.change.approved",
                     # documents module (ZHR-DOCS-ARCH-001): employee lifecycle and uploaded-document events
                     "employee.created", "employee.role_changed", "employee.exited", "document.uploaded", "document.approved",
-                    "document.rejected", "document.expiring", "policy.version_published", "signature.completed", "task.overdue"}
+                    "document.rejected", "document.expiring", "policy.version_published", "signature.completed", "task.overdue",
+                    # My Attendance plan step 6: shift assignments
+                    "attendance.shift.assigned"}
 
 
 # ───────────────────────── Zoiko Workflow ─────────────────────────

@@ -200,7 +200,8 @@ class Employee(Base):
     mfa_enrolled_at      = Column(DateTime, nullable=True)
     mfa_last_step        = Column(Integer, nullable=True)     # the last accepted time step: a code can be used once
 
-    department     = relationship("Department", back_populates="employees")
+    # departments.head_employee_id also links the two tables: say which column this relationship uses
+    department     = relationship("Department", back_populates="employees", foreign_keys=[department_id])
     designation    = relationship("Designation", backref="employees", foreign_keys=[designation_id])
     reporting_manager = relationship("Employee", remote_side="Employee.id", foreign_keys=[reporting_manager_id], backref="reportees")
     organization   = relationship("Organization", back_populates="employees", foreign_keys=[organization_id])

@@ -113,8 +113,9 @@ class DepartmentCreate(BaseModel):
     
     # ── Fields to capture on creation ──
     head:               Optional[str] = None
-    budget:             Optional[Decimal] = Field(Decimal("0.00"))
-    spent_budget:       Optional[Decimal] = Field(Decimal("0.00"))
+    head_employee_id:   Optional[int] = Field(None, description="The head of department: an active employee of the organization")
+    budget:             Optional[Decimal] = Field(Decimal("0.00"), ge=0, description="In the organization's currency")
+    spent_budget:       Optional[Decimal] = Field(Decimal("0.00"), ge=0, description="Typed by HR; in the organization's currency")
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
 
@@ -148,8 +149,9 @@ class DepartmentUpdate(BaseModel):
     code:               Optional[str] = Field(None, min_length=2, max_length=20)
     description:        Optional[str] = None
     head:               Optional[str] = None
-    budget:             Optional[Decimal] = None
-    spent_budget:       Optional[Decimal] = None
+    head_employee_id:   Optional[int] = None          # null clears the head
+    budget:             Optional[Decimal] = Field(None, ge=0)
+    spent_budget:       Optional[Decimal] = Field(None, ge=0)
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
     is_active:          Optional[bool] = None
@@ -178,8 +180,11 @@ class DepartmentResponse(BaseModel):
 
     # ── Return fields for UI visibility ──
     head:               Optional[str] = None
+    head_employee_id:   Optional[int] = None
+    head_name:          Optional[str] = None          # the person's current name, else the old free-text head
     budget:             Optional[Decimal] = None
     spent_budget:       Optional[Decimal] = None
+    utilization:        Optional[int] = None          # round(spent / budget × 100); null without a budget
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
     employee_count:     Optional[int] = 0
@@ -663,7 +668,37 @@ class AttendanceUpdate(BaseModel):
 # SHIFT SCHEMAS
 # ════════════════════════════════════════════════════════════════════════════
 
-class ShiftCreate(BaseModel):
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _clean_working_days(value):
+    """["Mon", "tue"] -> ["mon", "tue"] in week order; unknown names are refused; None = the organization's days."""
+    if value is None:
+        return None
+    days = {str(v).strip().lower()[:3] for v in value}
+    unknown = days - set(_WEEKDAYS)
+    if unknown:
+        raise ValueError(f"Unknown day(s): {', '.join(sorted(unknown))}. Use mon, tue, wed, thu, fri, sat, sun.")
+    if not days:
+        raise ValueError("Choose at least one working day, or leave it empty to use the organization's days.")
+    return [d for d in _WEEKDAYS if d in days]
+
+
+class ShiftPolicyFields(BaseModel):
+    """Shift & Work Policy (My Attendance plan step 6): what a shift asks of the person. All optional: an empty value
+    falls back to the organization's attendance settings."""
+    standard_hours: Optional[float] = Field(None, gt=0, le=24, description="Required hours a day (else the organization's standard day)")
+    working_days: Optional[list[str]] = Field(None, description='e.g. ["mon","tue","wed","thu","fri"]; empty = organization days')
+    half_day_min_minutes: Optional[int] = Field(None, ge=0, le=24 * 60, description="Below this net time a day is a half day")
+    min_present_minutes: Optional[int] = Field(None, ge=0, le=24 * 60, description="Below this net time a finished day is absent")
+
+    @field_validator("working_days")
+    @classmethod
+    def _days(cls, v):
+        return _clean_working_days(v)
+
+
+class ShiftCreate(ShiftPolicyFields):
     name: str = Field(..., min_length=1, max_length=100)
     shift_type: ShiftType = ShiftType.GENERAL
     start_time: str = Field(..., min_length=4, max_length=5, pattern=r"^\d{2}:\d{2}$")
@@ -675,7 +710,7 @@ class ShiftCreate(BaseModel):
     description: Optional[str] = None
 
 
-class ShiftUpdate(BaseModel):
+class ShiftUpdate(ShiftPolicyFields):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     shift_type: Optional[ShiftType] = None
     start_time: Optional[str] = Field(None, min_length=4, max_length=5, pattern=r"^\d{2}:\d{2}$")
@@ -698,6 +733,10 @@ class ShiftResponse(BaseModel):
     break_duration_minutes: int
     is_overtime_eligible: bool
     requires_attendance: bool
+    standard_hours: Optional[float] = None
+    working_days: Optional[list[str]] = None
+    half_day_min_minutes: Optional[int] = None
+    min_present_minutes: Optional[int] = None
     description: Optional[str]
     is_active: bool
     created_at: Optional[datetime]
@@ -5031,6 +5070,12 @@ class DesignationSettingsData(BaseModel):
         if not re.fullmatch(r"[A-Z0-9]{2,6}", v):
             raise ValueError("The code prefix must be 2 to 6 letters or digits (for example DES).")
         return v
+
+class DesignationAssign(BaseModel):
+    """Give this designation to existing people (Designations → Assign to employees)."""
+    employee_ids:   list[int] = Field(..., min_length=1, max_length=500)
+    sync_job_title: bool = Field(True, description="Also set each person's job title to the designation's title")
+
 
 class DesignationUpdate(BaseModel):
     title:           Optional[str] = None

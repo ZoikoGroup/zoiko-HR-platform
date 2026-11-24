@@ -140,11 +140,14 @@ def test_levels_deeper_than_the_maximum_depth_are_refused(client):
     assert client.put(f"/hr/designations/{did}", json={"description": "x"}).status_code == 200
 
 
-def test_with_auto_codes_off_a_manual_code_is_required_and_unique(client):
+def test_with_auto_codes_off_a_typed_code_is_unique_and_a_missing_one_is_generated(client):
     d = client.get(URL).json()
     d["auto_generate_codes"] = False
     client.put(URL, json=d)
-    assert client.post("/hr/designations", json=_new()).status_code == 400
+    gen = client.post("/hr/designations", json=_new(title="No code"))      # codes are no longer typed in the UI
+    assert gen.status_code == 201 and gen.json()["designation_code"].startswith("ACMDES"), gen.text
+    client.db.query(Designation).filter(Designation.title == "No code").delete()
+    client.db.commit()
     ok = client.post("/hr/designations", json=_new(designation_code="eng-01"))
     assert ok.status_code == 201 and ok.json()["designation_code"] == "ENG-01"
     dup = client.post("/hr/designations", json=_new(title="Other", designation_code="ENG-01"))

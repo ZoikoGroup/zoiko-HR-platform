@@ -187,6 +187,20 @@ def shifts_for_range(db: Session, organization_id: int, employee_id: int, start:
     return out
 
 
+def next_shift_change(db: Session, organization_id: int, employee_id: int, today: date, policy: AttendancePolicy,
+                      days: int = 60) -> Optional[tuple]:
+    """(date, ShiftInfo | None) of the first day within `days` after `today` whose shift differs from today's (a new
+    roster entry, assignment or the end of one), or None when nothing changes. Same precedence as shift_for."""
+    from datetime import timedelta
+    span = shifts_for_range(db, organization_id, employee_id, today, today + timedelta(days=days), policy)
+    key = lambda s: s.shift_id if s is not None else None          # noqa: E731
+    now = key(span.get(today))
+    for day in sorted(d for d in span if d > today):
+        if key(span[day]) != now:
+            return day, span[day]
+    return None
+
+
 def holidays_in_range(db: Session, organization_id: int, start: date, end: date) -> set:
     """Holiday dates in [start, end], recurring ones included."""
     from datetime import timedelta

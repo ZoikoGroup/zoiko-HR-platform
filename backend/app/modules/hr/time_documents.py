@@ -421,6 +421,9 @@ def _label(s: Optional[Shift]) -> str:
     return f"{s.name} ({s.start_time}–{s.end_time})" if s else "No shift"
 
 
+ATTENDANCE_LINK = "/employee/ess/attendance"
+
+
 def publish_roster(db, user, data: dict, *, preview: bool = False) -> dict:
     """Roster one shift pattern to many people and send each of them an HR-TIM-003 (preview: dry-run preflight only)."""
     s = _shift(db, user.organization_id, data["shift_id"])
@@ -475,6 +478,8 @@ def publish_roster(db, user, data: dict, *, preview: bool = False) -> dict:
         _stamp(db, notice.id, doc)
         out.append({"employee_id": eid, "notice_id": notice.id, "rostered_days": len(rows), "document_id": doc.id if doc else None,
                     "document_status": doc.status if doc else None})
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, user.organization_id, ids, "shift.assigned", date=start, title=_label(s), link=ATTENDANCE_LINK)
     return {"preview": False, "results": out}
 
 
@@ -530,6 +535,8 @@ def change_shifts(db, user, data: dict) -> dict:
     doc = _try_generate(db, user, canonical_id=SHIFT_CHANGED, subject_type="employee", subject_id=eid,
                         source_ref=f"shift_notice:{notice.id}", trigger="shift_roster.changed", min_policy="L2" if short else None)
     _stamp(db, notice.id, doc)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, user.organization_id, [eid], "shift.changed", date=dates[0], title=_label(new), link=ATTENDANCE_LINK)
     return {"notice_id": notice.id, "short_notice": short, "notice_days_given": notice_days,
             "document_id": doc.id if doc else None, "document_status": doc.status if doc else None,
             "needs_approval": bool(doc and doc.status == "PENDING_APPROVAL")}

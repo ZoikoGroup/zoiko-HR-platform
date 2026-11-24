@@ -52,10 +52,13 @@ def record_for_day(db: Session, employee, day: date, *, lock: bool = False) -> O
 
 
 def open_record(db: Session, employee, now: datetime, *, lock: bool = False) -> Optional[AttendanceRecord]:
-    """The record still waiting for a punch-out (possibly yesterday's, for a night shift)."""
+    """The record still waiting for a punch-out (possibly yesterday's, for a night shift). A day the end-of-day job has
+    already closed as a missed punch-out is not open any more: it is fixed through a correction, never a late punch-out."""
+    from sqlalchemy import or_
     q = (_live(db, employee.organization_id)
          .filter(AttendanceRecord.employee_id == employee.id, AttendanceRecord.check_in_at.isnot(None),
                  AttendanceRecord.check_out_at.is_(None),
+                 or_(AttendanceRecord.status.is_(None), AttendanceRecord.status != AttendanceStatus.MISSED_PUNCH),
                  AttendanceRecord.check_in_at >= now - timedelta(minutes=MAX_SHIFT_MINUTES)))
     if lock:
         q = _lock(db, q)
@@ -119,10 +122,20 @@ def _shift_payload(shift, day: date, tz) -> Optional[dict]:
             "expected_end": clock.iso_utc(clock.to_utc(shift.end_on(day), tz))}
 
 
+def is_running(record: Optional[AttendanceRecord], now: datetime) -> bool:
+    """Still being worked: punched in, not out, within the longest allowed shift, and not closed as a missed punch-out.
+    Only such a day gets live totals; an old open day keeps its stored totals (it never grows to 52 hours)."""
+    if record is None or record.check_in_at is None or record.check_out_at is not None:
+        return False
+    if getattr(record.status, "value", record.status) == AttendanceStatus.MISSED_PUNCH.value:
+        return False
+    return record.check_in_at >= now - timedelta(minutes=MAX_SHIFT_MINUTES)
+
+
 def serialize_day(db: Session, record: Optional[AttendanceRecord], employee, *, day: date, tz, pol, now: datetime) -> dict:
     shift = policy_mod.shift_for(db, employee.organization_id, employee.id, day, pol)
     breaks = breaks_of(db, record)
-    running = record is not None and record.check_in_at is not None and record.check_out_at is None
+    running = is_running(record, now)
     worked, taken = record.worked_minutes if record else 0, record.break_minutes if record else 0
     if running:                                          # live totals for the timer
         from app.modules.hr.attendance.status_engine import compute_minutes
@@ -148,12 +161,44 @@ def serialize_day(db: Session, record: Optional[AttendanceRecord], employee, *, 
 
 # ── public API ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+def _pending_shift_notice(db: Session, employee) -> Optional[dict]:
+    """The latest shift notice (assignment or change) whose document still waits for this person's acknowledgement, in
+    the shape the employee document dialog opens. None when there is none (also when the HR-TIM notice templates are not
+    released for the organization, so no document was issued)."""
+    from app.modules.doc_templates.models import GeneratedDocument
+    from app.modules.hr.models import ShiftNotice
+    row = (db.query(ShiftNotice, GeneratedDocument)
+           .join(GeneratedDocument, GeneratedDocument.id == ShiftNotice.document_id)
+           .filter(ShiftNotice.organization_id == employee.organization_id, ShiftNotice.employee_id == employee.id,
+                   GeneratedDocument.organization_id == employee.organization_id,
+                   GeneratedDocument.recipient_employee_id == employee.id, GeneratedDocument.status == "ISSUED",
+                   GeneratedDocument.execution_mode == "ACKNOWLEDGE")
+           .order_by(ShiftNotice.id.desc()).first())
+    if row is None:
+        return None
+    notice, doc = row
+    return {"notice_id": notice.id, "kind": notice.kind, "start_date": notice.start_date.isoformat(),
+            "document": {"id": doc.id, "title": doc.title, "document_number": doc.document_number,
+                         "due_by": clock.iso_utc(doc.due_by), "needs_declaration": False, "needs_otp": False}}
+
+
 def today(db: Session, employee, now: Optional[datetime] = None) -> dict:
     now = now or clock.utcnow()
     tz, pol = tz_of(db, employee), policy_mod.get_policy(db, employee.organization_id)
     record = open_record(db, employee, now) or record_for_day(db, employee, clock.work_date_for(now, tz))
     day = record.date if record is not None else clock.work_date_for(now, tz)
-    return serialize_day(db, record, employee, day=day, tz=tz, pol=pol, now=now)
+    out = serialize_day(db, record, employee, day=day, tz=tz, pol=pol, now=now)
+    # My Attendance plan step 5 (read-only): what today asks of the person, the next shift change, a notice to acknowledge
+    shift = policy_mod.shift_for(db, employee.organization_id, employee.id, day, pol)
+    out["required_minutes"] = shift.standard_minutes if shift else pol.standard_minutes
+    change = policy_mod.next_shift_change(db, employee.organization_id, employee.id, day, pol)
+    out["next_shift_change"] = None if change is None else {
+        "date": change[0].isoformat(),
+        "shift": None if change[1] is None else {"name": change[1].name, "start": "%02d:%02d" % change[1].start,
+                                                  "end": "%02d:%02d" % change[1].end,
+                                                  "crosses_midnight": change[1].crosses_midnight}}
+    out["pending_shift_notice"] = _pending_shift_notice(db, employee)
+    return out
 
 
 def punch_in(db: Session, employee, *, source: str = "web", ctx=None, now: Optional[datetime] = None) -> dict:

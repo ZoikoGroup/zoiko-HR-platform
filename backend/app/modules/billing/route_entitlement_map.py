@@ -73,6 +73,8 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     **_r("GET", "/hr/designations/{designation_id}", "hr.core.designations"),
     **_r("PUT", "/hr/designations/{designation_id}", "hr.core.designations"),
     **_r("DELETE", "/hr/designations/{designation_id}", "hr.core.designations"),
+    **_r("POST", "/hr/designations/{designation_id}/assign", "hr.core.designations"),
+    **_r("GET", "/hr/designations/{designation_id}/employees", "hr.core.designations"),
 
     # hr.core.org_config (router prefix is /hr/config)
     **_r("GET", "/hr/config", "hr.core.org_config"),
@@ -109,6 +111,9 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     # hr.attendance.shift_rostering
     **_r("GET", "/hr/attendance/shifts", "hr.attendance.shift_rostering"),
     **_r("POST", "/hr/attendance/shifts", "hr.attendance.shift_rostering"),
+    **_r("GET", "/hr/attendance/shift-assignments", "hr.attendance.shift_rostering"),
+    **_r("POST", "/hr/attendance/shift-assignments", "hr.attendance.shift_rostering"),
+    **_r("POST", "/hr/attendance/shift-assignments/{assignment_id}/end", "hr.attendance.shift_rostering"),
     **_r("POST", "/hr/attendance/shifts/rosters", "hr.attendance.shift_rostering"),
     **_r("DELETE", "/hr/attendance/shifts/rosters/{roster_id}", "hr.attendance.shift_rostering"),
 

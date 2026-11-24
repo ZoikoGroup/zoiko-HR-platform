@@ -50,6 +50,20 @@ The rules live in one pure function (`hr/attendance/status_engine.py: resolve`).
 - **Beyond the standard day** = net time − standard day (shift, else organization setting, else 8 h). It counts as
   overtime only when an overtime request is approved (`overtime_authorized_hours`).
 - **No shift assigned** = nobody is late; hours count against the standard day.
+
+**My Attendance KPIs** (`me_service.month_view`, revised 2026-11-23, B4/B5):
+
+| KPI | Formula |
+|---|---|
+| Working days (due) | Working days up to yesterday, plus today once punched in (holidays and weekly offs never count) |
+| Expected days | Due working days − approved leave days |
+| Present days | Attended due working days (present, late, remote = 1, half day = ½) / expected days. Work on a weekly off or holiday is not attendance, so the rate never exceeds 100% |
+| Punctuality | Punch-ins on due working days with no late minutes / all such punch-ins (leave without a punch is not "on time") |
+| Average daily hours | Worked minutes / days with a punch-out (holiday and weekly-off work excluded; missed punch-outs excluded) |
+
+**Leave decided after the day closed** (B6): approving, cancelling, re-dating or deleting leave recalculates the stored
+days it covers up to today (`hr/attendance/leave_sync.py`), so Absent becomes On leave and back. HR-locked statuses
+are kept; each change is audited as `auto_marked` with the reason.
 - **Which shift applies:** that date's roster entry → the person's assigned shift for the period (`employee_shifts`)
   → the organization's default shift → none.
 
@@ -124,6 +138,18 @@ limited (12 per minute).
 | GET | `/export/csv`, `/export/excel` | Same filters as the log |
 | GET | `/dashboard/today` | Live Today panel (includes `last_closed`) |
 | GET | `/approvals` | `type (all, correction, overtime), status (pending, approved, rejected, all), page, per_page` |
+| GET / POST / PUT / DELETE | `/shifts`, `/shifts/{id}` | Shifts with `standard_hours`, `working_days`, `half_day_min_minutes`, `min_present_minutes`; a shift in use cannot be deleted (409 `SHIFT_IN_USE`: deactivate it) |
+| GET | `/shift-assignments` | Who works which shift: `employee_id, shift_id, active_on, page, per_page` |
+| POST | `/shift-assignments` | `{shift_id, effective_from, effective_to?, employee_ids[], department_id?}`; a running assignment ends the day before (its remainder continues after a dated one); one that starts inside the new period is refused (409 `SHIFT_ASSIGNMENT_OVERLAP`); audited `shift_assigned`, notified `shift.assigned`, event `attendance.shift.assigned` |
+| POST | `/shift-assignments/{id}/end` | `{effective_to}`; audited `shift_ended`, notified `shift.changed` |
+
+`GET /hr/me/attendance/today` also returns `required_minutes`, `next_shift_change` (`{date, shift}` within 60 days) and
+`pending_shift_notice` (a shift notice document still waiting for the person's acknowledgement).
+
+**Admin screen:** Attendance → **Shifts & Work Policy** (`/zoiko-hr/attendance/shifts`) with tabs Shifts, Assignments,
+Roster & notices (publish a pattern / change shifts, moved from Working time requests) and Work policy (every
+`attendance.*` setting, moved from Working time requests → Settings). Publishing or changing a roster also sends the
+in-app `shift.assigned` / `shift.changed` notification.
 
 **Requests (`/hr/time`)**: `POST /corrections` (kinds: `missed_punch`, `time_change`, `wrong_status`, `break`),
 `POST /corrections/{id}/decision`, `POST /overtime`, `POST /overtime/{id}/decision`.
@@ -144,7 +170,8 @@ overtime adds an `overtime_approved` entry. The originals stay on the request.
 ## 8. The end-of-day job
 
 `hr_attendance_end_of_day` runs every 30 minutes on the scheduler leader (`hr/attendance/jobs.py`, registered from
-`doc_templates/jobs.register`). For each organization, once its local time is past **00:30 the next morning**, it closes
+`doc_templates/jobs.register`). For each organization, once the day is past **00:30 the next morning in every time zone
+its people work in** (the organization's own and each person's personal time zone, B7), it closes
 the finished day: Absent / On leave / Remote / Holiday / Weekly off rows for people without a record, Missed punch-out for
 open days (one in-app notice, none if a correction is already waiting), and a final recalculation of complete days.
 
@@ -214,6 +241,8 @@ backend/app/modules/hr/attendance/
   day_close.py        end-of-day close
   jobs.py             scheduler entry point
   backfill.py         migration data steps
+  shift_assignments.py who works which shift (employee_shifts): list, assign, end
+  leave_sync.py       a leave decision recalculates stored days
 backend/app/modules/hr/attendance_router.py, attendance_service.py, time_documents.py  (existing, extended)
 backend/scripts/seed_attendance.py
 frontend/src/service/attendanceService.js

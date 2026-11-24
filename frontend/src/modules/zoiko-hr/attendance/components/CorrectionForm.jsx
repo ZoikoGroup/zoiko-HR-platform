@@ -18,9 +18,10 @@ const input = "mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm 
  * Times are your local times. The request goes to your manager or HR; the day changes only once it is approved, and
  * the original times are kept in the history.
  *
- * `initial` may carry {date, check_in, check_out, kind} to prefill from a calendar day.
+ * `initial` may carry {date, check_in, check_out, kind} to prefill from a calendar day. `hasRecord` false (a day
+ * with no attendance record) makes the check-in required: there is no punch to keep.
  */
-export default function CorrectionForm({ initial = {}, dateEditable = true, onSubmitted }) {
+export default function CorrectionForm({ initial = {}, dateEditable = true, hasRecord, onSubmitted }) {
   const [form, setForm] = useState({
     date: initial.date || "", kind: initial.kind || "missed_punch",
     requested_check_in: initial.check_in || "", requested_check_out: initial.check_out || "",
@@ -32,7 +33,7 @@ export default function CorrectionForm({ initial = {}, dateEditable = true, onSu
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const timesKind = form.kind === "missed_punch" || form.kind === "time_change";
   const ready = form.date && form.confirm_accurate && (form.reason !== "other" || form.reason_detail.trim())
-    && (!timesKind || (form.requested_check_out && (form.kind === "missed_punch" || form.requested_check_in)))
+    && (!timesKind || (form.requested_check_out && ((form.kind === "missed_punch" && hasRecord !== false) || form.requested_check_in)))
     && (form.kind !== "break" || form.breaks.every((b) => b.start && b.end));
 
   const submit = async (e) => {
@@ -75,7 +76,7 @@ export default function CorrectionForm({ initial = {}, dateEditable = true, onSu
       )}
       {timesKind && (
         <div className="grid gap-2 sm:grid-cols-2">
-          <label>Check-in{form.kind === "missed_punch" ? " (leave empty to keep your punch)" : ""}
+          <label>Check-in{form.kind === "missed_punch" && hasRecord !== false ? " (leave empty to keep your punch)" : ""}
             <input type="time" value={form.requested_check_in} onChange={(e) => set({ requested_check_in: e.target.value })} className={input} /></label>
           <label>Check-out<input type="time" value={form.requested_check_out} onChange={(e) => set({ requested_check_out: e.target.value })} className={input} /></label>
         </div>

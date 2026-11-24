@@ -108,8 +108,8 @@ test("Export CSV writes the real designations (title, not an undefined name) and
     URL.createObjectURL = createUrl;
   }
   const lines = text.split("\n");
-  assert.equal(lines[0], "Designation,Code,Department,Level,Status,Active employees,Min salary,Max salary");
-  assert.equal(lines[1], '"Engineer, Senior",DES1,Engineering,L3,active,5,50000,80000');
+  assert.equal(lines[0], "Designation,Department,Level,Status,Active employees,Min salary,Max salary");
+  assert.equal(lines[1], '"Engineer, Senior",Engineering,L3,active,5,50000,80000');
   assert.doesNotMatch(text, /undefined/);
 });
 

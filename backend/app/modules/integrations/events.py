@@ -26,6 +26,7 @@ EVENT_CATALOG = {
     "template.variant.suspended": "A template variant was suspended or retired.",
     "onboarding.payroll_details_verified": "A new starter's bank and payroll details were verified for the payroll hand-off (ids only).",
     "attendance.overtime.approved": "Overtime was authorised for payroll or time-off processing (ids and date only).",
+    "attendance.shift.assigned": "A shift was assigned to a person from a date (ids and dates only).",
     "compensation.change.approved": "A salary revision or allowance was approved for the payroll hand-off (ids and effective date only).",
 }
 

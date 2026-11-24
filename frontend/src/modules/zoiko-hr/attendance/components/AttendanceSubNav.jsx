@@ -5,6 +5,7 @@ export const ATTENDANCE_NAV = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
   { label: "Attendance Records", href: "/zoiko-hr/attendance/daily" },
   { label: "Approvals", href: "/zoiko-hr/attendance/approvals" },
+  { label: "Shifts & Work Policy", href: "/zoiko-hr/attendance/shifts" },
   { label: "Holiday Calendar", href: "/zoiko-hr/attendance/holidays" },
   { label: "Attendance Analytics", href: "/zoiko-hr/attendance/analytics" },
 ];

@@ -27,7 +27,8 @@ const MONTH = {
   month: "2026-11", timezone: "Asia/Kolkata", today: "2026-11-18",
   policy: { grace_minutes: 10, half_day_min_minutes: 240, standard_minutes: 480, working_days: ["mon", "tue", "wed", "thu", "fri"] },
   kpis: { working_days: 12, present: 6, late: 2, absent: 1, half_day: 1, on_leave: 1, remote: 0, holiday: 1, weekly_off: 5, missed_punch: 1,
-    attended_days: 8.5, attendance_rate: 71, punctuality_rate: 75, avg_worked_minutes: 505, overtime_minutes: 130, approved_overtime_minutes: 60 },
+    expected_days: 11, punched_days: 8, on_time_days: 6,
+    attended_days: 8.5, attendance_rate: 77, punctuality_rate: 75, avg_worked_minutes: 505, overtime_minutes: 130, approved_overtime_minutes: 60 },
   days: Array.from({ length: 30 }, (_, i) => {
     const day = i + 1;
     const date = `2026-11-${String(day).padStart(2, "0")}`;
@@ -111,20 +112,24 @@ test("the shift card, and the message when no shift is assigned", async (t) => {
   const shift = screen.getByRole("region", { name: "My shift" });
   assert.ok(within(shift).getByText("General"));
   assert.ok(within(shift).getByText("09:00 AM – 06:00 PM"));
-  assert.ok(within(shift).getByText(/10 min grace/));
+  assert.ok(within(shift).getByText(/10 min before you count as late/));
   cleanup();
-  mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), shift: null }) });
+  mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), shift: null, required_minutes: 480 }) });
   await renderPage();
-  assert.match(screen.getByRole("region", { name: "My shift" }).textContent, /No shift is assigned/);
+  // step 5: a plain empty state, not figures that would look like a perfect record
+  assert.match(screen.getByRole("region", { name: "My shift" }).textContent, /No shift assigned yet\. Contact HR\./);
+  assert.match(screen.getByRole("region", { name: "My shift" }).textContent, /8h 00m day/);
 });
 
 test("KPIs count working days only", async (t) => {
   mockApi(t);
   await renderPage();
   const kpis = screen.getByLabelText("This month");
-  assert.ok(within(kpis).getByText("8.5 / 12"));
-  assert.ok(within(kpis).getByText("71% of working days"));
+  // B4: attended of the days you were expected (1 day of approved leave excused); B5: on-time punch-ins
+  assert.ok(within(kpis).getByText("8.5 / 11"));
+  assert.ok(within(kpis).getByText("77% of expected days · 1 on leave"));
   assert.ok(within(kpis).getByText("75%"));
+  assert.ok(within(kpis).getByText("6 of 8 punch-ins on time"));
   assert.ok(within(kpis).getByText("1 missed punch-out"));
   assert.ok(within(kpis).getByText("8h 25m"));
   // QA R2-2: the Overtime card and its note read the same figure; approved overtime is named as such
@@ -152,7 +157,7 @@ test("the records table filters, and the month can be changed", async (t) => {
   const calls = mockApi(t);
   await renderPage();
   const table = screen.getByRole("region", { name: "Attendance records" });
-  fireEvent.click(within(table).getByRole("tab", { name: "Late" }));
+  fireEvent.change(within(table).getByLabelText("Status"), { target: { value: "late" } });
   const rows = within(table).getAllByRole("row").slice(1);
   assert.equal(rows.length, 1);
   assert.ok(within(rows[0]).getByText("09:40 AM"));
@@ -170,4 +175,187 @@ test("routing: the old pretend clock-in page redirects and admins can open their
   for (const role of [ROLES.ADMIN, ROLES.HR_ADMIN, ROLES.EMPLOYEE]) {
     assert.ok(ROLE_ALLOWED_PREFIXES[role].includes("/employee/ess/attendance") || ROLE_ALLOWED_PREFIXES[role].includes("/employee/ess"), role);
   }
+});
+
+test("step 2: an overnight check-out shows '+1 day' in the records table and the day drawer, 12-hour times", async (t) => {
+  const night = structuredClone(MONTH);
+  // 3 Nov: a night shift, in at 21:00 IST (15:30 UTC), out at 06:05 IST on 4 Nov (00:35 UTC)
+  Object.assign(night.days[2], { status: "present", check_in: "21:00", check_out: "06:05",
+    check_in_at: "2026-11-03T15:30:00Z", check_out_at: "2026-11-04T00:35:00Z" });
+  const nightDay = { ...structuredClone(DAY), date: "2026-11-03", check_in_at: "2026-11-03T15:30:00Z", check_out_at: "2026-11-04T00:35:00Z" };
+  mockApi(t, { getMyAttendanceMonth: async () => night, getMyAttendanceDay: async () => nightDay });
+  await renderPage();
+  fireEvent.change(screen.getByLabelText("Rows"), { target: { value: "31" } });      // 3 Nov is on page 2 of 10
+  const row = screen.getAllByRole("row").find((r) => r.textContent.includes("03 Nov 2026"));
+  assert.match(row.textContent, /09:00 PM/);
+  assert.match(row.textContent, /06:05 AM\s*\+1 day/);
+  const other = screen.getAllByRole("row").find((r) => r.textContent.includes("02 Nov 2026"));
+  assert.doesNotMatch(other.textContent, /\+1 day/);
+  fireEvent.click(within(row).getByRole("button", { name: "03 Nov 2026" }));
+  await settle();
+  const drawer = screen.getByRole("dialog");
+  assert.match(drawer.textContent, /Punched out06:05 AM\+1 day/);
+});
+
+test("step 3 B8: a refused punch fetches today again so the buttons match the server", async (t) => {
+  let todayCalls = 0;
+  mockApi(t, {
+    getMyAttendanceToday: async () => { todayCalls++; return todayCalls === 1 ? structuredClone(IDLE) : structuredClone(WORKING); },
+    punchIn: async () => { const e = new Error("You are already punched in."); e.code = "ATT_ALREADY_IN"; throw e; },
+  });
+  await renderPage();
+  const card = screen.getByRole("region", { name: "Punch in and out" });
+  fireEvent.click(within(card).getByRole("button", { name: /Punch in/ }));
+  await settle();
+  assert.equal(todayCalls, 2);
+  assert.ok(within(screen.getByRole("region", { name: "Punch in and out" })).getByRole("button", { name: /Punch out/ }));
+});
+
+test("step 3 B9: coming back to the current month reuses the first load (no second request for the same month)", async (t) => {
+  const calls = mockApi(t);
+  await renderPage();
+  fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+  await settle();
+  // back on November the page uses the same cache entry as the first load (null = current month), never a second
+  // "2026-11" copy; a refetch of that entry when it is stale is normal
+  assert.equal(calls.months.includes("2026-11"), false);
+  assert.deepEqual(calls.months.slice(0, 2), [null, "2026-10"]);
+  assert.equal(calls.months.at(-1), null);
+});
+
+test("step 3 B10: while today is loading the shift card does not claim there is no shift", async (t) => {
+  let release;
+  mockApi(t, { getMyAttendanceToday: () => new Promise((r) => { release = () => r(structuredClone(IDLE)); }) });
+  await renderPage();
+  assert.equal(screen.queryByText(/No shift is assigned/), null);
+  assert.ok(screen.getByLabelText("Loading your shift"));
+  release();
+  await settle();
+  assert.equal(screen.queryByLabelText("Loading your shift"), null);
+  assert.equal(screen.queryByText(/No shift is assigned/), null);
+});
+
+test("step 3 B11: on a day with no record the correction needs a check-in", async (t) => {
+  const absent = { ...structuredClone(DAY), date: "2026-11-10", status: "absent", check_in_at: null, check_out_at: null,
+    record_id: null, breaks: [], history: [], notes: null };
+  mockApi(t, { getMyAttendanceDay: async () => absent });
+  await renderPage();
+  const row = screen.getAllByRole("row").find((r) => r.textContent.includes("10 Nov 2026"));
+  fireEvent.click(within(row).getByRole("button", { name: "10 Nov 2026" }));
+  await settle();
+  const drawer = screen.getByRole("dialog");
+  fireEvent.click(within(drawer).getByRole("button", { name: /Ask for a correction|Request a correction|correction/i }));
+  await settle();
+  assert.doesNotMatch(drawer.textContent, /leave empty to keep your punch/);
+  const [checkIn, checkOut] = drawer.querySelectorAll('input[type="time"]');
+  fireEvent.change(checkOut, { target: { value: "18:00" } });
+  fireEvent.click(within(drawer).getByRole("checkbox"));
+  const send = within(drawer).getByRole("button", { name: /Send/ });
+  assert.equal(send.disabled, true, "no check-in yet");
+  fireEvent.change(checkIn, { target: { value: "09:00" } });
+  assert.equal(send.disabled, false);
+});
+
+// ── step 4: the cleaned-up page ─────────────────────────────────────────────────────────────────────────────────────
+
+test("step 4: the summary names its period; the calendar says each status in words, marks today and explains a day", async (t) => {
+  const month = structuredClone(MONTH);
+  month.days[24].holiday = true;                                         // 25 Nov: a future holiday is shown as planned
+  mockApi(t, { getMyAttendanceMonth: async () => month });
+  await renderPage();
+  assert.ok(screen.getByRole("heading", { name: "November 2026 so far" }));
+  const grid = screen.getByRole("grid", { name: "Attendance calendar" });
+  const late = within(grid).getByRole("gridcell", { name: "2026-11-03: Late" });
+  assert.match(late.textContent, /3\s*Late/);                                       // text, not colour alone
+  const tip = document.getElementById(late.getAttribute("aria-describedby"));
+  assert.equal(tip.textContent, "Late · In 09:40 AM · Out 06:00 PM · 7h 20m");
+  assert.equal(within(grid).getByRole("gridcell", { name: /2026-11-18/ }).getAttribute("aria-current"), "date");
+  assert.match(within(grid).getByRole("gridcell", { name: /2026-11-18/ }).textContent, /Today/);
+  const holiday = within(grid).getByRole("gridcell", { name: /2026-11-25/ });
+  assert.match(holiday.textContent, /Hol/);
+  assert.match(document.getElementById(holiday.getAttribute("aria-describedby")).textContent, /Holiday \(planned\)/);
+  const legend = within(screen.getByRole("list", { name: "Legend" })).getAllByRole("listitem").map((li) => li.textContent);
+  assert.ok(legend.some((x) => x.includes("Late")) && legend.some((x) => x.includes("Holiday")));
+  assert.equal(legend.some((x) => x.includes("Missed punch-out")), false);       // only statuses this month has
+});
+
+test("step 4: history searches the date as shown, pages through days, and lists cards on small screens", async (t) => {
+  mockApi(t);
+  await renderPage();
+  const table = screen.getByRole("region", { name: "Attendance records" });
+  assert.match(within(table).getByRole("navigation", { name: "Pages" }).textContent, /1–10 of 17 days/);
+  fireEvent.click(within(table).getByRole("button", { name: "Next" }));
+  assert.match(within(table).getByRole("navigation", { name: "Pages" }).textContent, /11–17 of 17 days.*Page 2 of 2/);
+  fireEvent.change(within(table).getByLabelText("Search"), { target: { value: "10 Nov" } });
+  const rows = within(table).getAllByRole("row").slice(1);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].textContent, /10 Nov 2026.*Absent/);
+  assert.ok(within(table).getByRole("list", { name: "Attendance records list" }));
+  const headers = within(table).getAllByRole("columnheader").map((th) => th.textContent);
+  assert.deepEqual(headers, ["Date", "Shift", "Check-in", "Check-out", "Break", "Worked", "Overtime", "Status"]);
+});
+
+test("step 4: changing month keeps the last month on screen (dimmed) until the next one arrives", async (t) => {
+  let releaseOct;
+  mockApi(t, { getMyAttendanceMonth: (m) => (m === "2026-10" ? new Promise((r) => { releaseOct = () => r({ ...structuredClone(MONTH), month: "2026-10" }); }) : Promise.resolve(structuredClone(MONTH))) });
+  await renderPage();
+  fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+  await settle(3);
+  assert.ok(screen.getByRole("grid", { name: "Attendance calendar" }), "no skeleton jump");
+  assert.equal(screen.queryByLabelText("Loading month"), null);
+  releaseOct();
+  await settle();
+  // the summary ("October 2026", no "so far" for a past month) and the calendar both name the month
+  assert.equal(screen.getAllByRole("heading", { name: "October 2026" }).length, 2);
+});
+
+// ── step 5: shift details and the shift-notice banner ───────────────────────────────────────────────────────────────
+
+test("step 5: the shift card shows the hours required today and the next shift change, in 12-hour time", async (t) => {
+  mockApi(t, { getMyAttendanceToday: async () => ({ ...structuredClone(IDLE), required_minutes: 510,
+    next_shift_change: { date: "2026-11-23", shift: { name: "Night", start: "21:00", end: "06:00", crosses_midnight: true } } }) });
+  await renderPage();
+  const shift = screen.getByRole("region", { name: "My shift" });
+  assert.match(shift.textContent, /Required today\s*8h 30m/);
+  assert.match(shift.textContent, /From 23 Nov 2026:\s*Night · 09:00 PM – 06:00 AM \(next day\)/);
+  assert.equal(screen.queryByRole("region", { name: "Shift notice" }), null);
+});
+
+// ── step 7: keyboard and screen-reader behaviour ────────────────────────────────────────────────────────────────────
+
+test("step 7: the calendar is one Tab stop and the arrow keys move between days (never onto a future day)", async (t) => {
+  mockApi(t);
+  await renderPage();
+  const grid = screen.getByRole("grid", { name: "Attendance calendar" });
+  const focusable = within(grid).getAllByRole("gridcell").filter((c) => c.tabIndex === 0);
+  assert.equal(focusable.length, 1);
+  assert.equal(focusable[0].getAttribute("aria-current"), "date");                  // today
+  focusable[0].focus();
+  fireEvent.keyDown(document.activeElement, { key: "ArrowLeft" });
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-17/);
+  fireEvent.keyDown(document.activeElement, { key: "ArrowUp" });
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-10/);
+  fireEvent.keyDown(document.activeElement, { key: "Home" });                      // Monday of that week
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-09/);
+  fireEvent.keyDown(document.activeElement, { key: "ArrowDown" });
+  fireEvent.keyDown(document.activeElement, { key: "ArrowDown" });                 // 23 Nov is in the future: stay on the 18th
+  assert.match(document.activeElement.getAttribute("aria-label"), /^2026-11-18/);
+});
+
+test("step 7: Tab stays inside the open day panel", async (t) => {
+  mockApi(t);
+  await renderPage();
+  fireEvent.click(within(screen.getByRole("grid", { name: "Attendance calendar" })).getByRole("gridcell", { name: "2026-11-03: Late" }));
+  await settle();
+  const drawer = screen.getByRole("dialog", { name: /Attendance on 03 Nov 2026/ });
+  const buttons = within(drawer).getAllByRole("button");
+  const close = within(drawer).getByRole("button", { name: "Close" });
+  assert.equal(document.activeElement, close);
+  buttons.at(-1).focus();
+  fireEvent.keyDown(document.activeElement, { key: "Tab" });
+  assert.equal(document.activeElement, close, "from the last control back to the first");
+  fireEvent.keyDown(document.activeElement, { key: "Tab", shiftKey: true });
+  assert.equal(document.activeElement, buttons.at(-1), "and the other way round");
 });

@@ -516,7 +516,11 @@ def create_department(db: Session, data: DepartmentCreate, organization_id: int)
     from app.core.code_generation import generate_business_code
     dept_code = generate_business_code(db, organization_id, "DEP", Department, "department_code")
 
-    dept = Department(**data.model_dump(), organization_id=organization_id, department_code=dept_code)
+    values = data.model_dump()
+    head_id = values.pop("head_employee_id", None)
+    dept = Department(**values, organization_id=organization_id, department_code=dept_code)
+    if head_id is not None:
+        _set_department_head(db, dept, head_id, organization_id)
     db.add(dept)
     try:
         db.commit()
@@ -555,12 +559,39 @@ def update_department(db: Session, dept_id: int, data: DepartmentUpdate, organiz
     if "is_active" in update_data and update_data["is_active"] != bool(dept.is_active):
         _check_department_status_change(db, dept, update_data["is_active"], organization_id)
 
+    if "head_employee_id" in update_data:
+        head_id = update_data.pop("head_employee_id")
+        if head_id is None:
+            dept.head_employee_id = None
+            if "head" not in update_data:
+                dept.head = None
+        else:
+            _set_department_head(db, dept, head_id, organization_id)
+            update_data.pop("head", None)                  # the person's name wins over typed text
+
     for field, value in update_data.items():
         setattr(dept, field, value)
 
     db.commit()
     db.refresh(dept)
     return dept
+
+
+def _set_department_head(db: Session, dept: Department, employee_id: int, organization_id: int) -> None:
+    """The head must be an active employee of the organization. With "allow cross-department heads" off, someone who
+    already heads another active department is refused. `head` keeps the person's name for older screens."""
+    person = (db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == organization_id,
+                                        Employee.is_active.isnot(False)).first())
+    if person is None:
+        raise BadRequestException("The head of department must be an active employee of your organization.")
+    if not get_department_settings(db, organization_id).allow_cross_heads:
+        other = (db.query(Department).filter(Department.organization_id == organization_id, Department.head_employee_id == employee_id,
+                                             Department.is_active.isnot(False), Department.id != (dept.id or 0)).first())
+        if other is not None:
+            raise BadRequestException(f"{person.first_name or person.email} already heads {other.name}. "
+                                      "Allow cross-department heads in Department settings, or pick someone else.")
+    dept.head_employee_id = person.id
+    dept.head = (f"{person.first_name or ''} {person.last_name or ''}".strip() or person.email)[:100]
 
 
 def _check_department_status_change(db: Session, dept: Department, make_active: bool, organization_id: int) -> None:
@@ -644,8 +675,11 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
             "is_active": dept.is_active,
             "created_at": dept.created_at,
             "head": dept.head,
+            "head_employee_id": dept.head_employee_id,
+            "head_name": dept.head_name,
             "budget": dept.budget,
             "spent_budget": dept.spent_budget,
+            "utilization": dept.utilization,
             "establishment_year": dept.establishment_year,
             "parent_id": dept.parent_id,
             "organization_id": dept.organization_id,
@@ -1765,6 +1799,7 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
                                         update_data.pop("decision_reason", None) or record.decision_reason,
                                         update_data.pop("alternative_dates", None))
     before = snapshot(record, update_data.keys())
+    old_range = (record.start_date, record.end_date)
     for key, value in update_data.items():
         setattr(record, key, value)
     if "status" in update_data:
@@ -1773,6 +1808,8 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
             record.reviewed_by = actor.id
     db.commit()
     db.refresh(record)
+    if {"status", "start_date", "end_date"} & set(update_data):
+        _refresh_attendance_for_leave(db, record, old_range, "Leave updated: day recalculated.")
     if decision is not None:
         leave_documents.after_decided(db, record, actor)
     _activity_record(
@@ -1792,9 +1829,12 @@ def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) ->
     record = get_leave_request(db, leave_id, org_id)
     target = _leave_target(db, record)  # read before the row is gone
     record_id, record_org = record.id, record.organization_id
+    leave_days = (record.organization_id, record.employee_id, record.start_date, record.end_date)
     _release_pending_days(db, record)
     db.delete(record)
     db.commit()
+    from app.modules.hr.attendance.leave_sync import refresh_days_for_leave
+    refresh_days_for_leave(db, *leave_days, why="Leave deleted: day recalculated.")
     _activity_record(
         db, "leave.deleted", _actor_of(db, actor), record_org,
         entity_type="LeaveRequest", entity_id=record_id, **target,
@@ -1802,6 +1842,17 @@ def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) ->
 
 
 _OPEN_LEAVE = (RequestStatus.PENDING, RequestStatus.IN_PROGRESS)
+
+
+def _refresh_attendance_for_leave(db: Session, record: LeaveRequest, old_range, why: str) -> None:
+    """My Attendance plan B6: stored attendance days covered by the leave (and by its old dates, if they moved) follow
+    the decision. Never raises."""
+    from app.modules.hr.attendance.leave_sync import refresh_days_for_leave
+    ranges = {(record.start_date, record.end_date)}
+    if old_range and all(old_range):
+        ranges.add(tuple(old_range))
+    for start, end in ranges:
+        refresh_days_for_leave(db, record.organization_id, record.employee_id, start, end, why=why)
 
 
 def _release_pending_days(db: Session, record: LeaveRequest) -> None:
@@ -1870,6 +1921,8 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
             balance.pending_days = max((balance.pending_days or 0) - record.days, 0)
         db.commit()
         approved = record.status == RequestStatus.APPROVED
+        if approved:
+            _refresh_attendance_for_leave(db, record, None, "Leave approved: day recalculated.")
         _activity_record(
             db, "leave.approved" if approved else "leave.rejected", _actor_of(db, reviewer_id), record.organization_id,
             entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
@@ -6184,10 +6237,11 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
         payload["status"] = "active"
 
     if organization_id is not None:
-        if settings.auto_generate_codes:
+        if settings.auto_generate_codes or not manual_code:
+            # designation codes are no longer typed or shown: without a typed one it is always generated
             from app.core.code_generation import generate_business_code
             payload["designation_code"] = generate_business_code(db, organization_id, settings.code_prefix, Designation, "designation_code")
-        elif manual_code:
+        else:
             if settings.enforce_unique_codes:
                 dup = db.query(Designation.id).filter(func.upper(Designation.designation_code) == manual_code)
                 if organization_id is not None:
@@ -6195,8 +6249,6 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
                 if dup.first():
                     raise AlreadyExistsException("Designation", "code")
             payload["designation_code"] = manual_code
-        else:
-            raise BadRequestException("Automatic code generation is turned off in Designation Settings: enter a designation code.")
 
     payload["title"] = title
     obj = Designation(**payload)
@@ -6229,12 +6281,70 @@ def update_designation(db: Session, designation_id: int, data: DesignationUpdate
     return obj
 
 
+def designation_holders(db: Session, designation_id: int, organization_id: int, limit: int = 200) -> list:
+    """Who holds this designation (current people first), for the designation's detail panel."""
+    obj = get_designation_by_id(db, designation_id, organization_id)
+    rows = (db.query(Employee).filter(Employee.designation_id == obj.id, Employee.organization_id == organization_id)
+            .order_by(Employee.first_name, Employee.last_name, Employee.id).limit(limit).all())
+    status = lambda e: getattr(e.status, "value", e.status)  # noqa: E731
+    rows.sort(key=lambda e: status(e) != EmployeeStatus.ACTIVE.value)
+    return [{"id": e.id, "name": f"{e.first_name or ''} {e.last_name or ''}".strip() or e.email,
+             "employee_code": e.employee_code, "job_title": e.job_title, "status": status(e)} for e in rows]
+
+
+_NOT_ASSIGNABLE = {EmployeeStatus.TERMINATED, EmployeeStatus.RESIGNED, EmployeeStatus.DEACTIVATED, EmployeeStatus.ARCHIVED}
+
+
+def assign_designation(db: Session, designation_id: int, employee_ids: list, organization_id: int,
+                       sync_job_title: bool = True, actor=None) -> dict:
+    """Give a designation to existing people of the organization (all roles). Refused for a designation that is not
+    active (inactive or awaiting position approval) and for anyone outside the organization or who has left."""
+    from app.modules.employee import service as employee_service
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
+    obj = get_designation_by_id(db, designation_id, organization_id)
+    if (obj.status or "active") != "active" or obj.approval_status == "pending":
+        raise BadRequestException(f"'{obj.title}' is not active, so it can't be given to anyone yet.")
+    ids = list(dict.fromkeys(int(i) for i in employee_ids))
+    people = db.query(Employee).filter(Employee.id.in_(ids), Employee.organization_id == organization_id).all()
+    found = {p.id: p for p in people}
+    if any(i not in found for i in ids):
+        raise BadRequestException("Some of the selected people are not in your organization.")
+    gone = [p for p in people if p.status in _NOT_ASSIGNABLE]
+    if gone:
+        names = ", ".join(employee_service._full_name(p) for p in gone[:3])
+        raise BadRequestException(f"These people have left or are deactivated: {names}. Remove them and try again.")
+
+    changed, unchanged = [], 0
+    for p in (found[i] for i in ids):
+        values = {"designation_id": obj.id}
+        if sync_job_title:
+            values["job_title"] = obj.title
+        if all(getattr(p, k) == v for k, v in values.items()):
+            unchanged += 1
+            continue
+        before = snapshot(p, values.keys())
+        for k, v in values.items():
+            setattr(p, k, v)
+        changed.append((p, changes_from(before, values)))
+    db.commit()
+    for p, changes in changed:
+        employee_service._record(db, "employee.updated", actor, organization_id,
+                                 **employee_service._employee_target(p), changes=changes)
+    return {"designation_id": obj.id, "assigned": len(changed), "unchanged": unchanged,
+            "employees": [{"id": p.id, "name": employee_service._full_name(p)} for p, _ in changed]}
+
+
 def delete_designation(db: Session, designation_id: int, organization_id: int) -> None:
     obj = get_designation_by_id(db, designation_id, organization_id)
     holders = db.query(Employee).filter(Employee.designation_id == obj.id).count()
     if holders:
+        # the list counts active people only, so say how many former / inactive people still hold it
+        active = db.query(Employee).filter(Employee.designation_id == obj.id, Employee.status == EmployeeStatus.ACTIVE).count()
+        others = holders - active
+        parts = ([f"{active} active employee(s)"] if active else []) + ([f"{others} former or inactive employee(s)"] if others else [])
         raise BadRequestException(
-            f"Cannot delete '{obj.title}'. {holders} employee(s) hold this designation; "
+            f"Cannot delete '{obj.title}'. {' and '.join(parts)} hold this designation; "
             "reassign them to another designation first, or mark it inactive instead."
         )
     db.delete(obj)

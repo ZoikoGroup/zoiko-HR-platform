@@ -86,16 +86,15 @@ def _folder_chain(db: Session, org: int, folder_id: Optional[int]) -> list[int]:
     return chain
 
 
-def effective_rule(db: Session, org: int, document=None, *, folder_id: Optional[int] = None,
-                   category_id: Optional[int] = None) -> EffectiveRule:
-    """The rule that applies to a document (or, without one, to a folder / category)."""
-    if document is not None:
-        folder_id, category_id = document.folder_id, document.company_category_id
-    chain = _folder_chain(db, org, folder_id)
-    targets = ([("document", document.id)] if document is not None else []) + [("folder", f) for f in chain]
+def _targets(document_id: Optional[int], chain: list, category_id: Optional[int]) -> list:
+    """Where a rule may sit, nearest first: the document, its folders (nearest first), its category."""
+    targets = ([("document", document_id)] if document_id is not None else []) + [("folder", f) for f in chain]
     if category_id:
         targets.append(("category", category_id))
-    rules = _rules_by_target(db, org, targets)
+    return targets
+
+
+def _pick(rules: dict, targets: list) -> EffectiveRule:
     for target in targets:
         rule = rules.get(target)
         if rule is None:
@@ -104,6 +103,55 @@ def effective_rule(db: Session, org: int, document=None, *, folder_id: Optional[
             continue                                   # this level defers to its parent
         return _as_effective(rule, target)
     return ADMIN_ONLY
+
+
+def effective_rule(db: Session, org: int, document=None, *, folder_id: Optional[int] = None,
+                   category_id: Optional[int] = None) -> EffectiveRule:
+    """The rule that applies to a document (or, without one, to a folder / category)."""
+    if document is not None:
+        folder_id, category_id = document.folder_id, document.company_category_id
+    targets = _targets(document.id if document is not None else None, _folder_chain(db, org, folder_id), category_id)
+    return _pick(_rules_by_target(db, org, targets), targets)
+
+
+def _chains_in_memory(db: Session, org: int, folder_ids: set) -> dict:
+    """{folder_id: [folder_id, parent, grandparent, ...]} for many folders with one query (same rules as _folder_chain:
+    stops at a folder outside the organization and at a loop)."""
+    if not folder_ids:
+        return {}
+    from app.modules.hr.models import HrDocumentFolder
+    parent = dict(db.query(HrDocumentFolder.id, HrDocumentFolder.parent_id).filter(HrDocumentFolder.organization_id == org).all())
+    out = {}
+    for start in folder_ids:
+        chain, seen, fid = [], set(), start
+        while fid and fid not in seen and fid in parent:
+            seen.add(fid)
+            chain.append(fid)
+            fid = parent[fid]
+        out[start] = chain
+    return out
+
+
+def effective_rules_bulk(db: Session, org: int, documents) -> dict:
+    """{document_id: EffectiveRule} for many documents in two queries (folders, rules) instead of 2+ per document.
+    Gives exactly what effective_rule gives for each one."""
+    documents = list(documents)
+    if not documents:
+        return {}
+    chains = _chains_in_memory(db, org, {d.folder_id for d in documents if d.folder_id})
+    targets = {d.id: _targets(d.id, chains.get(d.folder_id, []) if d.folder_id else [], d.company_category_id) for d in documents}
+    rules = _rules_by_target(db, org, {t for ts in targets.values() for t in ts})
+    return {doc_id: _pick(rules, ts) for doc_id, ts in targets.items()}
+
+
+def assigned_document_ids(db: Session, employee_id: int, document_ids) -> set:
+    """The documents (of `document_ids`) assigned to this person, in one query."""
+    from app.modules.hr.models import DocumentAssignment
+    ids = list(document_ids)
+    if not ids:
+        return set()
+    return {d for (d,) in db.query(DocumentAssignment.document_id).filter(DocumentAssignment.employee_id == employee_id,
+                                                                           DocumentAssignment.document_id.in_(ids))}
 
 
 def rule_allows(rule: EffectiveRule, viewer: Viewer) -> bool:
@@ -174,12 +222,13 @@ def visible_company_documents(db: Session, viewer: Viewer, category_id: Optional
         hidden = _hidden_category_ids(db, viewer.org_id)
         if hidden:
             q = q.filter((HrDocument.company_category_id.is_(None)) | (HrDocument.company_category_id.notin_(hidden)))
-    out = []
-    for doc in q.order_by(HrDocument.updated_at.desc(), HrDocument.id.desc()).all():
-        rule = effective_rule(db, viewer.org_id, doc)
-        if viewer.role in ADMINS or rule_allows(rule, viewer) or _assigned(db, doc.id, viewer.employee_id):
-            out.append((doc, rule))
-    return out
+    docs = q.order_by(HrDocument.updated_at.desc(), HrDocument.id.desc()).all()
+    # a fixed number of queries whatever the number of documents (it used to be 2-4 per document)
+    rules = effective_rules_bulk(db, viewer.org_id, docs)
+    admin = viewer.role in ADMINS
+    assigned = set() if admin else assigned_document_ids(
+        db, viewer.employee_id, [d.id for d in docs if not rule_allows(rules[d.id], viewer)])
+    return [(d, rules[d.id]) for d in docs if admin or rule_allows(rules[d.id], viewer) or d.id in assigned]
 
 
 def audience(db: Session, org: int, rule: EffectiveRule, extra_employee_ids: Iterable[int] = ()) -> list:

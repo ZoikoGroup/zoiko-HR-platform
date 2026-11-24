@@ -30,6 +30,8 @@ EVENTS = {
     "attendance.missed_punch": ("attendance", "You did not punch out", "You punched in on {date} but never punched out, so the day counts 0 hours. Request a correction in My Attendance."),
     "correction.approved": ("attendance", "Attendance correction approved", "Your attendance correction for {date} has been approved."),
     "correction.rejected": ("attendance", "Attendance correction not approved", "Your attendance correction for {date} was not approved."),
+    "shift.assigned": ("attendance", "Your shift", "From {date} your shift is {title}. See My Attendance for the details."),
+    "shift.changed": ("attendance", "Your shift is changing", "Your shift changes to {title} from {date}. See My Attendance for the details."),
     "expense.approved": ("expense", "Expense claim approved", "Your expense claim has been approved."),
     "expense.rejected": ("expense", "Expense claim not approved", "Your expense claim was not approved."),
     "expense.reimbursed": ("expense", "Expense claim reimbursed", "Your expense claim has been marked as reimbursed."),

@@ -191,6 +191,46 @@ def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user=
     return attendance_service.create_shift(db, data, created_by=current_user.id, organization_id=current_user.organization_id)
 
 
+# ── SHIFT ASSIGNMENTS (My Attendance plan step 6: who works which shift over which period) ─────────────────
+
+class ShiftAssignIn(BaseModel):
+    shift_id: int
+    effective_from: date
+    effective_to: Optional[date] = None
+    employee_ids: list[int] = Field(default_factory=list, max_length=500)
+    department_id: Optional[int] = None
+
+
+class ShiftAssignmentEndIn(BaseModel):
+    effective_to: date
+
+
+@attendance_router.get("/shift-assignments", summary="Shift assignments (who works which shift over which period)")
+def list_shift_assignments(employee_id: Optional[int] = Query(None), shift_id: Optional[int] = Query(None),
+                           active_on: Optional[date] = Query(None), page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200),
+                           db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr.attendance import shift_assignments
+    return shift_assignments.list_assignments(db, current_user.organization_id, employee_id=employee_id, shift_id=shift_id,
+                                              active_on=active_on, page=page, per_page=per_page)
+
+
+@attendance_router.post("/shift-assignments", status_code=status.HTTP_201_CREATED,
+                        summary="Assign a shift to people or a department from a date (an earlier running assignment ends the day before)")
+def create_shift_assignment(data: ShiftAssignIn, db: Session = Depends(get_db), current_user=Depends(get_current_admin),
+                            ctx: RequestCtx = Depends(request_ctx)):
+    from app.modules.hr.attendance import shift_assignments
+    return shift_assignments.assign(db, current_user, shift_id=data.shift_id, effective_from=data.effective_from,
+                                    effective_to=data.effective_to, employee_ids=data.employee_ids,
+                                    department_id=data.department_id, ctx=ctx)
+
+
+@attendance_router.post("/shift-assignments/{assignment_id}/end", summary="End a shift assignment on a date")
+def end_shift_assignment(assignment_id: int, data: ShiftAssignmentEndIn, db: Session = Depends(get_db),
+                         current_user=Depends(get_current_admin), ctx: RequestCtx = Depends(request_ctx)):
+    from app.modules.hr.attendance import shift_assignments
+    return shift_assignments.end(db, current_user, assignment_id, data.effective_to, ctx=ctx)
+
+
 # ── SHIFT ROSTERS ────────────────────────────────────────────────────────────
 
 @attendance_router.get("/shifts/rosters", summary="List shift rosters")

@@ -16,6 +16,7 @@ import {
 import HRPage from "../../../components/HRPage";
 import { getDepartments } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
+import { formatOrgMoney } from "../../../utils/money";
 
 const NAV_ITEMS = [
   { label: "Dashboard",            href: "/zoiko-hr/departments" },
@@ -104,7 +105,7 @@ export default function DepartmentDashboard() {
     const total       = records.length;
     const active      = records.filter((r) => r.is_active).length;
     const inactive    = total - active;
-    const withHead    = records.filter((r) => r.head).length;
+    const withHead    = records.filter((r) => r.head_name || r.head).length;
     const rootDepts   = records.filter((r) => !r.parent_id).length;
     const totalBudget = records.reduce((s, r) => s + (Number(r.budget) || 0), 0);
     const totalSpent  = records.reduce((s, r) => s + (Number(r.spent_budget) || 0), 0);
@@ -139,7 +140,7 @@ export default function DepartmentDashboard() {
     { title: "Active",               value: stats.active,                                          icon: CheckCircle2,     color: "bg-green-50", subtitle: `${((stats.active / Math.max(stats.total, 1)) * 100).toFixed(0)}% of total` },
     { title: "Inactive",             value: stats.inactive,                                        icon: XCircle,          color: "bg-gray-100",  subtitle: stats.inactive === 0 ? "All departments active" : `${((stats.inactive / Math.max(stats.total, 1)) * 100).toFixed(0)}% of total` },
     { title: "Total Employees",      value: stats.totalEmp.toLocaleString(),                       icon: Users,            color: "bg-blue-50",  subtitle: `${stats.totalEmp > 0 ? (stats.totalEmp / Math.max(stats.active, 1)).toFixed(1) : 0} avg per dept` },
-    { title: "Budget Utilization",   value: `${stats.utilPct}%`,                                    icon: TrendingUp,       color: "bg-amber-50", subtitle: `$${(stats.totalSpent / 1_000_000).toFixed(1)}M / $${(stats.totalBudget / 1_000_000).toFixed(1)}M` },
+    { title: "Budget Utilization",   value: `${stats.utilPct}%`,                                    icon: TrendingUp,       color: "bg-amber-50", subtitle: `${formatOrgMoney(stats.totalSpent, { compact: true })} / ${formatOrgMoney(stats.totalBudget, { compact: true })}` },
     { title: "Depts with Head",      value: `${stats.withHead} / ${stats.total}`,                   icon: UserCheck,        color: "bg-blue-50", subtitle: stats.withHead === stats.total ? "All departments staffed" : `${stats.total - stats.withHead} unfilled` },
   ];
 
@@ -186,7 +187,7 @@ export default function DepartmentDashboard() {
               <p className="text-blue-200 text-sm">Budget Utilization</p>
               <p className="text-3xl font-bold">{stats.utilPct}%</p>
               <p className="text-blue-200 text-sm mt-1">
-                ${(stats.totalSpent / 1_000_000).toFixed(1)}M spent of ${(stats.totalBudget / 1_000_000).toFixed(1)}M
+                {formatOrgMoney(stats.totalSpent, { compact: true })} spent of {formatOrgMoney(stats.totalBudget, { compact: true })}
               </p>
             </div>
           </div>
@@ -213,13 +214,13 @@ export default function DepartmentDashboard() {
                   const budget   = Number(r.budget) || 0;
                   const spent    = Number(r.spent_budget) || 0;
                   const barWidth = maxBudget > 0 ? Math.round((budget / maxBudget) * 100) : 0;
-                  const spentPct = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+                  const spentPct = r.utilization ?? (budget > 0 ? Math.round((spent / budget) * 100) : 0);
                   return (
                     <div key={r.id} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium text-gray-800 truncate max-w-[140px]">{r.name}</span>
                         <span className="text-xs text-gray-500 shrink-0 ml-2">
-                          ${spent.toLocaleString()} / ${budget.toLocaleString()} ({spentPct}%)
+                          {formatOrgMoney(spent)} / {formatOrgMoney(budget)} ({spentPct}%)
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -228,7 +229,7 @@ export default function DepartmentDashboard() {
                             className={`h-full rounded-full ${
                               spentPct > 90 ? "bg-red-500" : spentPct > 70 ? "bg-amber-400" : "bg-rose-500"
                             }`}
-                            style={{ width: `${spentPct}%` }}
+                            style={{ width: `${Math.min(spentPct, 100)}%` }}
                           />
                         </div>
                         <span className={`text-xs font-medium shrink-0 ${!r.is_active ? "text-gray-400" : spentPct > 90 ? "text-red-600" : spentPct > 70 ? "text-amber-600" : "text-green-600"}`}>
@@ -310,7 +311,7 @@ export default function DepartmentDashboard() {
                         <p className="text-sm font-medium text-gray-900">{r.name}</p>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono font-semibold text-rose-600">{r.code}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{r.head || "—"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{r.head_name || r.head || "—"}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {r.created_at ? formatDate(r.created_at) : "—"}
                       </td>
@@ -374,10 +375,10 @@ export default function DepartmentDashboard() {
                     </div>
 
                     <div className="mt-3 space-y-1.5 text-xs text-gray-500">
-                      {r.head && (
+                      {(r.head_name || r.head) && (
                         <div className="flex items-center gap-1.5">
                           <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate">{r.head}</span>
+                          <span className="truncate">{r.head_name || r.head}</span>
                         </div>
                       )}
                       {r.employee_count > 0 && (
@@ -402,7 +403,7 @@ export default function DepartmentDashboard() {
                       <div className="mt-3">
                         <div className="flex justify-between text-xs text-gray-400 mb-1">
                           <span>Budget</span>
-                          <span>${budget.toLocaleString()}</span>
+                          <span>{formatOrgMoney(budget)}</span>
                         </div>
                         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                           <div

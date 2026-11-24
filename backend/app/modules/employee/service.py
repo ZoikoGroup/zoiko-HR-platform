@@ -2870,6 +2870,8 @@ def update_employee(
             dept = dept_query.first()
             if not dept:
                 raise NotFoundException("Department", data.department_id)
+        if getattr(data, "designation_id", None):
+            _designation_in_org(db, data.designation_id, org_id)
 
         update_data = data.model_dump(exclude_unset=True)
         from app.modules.billing import country_policy
@@ -3616,10 +3618,19 @@ def confirm_probation(db: Session, data: ConfirmProbationRequest, organization_i
     return event
 
 
+def _designation_in_org(db: Session, designation_id: int, organization_id: int):
+    from app.modules.hr.models import Designation
+    desig = db.query(Designation).filter(Designation.id == designation_id, Designation.organization_id == organization_id).first()
+    if desig is None:
+        raise NotFoundException("Designation", designation_id)
+    return desig
+
+
 def promote_employee(db: Session, data: PromoteEmployeeRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:
-    employee = get_employee_by_id(db, data.employee_id)
+    employee = get_employee_by_id(db, data.employee_id, organization_id)
 
     if data.new_designation_id:
+        _designation_in_org(db, data.new_designation_id, employee.organization_id)
         employee.designation_id = data.new_designation_id
     if data.new_salary:
         employee.basic_salary = data.new_salary

@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Building2, Download, Filter, Search } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { api } from "../../../service/api";
+import { formatOrgMoney, orgCurrency } from "../../../utils/money";
 
 const NAV_ITEMS = [
   { label: "Dashboard",            href: "/zoiko-hr/departments" },
@@ -36,16 +37,17 @@ function SubNav() {
 }
 
 function exportCsv(rows, filename) {
-  const headers = ["Name", "Code", "Head", "Budget", "Spent Budget", "Utilization %", "Parent ID", "Establishment Year"];
+  const code = orgCurrency();
+  const headers = ["Name", "Code", "Head", `Budget (${code})`, `Spent Budget (${code})`, "Utilization %", "Parent ID", "Establishment Year"];
   const csvRows = [headers.join(",")];
   for (const r of rows) {
     const budget = Number(r.budget) || 0;
     const spent = Number(r.spent_budget) || 0;
-    const util = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+    const util = r.utilization ?? (budget > 0 ? Math.round((spent / budget) * 100) : 0);
     csvRows.push([
       `"${(r.name || "").replace(/"/g, '""')}"`,
       `"${(r.code || "").replace(/"/g, '""')}"`,
-      `"${(r.head || "").replace(/"/g, '""')}"`,
+      `"${(r.head_name || r.head || "").replace(/"/g, '""')}"`,
       budget,
       spent,
       util,
@@ -103,7 +105,7 @@ export default function DepartmentReports() {
       list = list.filter((r) =>
         (r.name || "").toLowerCase().includes(q) ||
         (r.code || "").toLowerCase().includes(q) ||
-        (r.head || "").toLowerCase().includes(q)
+        (r.head_name || r.head || "").toLowerCase().includes(q)
       );
     }
     list.sort((a, b) => {
@@ -174,7 +176,7 @@ export default function DepartmentReports() {
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
             <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total Budget</p>
-            <p className="text-2xl font-bold text-gray-800 mt-1">${(stats.totalBudget / 1_000_000).toFixed(1)}M</p>
+            <p className="text-2xl font-bold text-gray-800 mt-1">{formatOrgMoney(stats.totalBudget, { compact: true })}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
             <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Budget Utilization</p>
@@ -246,7 +248,7 @@ export default function DepartmentReports() {
                   filtered.map((r) => {
                     const budget = Number(r.budget) || 0;
                     const spent = Number(r.spent_budget) || 0;
-                    const util = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+                    const util = r.utilization ?? (budget > 0 ? Math.round((spent / budget) * 100) : 0);
                     return (
                       <tr key={r.id} className="hover:bg-rose-50/30 transition-colors">
                         <td className="px-4 py-3">
@@ -256,9 +258,9 @@ export default function DepartmentReports() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm font-mono text-rose-600">{r.code || "—"}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{r.head || "—"}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-900">${budget.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">${spent.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{r.head_name || r.head || "—"}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-gray-900">{formatOrgMoney(budget)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{formatOrgMoney(spent)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <div className="h-2 w-16 bg-gray-100 rounded-full overflow-hidden">

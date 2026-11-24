@@ -23,6 +23,7 @@ function register(t) {
     getDesignationSettings: (...a) => svc.get(...a), saveDesignationSettings: (...a) => svc.save(...a),
     getDesignations: (...a) => svc.designations(...a), getDepartments: async () => ({ data: [{ id: 1, name: "Eng" }] }), getHrEmployees: async () => ({ data: [] }),
     createDesignation: (...a) => svc.create(...a), updateDesignation: async () => ({}), deleteDesignation: async () => ({}),
+    getDesignationHolders: async () => [], assignDesignation: async () => ({ assigned: 0 }), searchLearningPeople: async () => ({ items: [] }),
   } });
   t.mock.module("../src/service/employee.js", { exports: { updateEmployee: async () => ({}) } });
 }
@@ -44,7 +45,7 @@ const sw = (name) => screen.getByRole("switch", { name });
 
 test("the page shows what is saved: switches that were turned off stay off after a reload", async (t) => {
   await openSettings(t);
-  assert.equal(sw("Auto-generate Designation Codes").getAttribute("aria-checked"), "false");
+  assert.equal(screen.queryByRole("switch", { name: /Designation Codes/ }), null, "designation codes are no longer shown or set");
   fireEvent.click(screen.getByRole("tab", { name: /Hierarchy/ }));
   assert.equal(sw("Enforce Single Parent").getAttribute("aria-checked"), "true");
   assert.equal(screen.getByDisplayValue("3").getAttribute("type"), "number");
@@ -60,13 +61,14 @@ test("Save is disabled until something changes, then sends the whole set and con
   const sent = await openSettings(t);
   const save = screen.getByRole("button", { name: /Save Changes/ });
   assert.equal(save.disabled, true);
-  fireEvent.click(sw("Auto-generate Designation Codes"));
+  fireEvent.click(screen.getByRole("tab", { name: /Display/ }));
+  fireEvent.click(sw("Show Salary Range"));
   assert.equal(save.disabled, false);
   assert.ok(screen.getByText("Unsaved changes"));
   fireEvent.click(save);
   await settle();
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].auto_generate_codes, true);
+  assert.equal(sent[0].show_salary_range, true);
   assert.equal(sent[0].compact_mode, true, "everything else is sent unchanged");
   assert.equal(sent[0].notifications.created, false);
   assert.ok(screen.getByText("Settings saved"));
@@ -76,46 +78,30 @@ test("Save is disabled until something changes, then sends the whole set and con
 test("a rejected save keeps the changes on screen and says why", async (t) => {
   await openSettings(t);
   svc.save = async () => { throw new Error("This action requires admin privileges."); };
-  fireEvent.click(sw("Auto-generate Designation Codes"));
+  fireEvent.click(screen.getByRole("tab", { name: /Display/ }));
+  fireEvent.click(sw("Show Salary Range"));
   fireEvent.click(screen.getByRole("button", { name: /Save Changes/ }));
   await settle();
   assert.match(screen.getByRole("alert").textContent, /requires admin privileges/);
-  assert.equal(sw("Auto-generate Designation Codes").getAttribute("aria-checked"), "true");
+  assert.equal(sw("Show Salary Range").getAttribute("aria-checked"), "true");
   assert.ok(screen.getByText("Unsaved changes"));
 });
 
-test("an invalid prefix or depth is flagged on its field and blocks Save", async (t) => {
+test("an invalid depth is flagged on its field and blocks Save", async (t) => {
   const sent = await openSettings(t);
-  fireEvent.change(screen.getByDisplayValue("DES"), { target: { value: "x" } });
-  assert.ok(screen.getByText(/2 to 6 letters or digits/));
-  assert.equal(screen.getByRole("button", { name: /Save Changes/ }).disabled, true);
-  fireEvent.change(screen.getByDisplayValue("X"), { target: { value: "pos" } });
-  assert.equal(screen.getByRole("button", { name: /Save Changes/ }).disabled, false);
   fireEvent.click(screen.getByRole("tab", { name: /Hierarchy/ }));
   fireEvent.change(screen.getByDisplayValue("3"), { target: { value: "11" } });
   assert.ok(screen.getByText("Enter a whole number from 1 to 10."));
+  assert.equal(screen.getByRole("button", { name: /Save Changes/ }).disabled, true);
   assert.equal(sent.length, 0);
 });
 
 test("Discard puts back what was saved", async (t) => {
   await openSettings(t);
-  fireEvent.click(sw("Auto-generate Designation Codes"));
+  fireEvent.click(screen.getByRole("tab", { name: /Display/ }));
+  fireEvent.click(sw("Show Salary Range"));
   fireEvent.click(screen.getByRole("button", { name: /Discard/ }));
-  assert.equal(sw("Auto-generate Designation Codes").getAttribute("aria-checked"), "false");
-});
-
-test("the unique-codes switch is live: it shows what is saved, toggles, and saves", async (t) => {
-  const sent = await openSettings(t, { ...SAVED, enforce_unique_codes: true });
-  const unique = sw("Enforce Unique Designation Codes");
-  assert.equal(unique.disabled, false, "the switch can be enabled and disabled");
-  assert.equal(unique.getAttribute("aria-checked"), "true");
-  fireEvent.click(unique);
-  assert.equal(unique.getAttribute("aria-checked"), "false");
-  fireEvent.click(screen.getByRole("button", { name: /Save Changes/ }));
-  await settle();
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].enforce_unique_codes, false);
-  assert.ok(screen.getByText("Settings saved"));
+  assert.equal(sw("Show Salary Range").getAttribute("aria-checked"), "false");
 });
 
 test("when the settings cannot be loaded the page says so instead of showing defaults as if saved", async (t) => {
@@ -136,7 +122,7 @@ test("the Designation List follows the settings: sort, page size, salary column,
   const { default: Page } = await import(`../src/modules/zoiko-hr/designations/designation-list.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
   await settle();
-  const titles = () => [...document.querySelectorAll("tbody tr td:nth-child(2)")].map((c) => c.textContent);
+  const titles = () => [...document.querySelectorAll("tbody tr td:nth-child(1)")].map((c) => c.textContent);
   assert.deepEqual(titles(), ["Role A", "Role B", "Role C", "Role D", "Role E"], "sorted by title, 5 per page");
   assert.ok(screen.getByText("1–5 of 7"));
   assert.ok(screen.getAllByText("100 – 200").length > 0, "salary range column");
@@ -146,8 +132,8 @@ test("the Designation List follows the settings: sort, page size, salary column,
   assert.deepEqual(titles(), ["Role F", "Role G"]);
   fireEvent.click(screen.getByRole("button", { name: /Add Designation/ }));
   const level = screen.getByDisplayValue("L1");
-  assert.deepEqual([...level.querySelectorAll("option")].map((o) => o.value), ["L1", "L2"], "levels stop at the maximum depth");
-  assert.ok(screen.getByLabelText("Designation Code"), "a code is typed when automatic codes are off");
+  assert.deepEqual([...level.querySelectorAll("option")].map((o) => o.value), ["", "L1", "L2"], "no level, then levels up to the maximum depth");
+  assert.equal(screen.queryByLabelText("Designation Code"), null, "codes are generated, never typed");
 });
 
 test("pure helpers: tolerant reader, validation and sorting", () => {

@@ -1,23 +1,23 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { NavLink } from "react-router-dom";
-import { ChevronRight, ChevronDown, Briefcase, Building2, DollarSign, Users, ChevronsDownUp } from "lucide-react";
+import { ChevronRight, ChevronDown, Briefcase } from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getDesignations } from "../../../service/hrService";
-
-const LEVEL_ORDER = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"];
+import { getDesignations, getDesignationSettings, updateDesignation } from "../../../service/hrService";
+import { normalizeDesignationSettings, DEFAULT_DESIGNATION_SETTINGS } from "../../../utils/designationSettings";
 
 const LEVEL_META = {
-  L1: { label: "Entry Level", color: "blue", desc: "Interns, trainees, and junior staff" },
-  L2: { label: "Junior", color: "blue", desc: "Associates and junior specialists" },
-  L3: { label: "Mid-Level", color: "blue", desc: "Experienced professionals" },
-  L4: { label: "Senior", color: "pink", desc: "Senior specialists and leads" },
-  L5: { label: "Manager", color: "red", desc: "Team leads and department managers" },
-  L6: { label: "Senior Manager", color: "blue", desc: "Senior managers and directors" },
-  L7: { label: "Director", color: "yellow", desc: "Directors and senior directors" },
-  L8: { label: "VP", color: "green", desc: "Vice presidents" },
-  L9: { label: "SVP", color: "teal", desc: "Senior vice presidents" },
-  L10: { label: "C-Level", color: "cyan", desc: "C-suite executives" },
+  L1: { label: "Entry Level", desc: "Interns, trainees, and junior staff" },
+  L2: { label: "Junior", desc: "Associates and junior specialists" },
+  L3: { label: "Mid-Level", desc: "Experienced professionals" },
+  L4: { label: "Senior", desc: "Senior specialists and leads" },
+  L5: { label: "Manager", desc: "Team leads and department managers" },
+  L6: { label: "Senior Manager", desc: "Senior managers and directors" },
+  L7: { label: "Director", desc: "Directors and senior directors" },
+  L8: { label: "VP", desc: "Vice presidents" },
+  L9: { label: "SVP", desc: "Senior vice presidents" },
+  L10: { label: "C-Level", desc: "C-suite executives" },
 };
+const NO_LEVEL = "none";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/designations" },
@@ -26,6 +26,32 @@ const NAV_ITEMS = [
   { label: "Reports", href: "/zoiko-hr/designations/reports" },
   { label: "Settings", href: "/zoiko-hr/designations/settings" },
 ];
+
+/** "l3", " L3 ", "3" → "L3"; empty → null; anything else is kept as typed (upper case). */
+export function normalizeLevel(level) {
+  const s = String(level ?? "").trim().toUpperCase();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return `L${Number(s)}`;
+  const m = s.match(/^L\s*0*(\d+)$/);
+  return m ? `L${Number(m[1])}` : s;
+}
+
+/** Every level up to the organization's maximum depth (empty ones too), any other level in use, then "No level yet". */
+export function groupByLevel(records, maxDepth) {
+  const levels = Array.from({ length: maxDepth }, (_, i) => `L${i + 1}`);
+  const byLevel = new Map(levels.map((l) => [l, []]));
+  const none = [];
+  for (const r of records) {
+    const l = normalizeLevel(r.level);
+    if (!l) { none.push(r); continue; }
+    if (!byLevel.has(l)) byLevel.set(l, []);
+    byLevel.get(l).push(r);
+  }
+  const num = (l) => (/^L\d+$/.test(l) ? Number(l.slice(1)) : 999);
+  const groups = [...byLevel.entries()].sort((a, b) => num(a[0]) - num(b[0]) || a[0].localeCompare(b[0]))
+    .map(([level, items]) => ({ level, items, beyond: num(level) > maxDepth }));
+  return [...groups, { level: NO_LEVEL, items: none, beyond: false }];
+}
 
 function SubNav() {
   return (
@@ -44,119 +70,154 @@ function SubNav() {
   );
 }
 
-const LEVEL_BG = { L1: "bg-blue-100", L2: "bg-blue-100", L3: "bg-blue-100", L4: "bg-pink-100", L5: "bg-red-100", L6: "bg-blue-100", L7: "bg-yellow-100", L8: "bg-green-100", L9: "bg-teal-100", L10: "bg-cyan-100" };
-const LEVEL_TEXT = { L1: "text-blue-800", L2: "text-blue-800", L3: "text-blue-800", L4: "text-pink-800", L5: "text-red-800", L6: "text-blue-800", L7: "text-yellow-800", L8: "text-green-800", L9: "text-teal-800", L10: "text-cyan-800" };
-
-function LevelNode({ level, items, selected, onSelect }) {
-  const [expanded, setExpanded] = useState(true);
+function LevelNode({ level, items, beyond, selected, onSelect }) {
+  const [expanded, setExpanded] = useState(items.length > 0);
+  const isNone = level === NO_LEVEL;
   const meta = LEVEL_META[level];
-  const bg = LEVEL_BG[level] || "bg-gray-100";
-  const text = LEVEL_TEXT[level] || "text-gray-800";
+  const name = isNone ? "No level yet" : meta?.label || level;
+  const desc = isNone ? "Give these a level so they sit in the hierarchy" : beyond ? "Above the maximum depth in Settings" : meta?.desc;
 
   return (
     <div className="select-none">
-      <div
-        className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer hover:bg-blue-50 bg-white border border-gray-100"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}
+        className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-blue-50 ${isNone ? "border-amber-200 bg-amber-50/50" : "border-gray-100 bg-white"}`}>
+        <span className="text-gray-400 w-4 h-4 flex items-center justify-center" aria-hidden="true">
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </span>
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${bg} ${text}`}>{level}</span>
-        <div className="flex-1">
-          <span className="font-semibold text-gray-900">{meta?.label || level}</span>
-          <span className="text-xs text-gray-400 ml-2">{meta?.desc}</span>
-        </div>
-        <span className="text-xs text-gray-400 font-mono">{items.length} designations</span>
-      </div>
+        {!isNone && <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-800">{level}</span>}
+        <span className="flex-1 min-w-0">
+          <span className="font-semibold text-gray-900">{name}</span>
+          {desc && <span className="ml-2 text-xs text-gray-400">{desc}</span>}
+        </span>
+        <span className="shrink-0 text-xs text-gray-400">{items.length} {items.length === 1 ? "designation" : "designations"}</span>
+      </button>
+      {expanded && items.length === 0 && <p className="ml-10 mt-1 text-xs text-gray-400">No designations at this level yet.</p>}
       {expanded && items.map((item) => (
-        <div
-          key={item.id}
-          onClick={() => onSelect(item)}
-          className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ml-6 mt-0.5 ${
-            selected?.id === item.id ? "bg-blue-50 border border-blue-200" : "hover:bg-gray-50 border border-transparent"
-          }`}
-        >
-          <div className="p-1.5 rounded-lg bg-gray-100">
-            <Briefcase className="w-4 h-4 text-gray-500" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-gray-800">{item.title}</span>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${item.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>{item.status}</span>
-            </div>
-          </div>
-        </div>
+        <button type="button" key={item.id} onClick={() => onSelect(item)} aria-pressed={selected?.id === item.id}
+          className={`ml-6 mt-0.5 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+            selected?.id === item.id ? "border-blue-200 bg-blue-50" : "border-transparent hover:bg-gray-50"
+          }`}>
+          <span className="rounded-lg bg-gray-100 p-1.5"><Briefcase className="h-4 w-4 text-gray-500" aria-hidden="true" /></span>
+          <span className="flex flex-1 flex-wrap items-center gap-2">
+            <span className="font-medium text-gray-800">{item.title}</span>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${item.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>{item.status}</span>
+          </span>
+          <span className="text-xs text-gray-400">{item.employees_count || 0} {item.employees_count === 1 ? "person" : "people"}</span>
+        </button>
       ))}
     </div>
   );
 }
 
+function DetailPanel({ item, maxDepth, onSaved }) {
+  const current = normalizeLevel(item.level) || "";
+  const [level, setLevel] = useState(current);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const options = Array.from({ length: maxDepth }, (_, i) => `L${i + 1}`);
+  if (current && !options.includes(current)) options.push(current);
+
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await updateDesignation(item.id, { level: level || null });
+      setMsg({ type: "success", text: "Level saved." });
+      onSaved({ ...item, level: level || null });
+    } catch (e) {
+      setMsg({ type: "error", text: e?.message || "The level was not saved." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <aside aria-label="Designation details" className="space-y-3 rounded-xl border border-gray-200 bg-white p-5">
+      <h2 className="text-lg font-semibold text-gray-900">{item.title}</h2>
+      <dl className="grid grid-cols-2 gap-2 text-sm">
+        <dt className="text-gray-500">Department</dt><dd className="text-gray-900">{item.department_name || "—"}</dd>
+        <dt className="text-gray-500">People</dt><dd className="text-gray-900">{item.employees_count || 0}</dd>
+        <dt className="text-gray-500">Status</dt><dd className="capitalize text-gray-900">{item.status}</dd>
+      </dl>
+      <label htmlFor="structure-level" className="block text-sm font-medium text-gray-700">Level</label>
+      <div className="flex gap-2">
+        <select id="structure-level" value={level} onChange={(e) => setLevel(e.target.value)}
+          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+          <option value="">No level yet</option>
+          {options.map((l) => <option key={l} value={l}>{l}{LEVEL_META[l] ? ` · ${LEVEL_META[l].label}` : ""}</option>)}
+        </select>
+        <button type="button" onClick={save} disabled={busy || level === current}
+          className="rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50">{busy ? "Saving..." : "Save"}</button>
+      </div>
+      {msg && <p role={msg.type === "error" ? "alert" : "status"} className={`text-sm ${msg.type === "error" ? "text-red-700" : "text-green-700"}`}>{msg.text}</p>}
+      <NavLink to="/zoiko-hr/designations/list" className="inline-block text-sm text-blue-600 hover:underline">Assign people from the Designation List</NavLink>
+    </aside>
+  );
+}
+
 export default function DesignationStructure() {
   const [records, setRecords] = useState([]);
+  const [settings, setSettings] = useState(DEFAULT_DESIGNATION_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    getDesignations()
-      .then((res) => {
-        // api wrapper returns parsed JSON body directly (not axios-style { data })
-        // Handle both shapes defensively: array | { data: array }
-        if (!mounted) return;
-        const next = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
-        setRecords(next);
+  const load = useCallback(() => {
+    setLoading(true);
+    setError("");
+    return Promise.all([
+      getDesignations(),
+      getDesignationSettings().then(normalizeDesignationSettings).catch(() => null),
+    ])
+      .then(([res, s]) => {
+        setRecords(Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []));
+        if (s) setSettings(s);
       })
-      .catch(() => {})
-      .finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
+      .catch((e) => setError(e?.message || "The designations could not be loaded."))
+      .finally(() => setLoading(false));
   }, []);
+  useEffect(() => { load(); }, [load]);
 
-  const grouped = useMemo(() => {
-    return LEVEL_ORDER.map((level) => ({
-      level,
-      items: records.filter((r) => r.level === level),
-    })).filter((g) => g.items.length > 0);
-  }, [records]);
-
-  if (loading) {
-    return (
-      <HRPage title="Designation Structure" subtitle="Organizational hierarchy and designation relationships">
-        <SubNav />
-        <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-500">Loading hierarchy...</span>
-        </div>
-      </HRPage>
-    );
-  }
+  const maxDepth = settings.max_hierarchy_depth || 10;
+  const grouped = useMemo(() => groupByLevel(records, maxDepth), [records, maxDepth]);
+  const saved = (item) => {
+    setRecords((rs) => rs.map((r) => (r.id === item.id ? { ...r, level: item.level } : r)));
+    setSelected(item);
+  };
 
   return (
     <HRPage title="Designation Structure" subtitle="Organizational hierarchy and designation relationships">
       <SubNav />
-      <div className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Designation Structure</h1>
-          <p className="text-sm text-gray-500 mt-1">Organizational hierarchy and designation relationships</p>
+      {loading ? (
+        <div className="flex justify-center items-center py-20" role="status">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <span className="ml-3 text-gray-500">Loading hierarchy...</span>
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
+      ) : error ? (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button type="button" onClick={load} className="rounded-lg border border-red-200 bg-white px-3 py-1.5 font-medium">Retry</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 lg:col-span-2">
+            <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">Levels</h2>
-              <span className="text-xs text-gray-400">{records.length} designations</span>
+              <span className="text-xs text-gray-400">{records.length} designations · {maxDepth} levels</span>
             </div>
             <div className="space-y-2">
               {grouped.map((g) => (
-                <LevelNode key={g.level} level={g.level} items={g.items} selected={selected} onSelect={setSelected} />
+                <LevelNode key={g.level} level={g.level} items={g.items} beyond={g.beyond} selected={selected} onSelect={setSelected} />
               ))}
-              {grouped.length === 0 && (
-                <div className="text-center py-8 text-gray-400">No designations found</div>
-              )}
             </div>
           </div>
+          {selected ? (
+            <DetailPanel key={selected.id} item={selected} maxDepth={maxDepth} onSaved={saved} />
+          ) : (
+            <p className="rounded-xl border border-dashed border-gray-200 p-5 text-sm text-gray-500">Pick a designation to see its details or change its level.</p>
+          )}
         </div>
-      </div>
+      )}
     </HRPage>
   );
 }

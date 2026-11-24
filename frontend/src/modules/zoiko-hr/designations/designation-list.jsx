@@ -8,14 +8,15 @@ import {
   createDesignation, 
   updateDesignation, 
   deleteDesignation,
-  getHrEmployees,
   getDesignationSettings,
+  getDesignationHolders,
+  assignDesignation,
 } from "../../../service/hrService";
 import {
   decidePositionApproval, getJobDescriptions, getPositionAuthorization, requestPositionApproval,
 } from "../../../service/workforcePlanningService";
 import GenerateDocumentButton from "../../../components/documents/GenerateDocumentButton";
-import { updateEmployee } from "../../../service/employee";
+import AssignPeopleDialog, { PeopleMultiPicker } from "./AssignPeopleDialog";
 import { formatDate } from "../../../utils/dateTime";
 import { DEFAULT_DESIGNATION_SETTINGS, normalizeDesignationSettings, sortDesignations } from "../../../utils/designationSettings";
 
@@ -45,7 +46,7 @@ const STATUS_OPTIONS = [
 
 const initialForm = {
   title: "",
-  department_name: "", 
+  department_name: "",
   level: "L1",
   description: "",
   status: "active",
@@ -54,14 +55,15 @@ const initialForm = {
 export default function DesignationList() {
   const [records, setRecords] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const [holders, setHolders] = useState(null);        // people holding the designation open in the detail panel
+  const [assigning, setAssigning] = useState(null);     // the designation being given to people
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [formData, setFormData] = useState(initialForm);
   const [detailItem, setDetailItem] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [newPeople, setNewPeople] = useState([]);      // people to give a new designation to, right after it is created
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState(null); // { type: "success" | "error", text }
   const [modalError, setModalError] = useState("");
@@ -87,7 +89,7 @@ export default function DesignationList() {
     const rows = records.filter((r) => {
       if (sourceFilter === "none" ? r.source : sourceFilter !== "all" && r.source !== sourceFilter) return false;
       if (!q) return true;
-      return [r.title, r.department_name, r.designation_code].some((v) => String(v || "").toLowerCase().includes(q));
+      return [r.title, r.department_name, r.level].some((v) => String(v || "").toLowerCase().includes(q));
     });
     return sortDesignations(rows, settings.default_sort_field, settings.default_sort_direction);
   }, [records, search, sourceFilter, settings.default_sort_field, settings.default_sort_direction]);
@@ -105,61 +107,26 @@ export default function DesignationList() {
     return allowed.some((o) => o.value === formData.level) || !formData.level ? allowed : [...allowed, { value: formData.level, label: `${formData.level} (above the limit)` }];
   }, [settings.max_hierarchy_depth, formData.level]);
 
-  const getEmpName = (emp) => {
-    if (!emp) return "";
-    const u = emp.user || emp.profile || {};
-    const first = emp.first_name || emp.firstName || u.first_name || u.firstName || "";
-    const last = emp.last_name || emp.lastName || u.last_name || u.lastName || "";
-    if (first || last) return `${first} ${last}`.trim();
-    return emp.full_name || emp.fullName || emp.name || emp.employee_name || emp.display_name || u.full_name || u.name || "";
+  const peopleCount = (n) => (n ? `${n} ${n === 1 ? "person" : "people"}` : "—");
+  const canAssign = (item) => (item.status || "active") === "active" && item.approval_status !== "pending";
+
+  const openDetail = (item) => {
+    setDetailItem(item);
+    setShowDetail(true);
+    setHolders(null);
+    getDesignationHolders(item.id)
+      .then((rows) => setHolders(Array.isArray(rows) ? rows : rows?.data || []))
+      .catch(() => setHolders([]));
   };
 
-  const getEmpCode = (emp) => {
-    if (!emp) return "";
-    const u = emp.user || emp.profile || {};
-    return emp.employee_code || emp.code || u.employee_code || u.code || emp.employee_id || emp.employeeId || emp.id;
-  };
-
-  const employeeMap = useMemo(() => {
-    const m = {};
-    employees.forEach((emp) => {
-      const key = emp.id || emp.employee_id || emp.user_id || emp.user?.id || emp.profile?.id;
-      if (key) m[key] = emp;
-    });
-    return m;
-  }, [employees]);
-
-  const getEmployeeDisplay = (empId) => {
-    if (!empId) return "";
-    const emp = employeeMap[empId];
-    if (!emp) return `#${empId}`;
-    const name = getEmpName(emp);
-    const code = getEmpCode(emp);
-    return name ? `${name} (${code})` : `#${code}`;
-  };
-
-  // A Designation has no employee_id of its own — the backend models this the
-  // other way around (Employee.designation_id -> Designation.id), and a single
-  // designation can be held by many employees (see Designation.employees_count).
-  // So "who holds this designation" has to be derived by scanning the employee
-  // list, not read off a field on the designation record.
-  const getEmployeesForDesignation = (designationId) => {
-    if (!designationId) return [];
-    return employees.filter((emp) => {
-      const empDesigId = emp.designation_id ?? emp.designationId ?? emp.designation?.id;
-      return empDesigId != null && String(empDesigId) === String(designationId);
-    });
-  };
-
-  const getAssignedEmployeeDisplay = (designationId) => {
-    const emps = getEmployeesForDesignation(designationId);
-    if (emps.length === 0) return "";
-    if (emps.length === 1) {
-      const name = getEmpName(emps[0]);
-      const code = getEmpCode(emps[0]);
-      return name ? `${name} (${code})` : `#${code}`;
-    }
-    return `${emps.length} employees`;
+  const assignedDone = (res) => {
+    const n = res?.assigned ?? 0;
+    const same = res?.unchanged ? ` ${res.unchanged} already had it.` : "";
+    setNotice({ type: "success", text: `“${assigning.title}” given to ${n} ${n === 1 ? "person" : "people"}.${same}` });
+    const item = assigning;
+    setAssigning(null);
+    fetchRecords({ fresh: true });
+    if (showDetail && detailItem?.id === item.id) openDetail(item);
   };
 
   const fetchRecords = useCallback((opts = {}) => {
@@ -170,19 +137,15 @@ export default function DesignationList() {
     return Promise.all([
       getDesignations(fresh),
       getDepartments(fresh),
-      getHrEmployees(fresh),
       // the list still works with the defaults if the settings cannot be read
       getDesignationSettings(fresh).then(normalizeDesignationSettings).catch(() => null),
     ])
-      .then(([desigRes, deptRes, empRes, settingsRes]) => {
+      .then(([desigRes, deptRes, settingsRes]) => {
         if (settingsRes) setSettings(settingsRes);
         const desigItems = desigRes?.items || desigRes?.data || (Array.isArray(desigRes) ? desigRes : []);
         setRecords(Array.isArray(desigItems) ? desigItems : []);
         const deptItems = deptRes?.data || deptRes?.items || (Array.isArray(deptRes) ? deptRes : []);
         setDepartments(Array.isArray(deptItems) ? deptItems : []);
-        const empItems = empRes?.data || empRes?.items || (Array.isArray(empRes) ? empRes : []);
-        const emps = Array.isArray(empItems) ? empItems : [];
-        setEmployees(emps);
         return true;
       })
       .catch((err) => {
@@ -208,8 +171,8 @@ export default function DesignationList() {
 
   const handleOpenCreate = () => {
     setEditingId(null);
-    setFormData({ ...initialForm, status: settings.default_status, designation_code: "" });
-    setSelectedEmployeeId("");
+    setFormData({ ...initialForm, status: settings.default_status });
+    setNewPeople([]);
     setModalError("");
     setShowModal(true);
   };
@@ -220,40 +183,37 @@ export default function DesignationList() {
     setFormData({
       title: item.title || "",
       department_name: item.department_name || "",
-      level: item.level || "L1",
+      level: item.level || "",
       description: item.description || "",
       status: item.status || "active",
     });
-    const currentEmps = getEmployeesForDesignation(item.id);
-    const currentEmpId = currentEmps[0] ? (currentEmps[0].id || currentEmps[0].employee_id || currentEmps[0].user_id) : null;
-    setSelectedEmployeeId(currentEmpId ? String(currentEmpId) : "");
+    setNewPeople([]);
     setModalError("");
     setShowModal(true);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // The Designation record itself has no employee_id field on the backend
-    // (a designation can be held by many employees), so the assignment is
-    // never sent as part of this payload — it's persisted separately below
-    // by updating the chosen employee's designation_id instead.
-    const payload = { ...formData };
-    if (editingId || settings.auto_generate_codes || !payload.designation_code) delete payload.designation_code;
+    // codes are generated by the server; department and level are optional ("No level yet" groups it on the Structure page)
+    const payload = { ...formData, department_name: formData.department_name || null, level: formData.level || null };
     const action = editingId
       ? updateDesignation(editingId, payload)
       : createDesignation(payload);
+    let given = 0;
 
     action
       .then((res) => {
-        const savedDesignation = res?.data || res;
-        const designationId = editingId || savedDesignation?.id;
-        if (selectedEmployeeId && designationId) {
-          return updateEmployee(selectedEmployeeId, { designation_id: designationId });
+        const saved = res?.data || res;
+        // a new designation can be given to people at once (one call; the server checks each person)
+        if (!editingId && newPeople.length && saved?.id && (saved.status || "active") === "active" && saved.approval_status !== "pending") {
+          return assignDesignation(saved.id, { employee_ids: newPeople.map((p) => p.id), sync_job_title: true })
+            .then((r) => { given = r?.assigned ?? 0; });
         }
       })
       .then(() => {
         setShowModal(false);
-        setNotice({ type: "success", text: editingId ? "Designation updated." : "Designation created." });
+        setNotice({ type: "success", text: editingId ? "Designation updated."
+          : `Designation created.${given ? ` Given to ${given} ${given === 1 ? "person" : "people"}.` : newPeople.length ? " It needs approval or is inactive, so nobody was assigned yet." : ""}` });
         return fetchRecords({ fresh: true });
       })
       .catch((err) => {
@@ -372,12 +332,11 @@ export default function DesignationList() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Designation Code</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Designation Title</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Department</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level</th>
                 {settings.show_salary_range && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Salary Range</th>}
-                {settings.show_employee_count && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>}
+                {settings.show_employee_count && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employees</th>}
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
@@ -385,20 +344,19 @@ export default function DesignationList() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
               {loading && records.length === 0 ? (
-                <tr><td colSpan={7 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-4 py-10 text-center text-sm text-gray-400" role="status">Loading designations...</td></tr>
+                <tr><td colSpan={6 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-4 py-10 text-center text-sm text-gray-400" role="status">Loading designations...</td></tr>
               ) : visible.length === 0 ? (
-                <tr><td colSpan={7 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-4 py-10 text-center text-sm text-gray-500">
+                <tr><td colSpan={6 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-4 py-10 text-center text-sm text-gray-500">
                   {records.length === 0
                     ? "No designations yet. Click \"Add Designation\" or upload employees with a Designation column."
                     : "No designations match your search or filter."}
                 </td></tr>
               ) : null}
               {visible.map((item) => (
-                  <tr key={item.id} onClick={() => { setDetailItem(item); setShowDetail(true); }} className="hover:bg-gray-50/80 cursor-pointer transition-colors">
-                  <td className={`${cell} text-sm font-mono font-bold text-[#3B82F6]`}>{item.designation_code || "—"}</td>
+                  <tr key={item.id} onClick={() => openDetail(item)} className="hover:bg-gray-50/80 cursor-pointer transition-colors">
                   <td className={`${cell} text-sm font-medium text-gray-900`}>{item.title}</td>
-                  <td className={`${cell} text-sm text-gray-600`}>{item.department_name}</td>
-                  <td className={`${cell} text-sm text-gray-600`}>{item.level}</td>
+                  <td className={`${cell} text-sm text-gray-600`}>{item.department_name || "—"}</td>
+                  <td className={`${cell} text-sm text-gray-600`}>{item.level || <span className="text-gray-400">No level</span>}</td>
                   {settings.show_salary_range && (
                     <td className={`${cell} text-sm text-gray-600`}>
                       {item.min_salary != null || item.max_salary != null
@@ -408,7 +366,7 @@ export default function DesignationList() {
                   )}
                   {settings.show_employee_count && (
                     <td className={`${cell} text-sm text-gray-600`}>
-                      {getAssignedEmployeeDisplay(item.id) || (item.employees_count ? `${item.employees_count} employee${item.employees_count === 1 ? "" : "s"}` : "-")}
+                      {peopleCount(item.employees_count)}
                     </td>
                   )}
                   <td className={`${cell} text-xs text-gray-500`} title={item.created_by_name ? `Created by ${item.created_by_name}` : undefined}>
@@ -420,8 +378,12 @@ export default function DesignationList() {
                       {item.status}
                     </span>
                   </td>
-                  <td className={`${cell} text-sm flex gap-2`}>
+                  <td className={`${cell} whitespace-nowrap text-sm flex gap-3`}>
                     <button onClick={(e) => handleOpenEdit(item, e)} className="text-blue-600 hover:underline">Edit</button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setAssigning(item); }} disabled={!canAssign(item)}
+                      aria-label={`Assign ${item.title} to employees`}
+                      title={canAssign(item) ? "Give this designation to existing employees" : "Only an active, approved designation can be assigned"}
+                      className="text-blue-600 hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed">Assign</button>
                     <button onClick={(e) => handleDelete(item.id, e)} disabled={item.employees_count > 0}
                       title={item.employees_count > 0 ? `${item.employees_count} employee(s) hold this designation; reassign them first` : "Delete designation"}
                       className="text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed">Delete</button>
@@ -449,21 +411,35 @@ export default function DesignationList() {
             <h2 className="text-xl font-bold mb-4">{detailItem.title}</h2>
             <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-500">Designation Code</label>
-                <p className="text-sm font-mono font-bold text-[#3B82F6]">{detailItem.designation_code || "—"}</p>
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-gray-500">Department</label>
-                <p className="text-sm text-gray-900 font-medium">{detailItem.department_name}</p>
+                <p className="text-sm text-gray-900 font-medium">{detailItem.department_name || "—"}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-500">Hierarchy Level</label>
-                <p className="text-sm text-gray-900 font-medium">{detailItem.level}</p>
+                <p className="text-sm text-gray-900 font-medium">{detailItem.level || "No level yet"}</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-500">Assigned Employee{getEmployeesForDesignation(detailItem.id).length > 1 ? "s" : ""}</label>
-                <p className="text-sm text-gray-900 font-medium">{getAssignedEmployeeDisplay(detailItem.id) || "Not assigned"}</p>
-              </div>
+              <section aria-label="People with this designation">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium text-gray-500">People with this designation</h3>
+                  {canAssign(detailItem) && (
+                    <button type="button" onClick={() => setAssigning(detailItem)} className="text-sm font-medium text-blue-600 hover:underline">Assign to employees</button>
+                  )}
+                </div>
+                {holders === null ? (
+                  <p className="text-sm text-gray-400" role="status">Loading...</p>
+                ) : holders.length === 0 ? (
+                  <p className="text-sm text-gray-700">Nobody yet.</p>
+                ) : (
+                  <ul className="mt-1 max-h-56 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-100">
+                    {holders.map((h) => (
+                      <li key={h.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <span className="text-gray-900">{h.name}{h.employee_code ? <span className="text-gray-400"> · {h.employee_code}</span> : null}</span>
+                        {h.status !== "active" && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-600">{String(h.status || "").replace(/_/g, " ")}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
               <div>
                 <label className="block text-sm font-medium text-gray-500">Description</label>
                 <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg border">{detailItem.description || "N/A"}</p>
@@ -518,19 +494,13 @@ export default function DesignationList() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Designation Title</label>
                 <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="e.g. Senior Software Engineer" />
               </div>
-              {!editingId && !settings.auto_generate_codes && (
-                <div>
-                  <label htmlFor="designation-code" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Designation Code</label>
-                  <input id="designation-code" type="text" value={formData.designation_code || ""} maxLength={20} required
-                    onChange={(e) => setFormData({ ...formData, designation_code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="e.g. ENG-01" />
-                  <p className="mt-1 text-xs text-gray-500">Automatic codes are turned off in Designation Settings.</p>
-                </div>
-              )}
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Department Name</label>
-                <select value={formData.department_name} onChange={(e) => setFormData({ ...formData, department_name: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
-                  <option value="">Select Department</option>
+                <label htmlFor="designation-department" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Department (optional)</label>
+                <select id="designation-department" value={formData.department_name} onChange={(e) => setFormData({ ...formData, department_name: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+                  <option value="">Any department</option>
+                  {formData.department_name && !departments.some((d) => d.name === formData.department_name) && (
+                    <option value={formData.department_name}>{formData.department_name}</option>
+                  )}
                   {departments.length === 0 ? (
                     <option value="" disabled>No departments available. Please create a department first.</option>
                   ) : (
@@ -542,8 +512,9 @@ export default function DesignationList() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Hierarchy Level</label>
-                  <select value={formData.level} onChange={(e) => setFormData({ ...formData, level: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" required>
+                  <label htmlFor="designation-level" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Hierarchy Level</label>
+                  <select id="designation-level" value={formData.level} onChange={(e) => setFormData({ ...formData, level: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none">
+                    <option value="">No level yet</option>
                     {levelOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
@@ -554,22 +525,13 @@ export default function DesignationList() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Assign Employee</label>
-                <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-                  <option value="">Select employee...</option>
-                  {employees.map((emp) => {
-                    const eid = emp.id || emp.employee_id || emp.user_id || emp.user?.id;
-                    const ename = getEmpName(emp);
-                    const ecode = getEmpCode(emp);
-                    return (
-                      <option key={eid} value={eid}>
-                        {ename ? `${ename} (${ecode})` : `#${ecode}`}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+              {!editingId ? (
+                <PeopleMultiPicker id="designation-new-people" label="Give it to employees (optional)" value={newPeople} onChange={setNewPeople} />
+              ) : (
+                <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                  {peopleCount(records.find((r) => r.id === editingId)?.employees_count)} hold this designation. Use <strong>Assign</strong> in the list to give it to more people.
+                </p>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Description</label>
                 <textarea rows="3" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" placeholder="Brief details about responsibilities..."></textarea>
@@ -582,6 +544,7 @@ export default function DesignationList() {
           </form>
         </div>
       )}
+      {assigning && <AssignPeopleDialog designation={assigning} onClose={() => setAssigning(null)} onDone={assignedDone} />}
     </HRPage>
   );
 }

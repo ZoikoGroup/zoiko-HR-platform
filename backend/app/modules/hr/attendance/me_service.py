@@ -14,9 +14,7 @@ from app.modules.hr.attendance import clock, errors, policy as policy_mod
 from app.modules.hr.attendance.models import AttendanceAuditLog, AttendanceBreak
 from app.modules.hr.attendance.punch_service import serialize_day, tz_of
 from app.modules.hr.attendance.status_engine import DayContext, resolve
-from app.modules.hr.models import AttendanceRecord, AttendanceStatus as S
-
-ON_TIME = {S.PRESENT, S.REMOTE}
+from app.modules.hr.models import AttendanceRecord
 
 
 def parse_month(month: Optional[str], today: date) -> tuple[date, date]:
@@ -34,6 +32,17 @@ def parse_month(month: Optional[str], today: date) -> tuple[date, date]:
 
 def _status_value(status):
     return getattr(status, "value", status)
+
+
+def computed_status(employee, day: date, today: date, *, shift, holiday: bool, leave, pol):
+    """The status of a day that has no stored record yet: none before joining / after leaving or in the future,
+    otherwise what the rules say (holiday, weekly off, leave, or absent once the day is over). The calendar, the records
+    table and the day drawer all use this, so a date shows the same status everywhere."""
+    if not policy_mod.employed_on(employee, day) or day > today:
+        return None
+    working = policy_mod.is_working_day(pol, shift, day)
+    return resolve(DayContext(work_date=day, holiday=holiday, working_day=working, leave=leave, shift=shift,
+                              day_closed=day < today)).status
 
 
 def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
@@ -58,6 +67,8 @@ def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
     days, kpi = [], {"working_days": 0, "present": 0, "late": 0, "absent": 0, "half_day": 0, "on_leave": 0, "remote": 0,
                      "holiday": 0, "weekly_off": 0, "missed_punch": 0}
     worked_total = worked_days = overtime = approved_overtime = 0
+    # B4 / B5 (approved 2026-11-23): the rates are over working days that are "due": past ones, and today once punched in.
+    attended = leave_days = punched_days = on_time_days = 0
     day = start
     while day <= end:
         rec = records.get(day)
@@ -65,16 +76,23 @@ def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
         employed = policy_mod.employed_on(employee, day)
         working = policy_mod.is_working_day(pol, shift, day)
         future = day > today
-        if rec is not None:
-            status = rec.status
-        elif not employed or future:
-            status = None
-        else:
-            status = resolve(DayContext(work_date=day, holiday=day in holidays, working_day=working, leave=leaves.get(day),
-                                        shift=shift, day_closed=day < today)).status
+        status = rec.status if rec is not None else computed_status(employee, day, today, shift=shift, holiday=day in holidays,
+                                                                     leave=leaves.get(day), pol=pol)
         sv = _status_value(status)
-        if employed and not future and day not in holidays and working:
+        due = employed and not future and day not in holidays and working and (
+            day < today or (rec is not None and rec.check_in_at is not None))
+        if due:
             kpi["working_days"] += 1
+            if sv in ("present", "late", "remote"):
+                attended += 1
+            elif sv == "half_day":
+                attended += 0.5
+            elif sv == "on_leave":
+                leave_days += 1
+            if rec is not None and rec.check_in_at is not None:
+                punched_days += 1
+                if not (rec.late_minutes or 0):
+                    on_time_days += 1
         if sv in kpi and not future:
             kpi[sv] += 1
         if rec is not None and rec.check_out_at is not None and sv not in ("holiday", "weekly_off"):
@@ -98,13 +116,17 @@ def month_view(db: Session, employee, month: Optional[str] = None) -> dict:
         })
         day += timedelta(days=1)
 
-    attended = kpi["present"] + kpi["late"] + kpi["remote"] + kpi["half_day"] * 0.5
-    arrivals = kpi["present"] + kpi["late"] + kpi["remote"]
+    # attendance %: attended working days / working days you were expected (approved leave excused); work on a weekly
+    # off or holiday is not attendance (it shows as time beyond the standard day). punctuality %: on-time punch-ins /
+    # punch-ins on working days (leave without a punch is not "on time").
+    expected = kpi["working_days"] - leave_days
     kpis = {
         **kpi,
+        "expected_days": expected,
         "attended_days": attended,
-        "attendance_rate": round(100 * attended / kpi["working_days"]) if kpi["working_days"] else None,
-        "punctuality_rate": round(100 * (kpi["present"] + kpi["remote"]) / arrivals) if arrivals else None,
+        "attendance_rate": round(100 * attended / expected) if expected > 0 else None,
+        "punched_days": punched_days, "on_time_days": on_time_days,
+        "punctuality_rate": round(100 * on_time_days / punched_days) if punched_days else None,
         "avg_worked_minutes": round(worked_total / worked_days) if worked_days else 0,
         "overtime_minutes": overtime,
         "approved_overtime_minutes": approved_overtime,
@@ -123,6 +145,13 @@ def day_detail(db: Session, employee, day: date) -> dict:
                    AttendanceRecord.date == day, AttendanceRecord.is_deleted.isnot(True))
            .order_by(AttendanceRecord.id.desc()).first())
     out = serialize_day(db, rec, employee, day=day, tz=tz, pol=pol, now=now)
+    if rec is None:                                      # same status the calendar shows for this date
+        org = employee.organization_id
+        status = computed_status(employee, day, clock.work_date_for(now, tz),
+                                 shift=policy_mod.shift_for(db, org, employee.id, day, pol),
+                                 holiday=day in policy_mod.holidays_in_range(db, org, day, day),
+                                 leave=policy_mod.leaves_in_range(db, org, employee.id, day, day).get(day), pol=pol)
+        out["status"] = _status_value(status)
     out["notes"] = rec.notes if rec else None
     out["history"] = [] if rec is None else [
         {"action": a.action, "at": clock.iso_utc(a.created_at), "by_self": a.actor_id == employee.id,

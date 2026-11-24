@@ -142,6 +142,7 @@ _WRITE_INVALIDATION = [
     # employee import that creates designations and changes their headcounts) left the list stale,
     # so the Refresh button kept returning the old rows (ZHR-53).
     (r"/hr/designations", "/hr/designations"),
+    (r"/hr/designations", "/hr/employee"),      # assigning a designation changes people's designation and job title
     (r"/hr/employees", "/hr/designations"),
     (r"/hr/employee-management", "/hr/designations"),
     (r"/hr/leaves", "/hr/leaves"),

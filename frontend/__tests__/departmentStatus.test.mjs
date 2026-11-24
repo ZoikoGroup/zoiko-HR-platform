@@ -31,7 +31,7 @@ async function open(t, over = {}) {
     t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
     t.mock.module("../src/service/hrService.js", { exports: {
       getDepartments: (...a) => svc.getDepartments(...a), createDepartment: (...a) => svc.createDepartment(...a), updateDepartment: (...a) => svc.updateDepartment(...a),
-      getDepartmentSettings: async () => ({}), } });
+      getDepartmentSettings: async () => ({}), searchLearningPeople: async () => ({ items: [] }), } });
   }
   const { default: Page } = await import("../src/modules/zoiko-hr/departments/department-list.jsx");
   render(React.createElement(Page));
