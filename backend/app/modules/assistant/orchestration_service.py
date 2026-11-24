@@ -292,6 +292,15 @@ _SETUP_RE = re.compile(
     r"|\b(where|how)\s+(do|should|can)\s+i\s+(start|begin)\b|\bwhat\s+(should|do)\s+i\s+do\s+first\b|\bwhere\s+do\s+i\s+go\s+first\b",
     re.IGNORECASE,
 )
+# "How do I add / offboard / approve ... X?" asks what the SOFTWARE does: answered from the platform's own screens
+# (which can say a feature doesn't exist yet), never from policy documents that describe planned capabilities.
+# Personal process questions ("How do I resign?", "How do I change my address?") stay with policy answers.
+_SYSTEM_TASK_RE = re.compile(
+    r"^\s*(how|where)\s+(do|can|should|would|could)\s+(i|we)\s+(go\s+(and|to)\s+)?"
+    r"(add|create|remove|delete|deactivate|reactivate|offboard|off-board|onboard|terminate|assign|upload|approve|reject|"
+    r"configure|enable|disable|invite|import|export|run|record|generate|issue|send|publish|edit|manage|track|schedule)\b",
+    re.IGNORECASE,
+)
 
 _WHERE_START_RE = re.compile(r"^\s*where\b", re.IGNORECASE)
 
@@ -330,6 +339,9 @@ You are the Zoiko HR Assistant for authenticated workplace self-service. The pro
   something and to answer what the Zoiko HR platform offers. It is platform information, not company policy, and
   is never cited. Never name a screen that is not in it — the evidence may describe planned screens (e.g.
   "My Time Off", "Report a concern") that don't exist; if no listed screen fits, say "the left menu" or 'Talk to HR'.
+- The evidence describes HR standards and planned platform capabilities; it does not prove Zoiko HR has a feature
+  today. Explain the policy or process, but never say the system does something (e.g. "the system runs the
+  offboarding workflow") unless a screen in <screens> shows it.
 - The evidence includes engineering "Never"/"must not" lists. Those are rules the SYSTEM follows, not rules for
   employees: "Never tell employees they are prohibited from discussing pay" means the company does NOT prohibit
   it. Never turn such an item into a restriction on the employee.
@@ -473,7 +485,8 @@ def classify_intent(text: str) -> str:
         return "employee_roster"
     if _DEPT_DIRECTORY_RE.search(text) and _extract_department_candidate(text):
         return "department_directory"
-    if _NAV_WHERE_RE.search(text) or _SETUP_RE.search(text) or (_NAV_HOW_RE.search(text) and _nav_destination(text)):
+    if (_NAV_WHERE_RE.search(text) or _SETUP_RE.search(text) or _SYSTEM_TASK_RE.search(text)
+            or (_NAV_HOW_RE.search(text) and _nav_destination(text))):
         return "navigation_help"
     return "policy_qa"
 
@@ -888,7 +901,10 @@ def _answer_navigation_help(db: Session, turn: ChatTurn, employee=None) -> ChatT
     role = getattr(getattr(employee, "role", None), "value", getattr(employee, "role", None))
     screen, visible = platform_guide.find_screen(turn.user_input_text, role)
     if screen and visible and not _SETUP_RE.search(turn.user_input_text):
-        return _finalize(db, turn, platform_guide.describe(screen, visible), AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
+        plan_states = _unavailable_plan_features(db, getattr(turn, "organization_id", None),
+                                                 {screen.get("plan_feature")} - {None})
+        return _finalize(db, turn, platform_guide.describe(screen, visible, plan_states),
+                         AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
     if guardrails.is_generation_enabled(db, turn.organization_id, employee_id=getattr(employee, "id", None)):
         turn.intent = "navigation_guide"
         turn.status = TurnStatus.GENERATING
@@ -1081,12 +1097,38 @@ PLATFORM_GUIDE_PROMPT = BASE_SYSTEM_PROMPT.split("[GROUNDING]")[0] + """[PLATFOR
   settings (leave, attendance, holidays, onboarding), then people.
 - If <other_roles> shows the task belongs to screens this user's menu doesn't have, say which role does it and
   suggest the closest screen they do have, or 'Talk to HR'.
-- If nothing in the catalog fits, say so plainly and suggest the left-menu search or 'Talk to HR'. Never invent
-  a screen, button or path.
+- A screen marked "[not included in your organization's plan …]" exists in Zoiko HR but this organization's plan
+  doesn't include it: say the feature exists, that their plan doesn't include it (name the plan if given), and that
+  their organization admin can upgrade under Billing & Plan. Don't describe it as ready to use, and don't quote the
+  bracketed marker itself — say it in your own words.
+- The catalog is the COMPLETE list of what this user can do in Zoiko HR today. If no screen's name or page text
+  covers the task (e.g. offboarding, payroll runs), say plainly that Zoiko HR doesn't currently have that feature
+  (e.g. "Zoiko HR doesn't have an offboarding feature yet") and suggest 'Talk to HR'. Never send the user to a
+  screen built for a different task (New Hires is for adding people, not for offboarding them). Never invent a
+  screen, button or path.
 """ + "\n[CONFIDENTIALITY]" + BASE_SYSTEM_PROMPT.split("[CONFIDENTIALITY]")[1].replace(
     "cited_fragment_ids must only contain ids that appear in the <evidence id=\"...\"> tags given to you.",
     "cited_fragment_ids must be [] — screens are platform information, not cited evidence.",
 )
+
+
+def _unavailable_plan_features(db: Session, organization_id, features) -> dict:
+    """{feature_key: required plan name or ""} for the plan features the organization's plan does NOT include
+    (the same blocking states the platform's PlanGate and the API use). Any error: treated as available."""
+    if not organization_id or not features:
+        return {}
+    from app.modules.assistant.plan_gate import BLOCKING_STATES
+    from app.modules.billing.entitlement_service import check_entitlement
+    out = {}
+    for feature in features:
+        try:
+            result = check_entitlement(db, organization_id, feature)
+        except Exception as e:                       # never let a billing lookup break an answer
+            logger.warning("Plan check for %s failed: %s", feature, e)
+            continue
+        if result.get("state") in BLOCKING_STATES:
+            out[feature] = str(result.get("required_plan") or "").replace("_", " ").title()
+    return out
 
 
 def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
@@ -1098,7 +1140,10 @@ def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
     others = platform_guide.other_roles_for(text, role)
     parts = [
         history,
-        f"<screens_catalog role=\"{role}\">\n{platform_guide.catalog_for(text, role)}\n</screens_catalog>",
+        f"<screens_catalog role=\"{role}\">\n"
+        + platform_guide.catalog_for(text, role, plan_states=_unavailable_plan_features(
+            db, turn.organization_id, platform_guide.plan_features(role)))
+        + "\n</screens_catalog>",
         "<other_roles>\n" + ("\n".join(f"- {o}" for o in others) if others else "(none)") + "\n</other_roles>",
         f"Question: {text}",
     ]

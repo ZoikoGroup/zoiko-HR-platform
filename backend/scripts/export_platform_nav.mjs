@@ -35,8 +35,15 @@ for (const m of portal.matchAll(/const\s+(\w+)\s*=\s*lazyRoute\(\s*\(\)\s*=>\s*i
 for (const m of portal.matchAll(/import\s+(\w+)\s+from\s+["'](\.[^"']+)["']/g)) {
   componentFile[m[1]] ??= resolve(dirname(portalFile), m[2]);
 }
+// "/path": <Page />  or  "/path": <PlanGate featureKey="hr.x" ...><Page /></PlanGate> — read the page, not the gate,
+// and remember which plan feature the screen needs.
 const routeComponent = {};
-for (const m of portal.matchAll(/["'](\/[^"']*)["']\s*:\s*<\s*(\w+)/g)) routeComponent[m[1]] = m[2];
+const routePlanFeature = {};
+for (const m of portal.matchAll(/["'](\/[^"']*)["']\s*:\s*(?:<PlanGate\b([^>]*)>\s*)?<\s*(\w+)/g)) {
+  routeComponent[m[1]] = m[3];
+  const feature = m[2] && m[2].match(/featureKey=["']([^"']+)["']/);
+  if (feature) routePlanFeature[m[1]] = feature[1];
+}
 
 const withExt = (p) => [p, `${p}.jsx`, `${p}.js`, `${p}/index.jsx`, `${p}/index.js`].find((c) => existsSync(c) && c.match(/\.(jsx|js)$/));
 
@@ -110,7 +117,12 @@ for (const role of ROLES) {
   }
 }
 
-const screens = [...byHref.values()].filter((s) => s.roles.length).map((s) => ({ ...s, about: aboutFor(s.href) }));
+const screens = [...byHref.values()].filter((s) => s.roles.length).map((s) => ({
+  ...s,
+  about: aboutFor(s.href),
+  // plan feature the screen needs (PlanGate); the assistant checks it against the asker's organization at answer time
+  ...(routePlanFeature[s.href] ? { plan_feature: routePlanFeature[s.href] } : {}),
+}));
 writeFileSync(outFile, JSON.stringify({ generated_from: "frontend/src/navigation.js + routes/PortalApp.jsx page copy", screens }, null, 1) + "\n");
 const described = screens.filter((s) => s.about).length;
 console.log(`${screens.length} screens (${described} with page text) visible to ${ROLES.join("/")} -> ${outFile}`);
