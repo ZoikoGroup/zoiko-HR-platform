@@ -1,4 +1,4 @@
-/** Assets audit A12: the Org Admin Assets page can edit, delete, return (unassign) and transfer assets and manage
+/** Assets audit A12: the Org Admin Assets page can edit, delete and return (unassign) assets and manage
  * categories; server messages show inline in the dialog and buttons are disabled while a request runs. */
 import "./support/setup-jsdom.mjs";
 import { test, afterEach } from "node:test";
@@ -153,25 +153,15 @@ test("return: needs a reason, sends the condition, and is offered only for assig
   assert.deepEqual([put.url, put.body], ["/hr/assets/8/return", { reason: "leaving", condition: "poor" }]);
 });
 
-test("transfer: picks another active employee from the server (not the current holder)", async (t) => {
-  const calls = await loadPage(t, {
-    "get /hr/assets/employee-options": () => [
-      { id: 5, first_name: "Ann", last_name: "Lee", full_name: "Ann Lee" },
-      { id: 6, first_name: "Raj", last_name: "Kumar", full_name: "Raj Kumar" },
-    ],
-    "put /hr/assets/8/transfer": () => ({ ...HELD, employee_id: 6 }),
-  });
+test("QA bug 20: an assigned asset has no Transfer; it is returned to the organization, then assigned", async (t) => {
+  await loadPage(t, {});
+  assert.equal(screen.queryByLabelText("Transfer PH-8"), null);
   assert.equal(screen.queryByLabelText("Transfer LT-7"), null);
-  fireEvent.click(screen.getByLabelText("Transfer PH-8"));
-  await settle(600);
-  const dialog = screen.getByRole("dialog", { name: "Transfer asset" });
-  assert.equal(within(dialog).queryByText("Ann Lee"), null, "the current holder is not offered");
-  assert.equal(within(dialog).getByText("Transfer", { selector: "button" }).disabled, true);
-  fireEvent.click(within(dialog).getByText("Raj Kumar"));
-  fireEvent.click(within(dialog).getByText("Transfer", { selector: "button" }));
-  await settle();
-  const put = calls.find((c) => c.method === "put");
-  assert.deepEqual([put.url, put.body], ["/hr/assets/8/transfer", { employee_id: 6 }]);
+  assert.equal(screen.queryByTitle("Transfer"), null);
+  assert.ok(screen.getByLabelText("Return PH-8"), "the held asset can only be returned");
+  fireEvent.click(screen.getByLabelText("Return PH-8"));
+  const dialog = screen.getByRole("dialog", { name: "Return asset" });
+  assert.match(dialog.textContent, /comes back to the organization/);
 });
 
 test("categories: create shows the per-organization duplicate message; rename and delete call the server", async (t) => {

@@ -123,6 +123,28 @@ def test_candidates_section_counts_the_whole_pool_by_stage(env):
     assert c["sources"] == ["LinkedIn"]
 
 
+def test_every_candidate_stage_card_has_a_weekly_line_from_dated_records(env):
+    """QA bug 8: only Total Candidates drew a graph. Each stage card now gets an 8-week line from real dated records:
+    interviews scheduled, offers made, hires, rejections, and the size of the pipeline at each week's end."""
+    _seed(env)
+    rejected = RecruitmentCandidate(name="Di", email="di@x.test", position="Engineer", organization_id=1,
+                                    status=RecruitmentCandidateStatus.REJECTED, applied_at=NOW - timedelta(days=10),
+                                    created_at=NOW - timedelta(days=10), updated_at=NOW)
+    env.db.add(rejected)
+    env.db.commit()
+    k = _get(env, "candidates")["kpis"]
+    for key in ("total", "active", "interview", "offer", "hired", "rejected"):
+        assert isinstance(k[key]["series"], list) and len(k[key]["series"]) == 8, key
+    assert sum(k["interview"]["series"]) == 3          # all three interviews were scheduled within the 8 weeks
+    assert sum(k["offer"]["series"]) == 3
+    assert sum(k["hired"]["series"]) == 1 and k["hired"]["series"][-1] + k["hired"]["series"][-2] == 1
+    assert k["rejected"]["series"][-1] == 1 and sum(k["rejected"]["series"]) == 1
+    # the pipeline this week: Ana and Ben (Cy is hired, Di rejected)
+    assert k["active"]["series"][-1] == 2 == k["active"]["value"]
+    # the stage counts still claim no trend
+    assert k["interview"]["window"] is None and k["interview"]["change_pct"] is None
+
+
 def test_onboarding_section_counts_new_hires_tasks_documents_and_checklists(env):
     from app.modules.hr.models import (OnboardingChecklist, OnboardingChecklistItem, OnboardingDocument, OnboardingNewHire,
                                        OnboardingPreboardingTask)
@@ -143,6 +165,8 @@ def test_onboarding_section_counts_new_hires_tasks_documents_and_checklists(env)
     k = d["kpis"]
     assert (k["active_new_hires"]["value"], k["preboarding_open"]["value"], k["documents_pending"]["value"]) == (1, 1, 1)
     assert k["checklist_completion"]["value"] == 50.0 and k["completed"]["value"] == 1
+    # every Onboarding card draws a line, the payroll forms card included (QA bug 8)
+    assert all(isinstance(v.get("series"), list) and len(v["series"]) == 8 for v in k.values() if isinstance(v, dict)), k.keys()
     assert k["payroll_to_verify"]["window"] is None
     assert {s["key"]: s["count"] for s in d["stages"]}["in_progress"] == 1
     j = d["upcoming_joiners"][0]

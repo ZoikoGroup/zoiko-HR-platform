@@ -165,7 +165,7 @@ function Timeline({ steps }) {
   );
 }
 
-function RequisitionDetail({ r, managerName, onClose, onEdit, onAuthorization, actions, busy }) {
+function RequisitionDetail({ r, managerName, onClose, items = [] }) {
   const [tab, setTab] = useState("overview");
   const [fullDesc, setFullDesc] = useState(false);
   const [cands, setCands] = useState({ items: null, loading: false, error: "" });
@@ -180,7 +180,6 @@ function RequisitionDetail({ r, managerName, onClose, onEdit, onAuthorization, a
     return () => { live = false; };
   }, [tab, r.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const can = allowed(r);
   const pr = PRIORITY[r.priority] || PRIORITY.medium;
   const subParts = [r.employment_type && humanize(r.employment_type), r.department].filter(Boolean);
   const desc = r.description || "";
@@ -302,14 +301,10 @@ function RequisitionDetail({ r, managerName, onClose, onEdit, onAuthorization, a
 
       <DetailSection title="Quick Actions">
         <div className="flex flex-wrap gap-2">
-          <QuickAction icon={Eye} label="View" title="View the hiring authorization record" onClick={() => onAuthorization(r)} />
-          {can.edit && <QuickAction icon={Edit2} label="Edit" onClick={() => onEdit(r)} />}
-          {can.submit && <QuickAction icon={Send} label="Submit" disabled={busy} onClick={actions.submit} />}
-          {can.approve && <QuickAction icon={CheckCircle2} label="Publish" tone="primary" title="Approve and open for candidates" disabled={busy} onClick={actions.approve} />}
-          {can.reject && <QuickAction icon={ThumbsDown} label="Reject" tone="danger" disabled={busy} onClick={actions.reject} />}
-          {can.hold && <QuickAction icon={Pause} label="Hold" disabled={busy} onClick={actions.hold} />}
-          {can.resume && <QuickAction icon={Play} label="Resume" disabled={busy} onClick={actions.resume} />}
-          {can.close && <QuickAction icon={XCircle} label="Close" disabled={busy} onClick={actions.close} />}
+          {items.map((it) => (
+            <QuickAction key={it.label} icon={it.icon} label={it.label} title={it.title} disabled={it.busy} aria-busy={it.busy || undefined}
+              tone={it.danger ? "danger" : it.primary ? "primary" : "default"} onClick={it.onClick} />
+          ))}
         </div>
       </DetailSection>
     </DetailPanel>
@@ -868,6 +863,7 @@ export default function JobRequisitions() {
   const [actionError, setActionError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [busyAction, setBusyAction] = useState(null);
   const [authorizationFor, setAuthorizationFor] = useState(null);
   const [authorizationData, setAuthorizationData] = useState(null);
   const [authorizationBusy, setAuthorizationBusy] = useState(false);
@@ -949,9 +945,10 @@ export default function JobRequisitions() {
     refresh();
   };
 
-  const act = async (r, fn, ok, confirmText) => {
+  const act = async (r, fn, ok, confirmText, label) => {
     if (confirmText && !window.confirm(confirmText)) return;
     setBusyId(r.id);
+    setBusyAction(label || null);
     setActionError(null);
     try {
       await fn(r.id);
@@ -962,32 +959,35 @@ export default function JobRequisitions() {
       setActionError(err.message || "The action failed.");
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
   const actionsFor = (r) => ({
-    submit: () => act(r, submitRequisition, "Submitted for approval. Admins were emailed."),
-    approve: () => act(r, approveRequisition, "Requisition approved and open for candidates."),
-    reject: () => act(r, rejectRequisition, "Requisition rejected.", "Reject this requisition?"),
-    hold: () => act(r, holdRequisition, "Requisition put on hold."),
-    resume: () => act(r, resumeRequisition, "Requisition reopened."),
-    close: () => act(r, closeRequisition, "Requisition closed.", "Close this requisition? It will stop accepting candidates."),
-    remove: () => act(r, deleteRequisition, "Requisition deleted.", "Delete this requisition permanently?"),
+    submit: (label) => act(r, submitRequisition, "Submitted for approval. Admins were emailed.", undefined, label),
+    approve: (label) => act(r, approveRequisition, "Requisition approved and open for candidates.", undefined, label),
+    reject: (label) => act(r, rejectRequisition, "Requisition rejected.", "Reject this requisition?", label),
+    hold: (label) => act(r, holdRequisition, "Requisition put on hold.", undefined, label),
+    resume: (label) => act(r, resumeRequisition, "Requisition reopened.", undefined, label),
+    close: (label) => act(r, closeRequisition, "Requisition closed.", "Close this requisition? It will stop accepting candidates.", label),
+    remove: (label) => act(r, deleteRequisition, "Requisition deleted.", "Delete this requisition permanently?", label),
   });
 
+  // The ONE list of requisition actions: the row's "..." menu and the detail panel's Quick Actions both render it, so they
+  // always offer the same actions, with the same names, in the same order, under the same permission rules.
   const menuItems = (r) => {
     const can = allowed(r);
     const a = actionsFor(r);
     return [
-      { label: "Authorization", icon: ShieldCheck, onClick: () => showAuthorization(r) },
-      can.submit && { label: "Submit", icon: Send, onClick: a.submit },
-      can.approve && { label: "Approve", icon: CheckCircle2, onClick: a.approve },
-      can.reject && { label: "Reject", icon: ThumbsDown, onClick: a.reject, danger: true },
-      can.hold && { label: "Hold", icon: Pause, onClick: a.hold },
-      can.resume && { label: "Resume", icon: Play, onClick: a.resume },
-      can.close && { label: "Close", icon: XCircle, onClick: a.close },
-      can.edit && { label: "Edit", title: "Edit", icon: Edit2, onClick: () => openEdit(r) },
-      can.remove && { label: "Delete", title: "Delete", icon: Trash2, onClick: a.remove, danger: true },
+      { label: "Authorization", title: "View the hiring authorization record", icon: ShieldCheck, onClick: () => showAuthorization(r) },
+      can.edit && { label: "Edit", title: "Edit this requisition", icon: Edit2, onClick: () => openEdit(r) },
+      can.submit && { label: "Submit", title: "Submit for approval", icon: Send, onClick: () => a.submit("Submit"), busy: busyAction === "Submit" },
+      can.approve && { label: "Approve", title: "Approve and open for candidates", icon: CheckCircle2, onClick: () => a.approve("Approve"), primary: true, busy: busyAction === "Approve" },
+      can.reject && { label: "Reject", title: "Reject this requisition", icon: ThumbsDown, onClick: () => a.reject("Reject"), danger: true, busy: busyAction === "Reject" },
+      can.hold && { label: "Hold", title: "Put this requisition on hold", icon: Pause, onClick: () => a.hold("Hold"), busy: busyAction === "Hold" },
+      can.resume && { label: "Resume", title: "Reopen this requisition", icon: Play, onClick: () => a.resume("Resume"), busy: busyAction === "Resume" },
+      can.close && { label: "Close", title: "Close this requisition", icon: XCircle, onClick: () => a.close("Close"), busy: busyAction === "Close" },
+      can.remove && { label: "Delete", title: "Delete this requisition permanently", icon: Trash2, onClick: () => a.remove("Delete"), danger: true, busy: busyAction === "Delete" },
     ].filter(Boolean);
   };
 
@@ -1042,11 +1042,19 @@ export default function JobRequisitions() {
   );
 
   const kpis = ins?.kpis || {};
+  // Seven columns that fit the card without sideways scrolling: related facts share a cell (ID / priority / type under the
+  // title, location under the department, candidates under the openings, age under the status). With the detail panel
+  // open the hiring manager column steps aside (the panel shows it); on small screens the secondary columns fold into the
+  // title cell.
+  const compact = Boolean(detail);
   const columns = [
-    { label: <input type="checkbox" aria-label="Select all requisitions on this page" checked={allOnPage} onChange={togglePage} className="h-4 w-4 rounded border-gray-300" />, className: "w-10" },
-    { label: "Requisition ID", className: "min-w-[6.5rem] whitespace-nowrap" }, { label: "Job Title" }, { label: "Department" }, { label: "Hiring Manager" }, { label: "Location", className: "hidden md:table-cell" },
-    { label: "Openings" }, { label: "Candidates" }, { label: "Status" }, { label: "Age", className: "hidden xl:table-cell" },
-    { label: "Created", className: "hidden 2xl:table-cell" }, { label: "Actions", className: "text-right" },
+    { label: <input type="checkbox" aria-label="Select all requisitions on this page" checked={allOnPage} onChange={togglePage} className="h-4 w-4 rounded border-gray-300" />, className: "hidden w-10 sm:table-cell" },
+    { label: "Requisition" },
+    { label: "Department", className: "hidden md:table-cell" },
+    { label: "Hiring Manager", className: compact ? "hidden" : "hidden xl:table-cell" },
+    { label: "Pipeline", className: "hidden sm:table-cell" },
+    { label: "Status" },
+    { label: <span className="sr-only">Actions</span>, className: "w-12 text-right" },
   ];
 
   return (
@@ -1079,8 +1087,8 @@ export default function JobRequisitions() {
         {insights.error && <p className="text-xs text-gray-400">Summary figures are unavailable right now: {insights.error}</p>}
 
         <WithDetail detail={detail && (
-          <RequisitionDetail r={detail} managerName={managerNames[String(detail.hiring_manager_id)]} busy={busyId === detail.id}
-            onClose={() => setDetailId(null)} onEdit={openEdit} onAuthorization={showAuthorization} actions={actionsFor(detail)} />
+          <RequisitionDetail r={detail} managerName={managerNames[String(detail.hiring_manager_id)]}
+            onClose={() => setDetailId(null)} items={menuItems(detail)} />
         )}>
           <Card bodyClass="p-0">
             <div className="space-y-4 p-4 sm:p-5">
@@ -1113,31 +1121,41 @@ export default function JobRequisitions() {
                   <tr key={r.id} onClick={() => setDetailId(r.id)} tabIndex={0} aria-selected={active}
                     onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) setDetailId(r.id); }}
                     className={`cursor-pointer focus:outline-none focus-visible:bg-blue-50/60 ${active ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
-                    <td className={td} onClick={(e) => e.stopPropagation()}>
+                    <td className={`${td} hidden sm:table-cell`} onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" aria-label={`Select ${r.title}`} checked={selected.has(r.id)} onChange={() => toggleOne(r.id)} className="h-4 w-4 rounded border-gray-300" />
                     </td>
-                    <td className={`${td} min-w-[6.5rem] whitespace-nowrap text-xs text-gray-600`}>{reqCode(r)}</td>
-                    <td className={`${td} min-w-[11rem]`}>
+                    <td className={td}>
                       <p className="break-words font-medium text-blue-700">{r.title}</p>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
-                        <span className={`font-medium ${pr.tone === "red" ? "text-rose-600" : pr.tone === "amber" ? "text-amber-600" : ""}`}>{pr.label} priority</span>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
+                        <span className="font-mono text-[11px] text-gray-400">{reqCode(r)}</span>
+                        <span className={`font-medium ${pr.tone === "red" ? "text-rose-600" : pr.tone === "amber" ? "text-amber-600" : ""}`}>· {pr.label} priority</span>
                         {r.employment_type && <span>· {humanize(r.employment_type)}</span>}
                       </p>
+                      {/* small screens: the columns that are hidden there */}
+                      <p className="mt-0.5 text-xs text-gray-500 md:hidden">{[r.department, r.location].filter(Boolean).join(" · ") || "—"}</p>
+                      <p className="mt-0.5 text-xs text-gray-500 sm:hidden">
+                        {r.openings ?? 0} opening{(r.openings ?? 0) === 1 ? "" : "s"} · {r.candidate_count ?? 0} candidate{(r.candidate_count ?? 0) === 1 ? "" : "s"}
+                      </p>
                     </td>
-                    <td className={td}>{r.department || "—"}</td>
-                    <td className={td}>
-                      {manager ? <span className="flex items-center gap-2 whitespace-nowrap"><Avatar name={manager} size="xs" />{manager}</span> : "—"}
+                    <td className={`${td} hidden md:table-cell`}>
+                      <p className="break-words">{r.department || "—"}</p>
+                      {r.location && <p className="mt-0.5 break-words text-xs text-gray-500">{r.location}</p>}
                     </td>
-                    <td className={`${td} hidden md:table-cell`}>{r.location || "—"}</td>
-                    <td className={`${td} whitespace-nowrap`}>{r.openings ?? "—"}{r.filled ? <span className="text-xs text-gray-400"> ({r.filled} filled)</span> : null}</td>
-                    <td className={td} onClick={(e) => e.stopPropagation()}>
-                      <NavLink to={`/zoiko-hr/recruitment/candidates?requisition_id=${r.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:text-blue-800">
+                    <td className={`${td} ${compact ? "hidden" : "hidden xl:table-cell"}`}>
+                      {manager ? <span className="flex items-center gap-2"><Avatar name={manager} size="xs" /><span className="break-words">{manager}</span></span> : "—"}
+                    </td>
+                    <td className={`${td} hidden sm:table-cell`} onClick={(e) => e.stopPropagation()}>
+                      <p className="whitespace-nowrap">{r.openings ?? "—"} opening{r.openings === 1 ? "" : "s"}{r.filled ? <span className="text-xs text-gray-400"> · {r.filled} filled</span> : null}</p>
+                      <NavLink to={`/zoiko-hr/recruitment/candidates?requisition_id=${r.id}`} className="mt-0.5 inline-block whitespace-nowrap text-xs font-medium text-blue-600 hover:text-blue-800">
                         {r.candidate_count ?? 0} candidate{(r.candidate_count ?? 0) === 1 ? "" : "s"}
                       </NavLink>
                     </td>
-                    <td className={td}><RequisitionStatus status={r.status} /></td>
-                    <td className={`${td} hidden whitespace-nowrap xl:table-cell`}>{age == null ? "—" : `${age} day${age === 1 ? "" : "s"}`}</td>
-                    <td className={`${td} hidden whitespace-nowrap text-xs text-gray-500 2xl:table-cell`}>{formatDate(r.created_at)}</td>
+                    <td className={td}>
+                      <RequisitionStatus status={r.status} />
+                      <p className="mt-1 text-xs text-gray-400" title={`Created ${formatDate(r.created_at)}`}>
+                        {age == null ? formatDate(r.created_at) : age === 0 ? "Created today" : `${age} day${age === 1 ? "" : "s"} old`}
+                      </p>
+                    </td>
                     <td className={td}>
                       <RowMenu requisition={r} busy={busyId === r.id} onView={() => setDetailId(r.id)} items={menuItems(r)} />
                     </td>

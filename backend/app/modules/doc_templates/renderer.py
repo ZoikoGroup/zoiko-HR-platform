@@ -130,7 +130,9 @@ def layout(inp: RenderInput) -> list[El]:
                                               "names": {p: inp.signer_names[p] for p in block["parties"]
                                                         if inp.signer_names.get(p) and not inp.signatures.get(p)},
                                               "issued_on": _safe_value(inp, "document.date"),
-                                              "employer_name": (inp.letterhead or {}).get("legal_name") or ""}))
+                                              "employer_name": (inp.letterhead or {}).get("legal_name") or "",
+                                              "employer_signatory": (inp.letterhead or {}).get("signatory_name") or "",
+                                              "employer_signatory_title": (inp.letterhead or {}).get("signatory_title") or ""}))
         elif t == "page_break":
             out.append(El("page_break"))
     # an acceptance statement belongs above the lines it is signed on, not under them
@@ -242,6 +244,13 @@ def _signature_parts(data: dict, party: str, presigned: str) -> dict:
         name, role = split_presigned(presigned)
         return {"label": party_label(party, data.get("employer_name", "")), "mark": "Issued electronically",
                 "name": name, "role": role, "date": data.get("issued_on") or ""}
+    if party == "employer":
+        # QA bug 17: the employer's side names the authorised signatory (Company Profile) and is dated the day the letter
+        # is issued; it was a blank "Name:" and a blank date
+        return {"label": party_label(party, data.get("employer_name", "")), "mark": "",
+                "name": names.get(party) or data.get("employer_signatory", ""), "role": data.get("employer_signatory_title", ""),
+                "date": data.get("issued_on") or ""}
+    # the other parties date their own signature when they sign: their date stays a line to complete
     return {"label": party_label(party, data.get("employer_name", "")), "mark": "", "name": names.get(party, ""),
             "role": "", "date": ""}
 
@@ -256,7 +265,8 @@ def _html_signatures(data: dict) -> str:
             f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#52677a;">{_E(s["label"])}</div>'
             f'<div style="height:56px;display:flex;align-items:flex-end;font-style:italic;font-size:12px;color:#64748b;">{_E(s["mark"])}</div>'
             '<div style="border-top:1px solid #334155;margin:4px 0 6px;"></div>'
-            + (f'<div style="font-weight:700;color:#102a43;">{_E(s["name"])}</div>' if s["name"] else f'<div>Name: {blank}</div>')
+            + (f'<div style="font-size:12px;">Name: <span style="font-weight:700;color:#102a43;font-size:13px;">{_E(s["name"])}</span></div>'
+               if s["name"] else f'<div style="font-size:12px;">Name: {blank}</div>')
             + (f'<div style="font-size:12px;color:#52677a;">{_E(s["role"])}</div>' if s["role"] else "")
             + f'<div style="font-size:12px;margin-top:6px;">Date: {_E(s["date"]) if s["date"] else blank}</div>'
             + "</div>")
@@ -737,7 +747,7 @@ def _pdf_signatures(data: dict, width: float, st: dict, f: dict):
             c.setLineWidth(0.6 if self.lead else 0.9)
             c.line(x0, 1, self.w if not self.lead else min(self.w, x0 + 120), 1)
             ax, ay = c.absolutePosition(x0, 1)
-            if hasattr(c, "_zanchors"):
+            if self.anchor and hasattr(c, "_zanchors"):    # a "Name:" line carries no stamping anchor
                 c._zanchors.append((self.anchor, ax, ay))
 
     label = ParagraphStyle("sig_label", parent=st["label"], fontName=f["bold"], fontSize=7.5, leading=10,
@@ -756,7 +766,8 @@ def _pdf_signatures(data: dict, width: float, st: dict, f: dict):
         else:
             cell.append(Spacer(1, SIGN_SPACE))
         cell += [_Line(col, SIGNATURE_ANCHOR.format(party=p)), Spacer(1, 4)]
-        cell.append(Paragraph(_xml(s["name"]), name) if s["name"] else Paragraph(_xml("Name:"), role))
+        cell.append(Paragraph(_xml("Name: ") + "<b>" + _xml(s["name"]) + "</b>", name) if s["name"]
+                    else _Line(col, None, "Name:"))
         if s["role"]:
             cell.append(Paragraph(_xml(s["role"]), role))
         cell.append(Spacer(1, 6))

@@ -5,6 +5,7 @@ import { AlertCircle, AlertTriangle, Building2, CalendarPlus, Check, Clock, Glob
 import { getInterviews, createInterview, updateInterview, deleteInterview, getCandidates } from "../../../service/hrService";
 import { getRequisitionScorecards, submitInterviewScorecard } from "../../../service/recruitmentDocumentsService";
 import InterviewResultDialog from "./InterviewResultDialog";
+import TimeField from "../../../components/TimeField";
 import { getEmployees } from "../../../service/employee";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { STATUS_LABELS, cardActions, nowIn, pastScheduleErrors, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
@@ -546,7 +547,9 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
     setForm((prev) => {
       const os = toMin(prev.start_time), oe = toMin(prev.end_time);
       const keep = os != null && oe != null && oe > os && ns != null && ns + (oe - os) < 1440;
-      return { ...prev, start_time: value, end_time: keep ? fromMin(ns + (oe - os)) : prev.end_time };
+      // no end yet: start with a one-hour slot (the duration buttons change it)
+      const fresh = !prev.end_time && ns != null && ns + 60 < 1440;
+      return { ...prev, start_time: value, end_time: keep ? fromMin(ns + (oe - os)) : fresh ? fromMin(ns + 60) : prev.end_time };
     });
     setErrors((prev) => ({ ...prev, start_time: undefined, end_time: undefined }));
   };
@@ -556,7 +559,6 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
   // keeps its date selectable, only a new or moved schedule is held to it
   const zoneNow = nowIn(form.timezone);
   const minDay = editing && original?.interview_date && original.interview_date < zoneNow.day ? undefined : zoneNow.day;
-  const minTime = form.interview_date === zoneNow.day ? zoneNow.time : undefined;
   const pastNow = pastScheduleErrors(form, { original });
   const dayDiff = dateOk ? daysBetween(today, form.interview_date) : null;
   const relative = dayDiff == null ? "" : dayDiff === 0 ? "Today" : dayDiff === 1 ? "Tomorrow" : dayDiff === -1 ? "Yesterday"
@@ -687,8 +689,8 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
 
               <FormSection id="iv-sec-when" icon={CalendarDays} title="When"
                 hint={dateOk ? <span><span className="font-medium text-gray-700">{longDay(form.interview_date)}</span>{relative ? ` · ${relative}` : ""}</span> : "Date, time and time zone."}>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.3fr_1fr_1fr]">
-                  <div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
                     <label htmlFor="iv-date" className={labelCls}>Date <span className="text-rose-500">*</span></label>
                     <input id="iv-date" type="date" min={minDay} value={form.interview_date} aria-invalid={!!err("interview_date")} aria-describedby={described("interview_date")}
                       onChange={(e) => setField("interview_date", e.target.value)} onBlur={() => form.interview_date && validateField("interview_date")} className={fieldLook(err("interview_date"))} />
@@ -696,14 +698,15 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                   </div>
                   <div>
                     <label htmlFor="iv-time" className={labelCls}>Start</label>
-                    <input id="iv-time" type="time" step={300} min={minTime} value={form.start_time} aria-invalid={!!err("start_time")} aria-describedby={described("start_time")}
-                      onChange={(e) => setStart(e.target.value)} onBlur={() => form.start_time && validateField("start_time")} className={fieldLook(err("start_time"))} />
+                    {/* hour / minutes / AM-PM (QA bug 10); a past time today is refused by the form's checks */}
+                    <TimeField id="iv-time" label="Start time" step={5} value={form.start_time} invalid={!!err("start_time")} describedBy={described("start_time")}
+                      onChange={setStart} onBlur={() => form.start_time && validateField("start_time")} className={fieldLook(err("start_time"))} />
                     <FieldError id="iv-time-err">{err("start_time")}</FieldError>
                   </div>
                   <div>
                     <label htmlFor="iv-end" className={labelCls}>End</label>
-                    <input id="iv-end" type="time" step={300} value={form.end_time} aria-invalid={!!err("end_time")} aria-describedby={described("end_time")}
-                      onChange={(e) => setField("end_time", e.target.value)} onBlur={() => validateField("end_time")} className={fieldLook(err("end_time"))} />
+                    <TimeField id="iv-end" label="End time" step={5} value={form.end_time} invalid={!!err("end_time")} describedBy={described("end_time")}
+                      onChange={(v) => setField("end_time", v)} onBlur={() => validateField("end_time")} className={fieldLook(err("end_time"))} />
                     <FieldError id="iv-end-err">{err("end_time")}</FieldError>
                   </div>
                 </div>

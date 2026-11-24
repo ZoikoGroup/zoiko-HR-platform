@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy import func, asc, desc
@@ -23,10 +24,13 @@ from app.core.spreadsheet import safe_cell, safe_row
 from app.modules.employee.ownership import WORKING_STATUSES, filter_ids, get_org_employee_or_404
 from app.modules.hr.asset_uniqueness import category_name_conflict, commit_or_conflict, tag_conflict
 
+logger = logging.getLogger(__name__)
+
 
 # -- Assignment rules (audit batch 2: A6, A7, A8, A9) -----------------------------------------------------------------
-# An asset is handed to someone only when it is available (an assigned one moves with /transfer; one in maintenance,
-# retired, lost or broken cannot be handed out), and only to someone in the asset's organization who still works there.
+# An asset is handed to someone only when it is available (one in maintenance, retired, lost or broken cannot be handed
+# out), and only to someone in the asset's organization who still works there. QA bug 20: an assigned asset never goes
+# straight from one employee to another; it is returned to the organization first (Return), then assigned again.
 
 class AssetConflict(ZoikoException):
     """409: the asset or the person is not in a state that allows this."""
@@ -55,7 +59,7 @@ def _not_available_message(asset: Asset) -> str:
     if status == AssetStatus.ASSIGNED.value:
         holder = asset.employee.full_name if asset.employee else "someone"
         return (f"Asset {asset.asset_tag} is already assigned to {holder}. "
-                "Return it first, or use Transfer to move it to another employee.")
+                "Return it to the organization first, then assign it to someone else.")
     return f"Asset {asset.asset_tag} is {status or 'not available'} and cannot be assigned; only available assets can be."
 
 
@@ -408,6 +412,7 @@ def return_asset(db: Session, asset_id: int, reason: str, condition: Optional[st
     asset = get_asset_by_id(db, asset_id, organization_id)
     if asset.status != AssetStatus.ASSIGNED:
         raise BadRequestException("Asset is not currently assigned")
+    holder = asset.employee.full_name if asset.employee else None
     asset.employee_id = None
     asset.status = AssetStatus.AVAILABLE
     asset.assigned_date = None
@@ -417,24 +422,30 @@ def return_asset(db: Session, asset_id: int, reason: str, condition: Optional[st
         asset.updated_by = returned_by
     db.commit()
     db.refresh(asset)
+    # QA bug 20: the return is the step between two holders; keep it on record (who had it, why, in what condition)
+    try:
+        _record_asset_activity(db, "asset.returned", returned_by, asset, details={
+            "returned_from": holder, "reason": (reason or "").strip() or None,
+            "condition": _status_value(asset.condition) or None})
+    except Exception:
+        logger.warning("asset return %s could not be recorded in the activity log", asset.id, exc_info=True)
+        db.rollback()
     return asset
 
 
 def transfer_asset(db: Session, asset_id: int, new_employee_id: int, transferred_by: int, organization_id: Optional[int] = None) -> Asset:
+    """QA bug 20: an asset is not handed from one employee to another directly. It comes back to the organization first
+    (Return, which records the reason and its condition), and is then assigned to the next person. The route stays so an
+    older client gets a clear 409 instead of a 404; another organization's asset is still a 404."""
     asset = get_asset_by_id(db, asset_id, organization_id)
-    _working_employee(db, asset.organization_id, new_employee_id)
-    if asset.status != AssetStatus.ASSIGNED:
-        if asset.status == AssetStatus.AVAILABLE:
-            raise AssetConflict(f"Asset {asset.asset_tag} is not assigned to anyone; use Assign instead of Transfer.")
-        raise AssetConflict(_not_available_message(asset))
-    if asset.employee_id == new_employee_id:
-        raise AssetConflict(f"Asset {asset.asset_tag} is already assigned to this employee.")
-    asset.employee_id = new_employee_id
-    asset.assigned_date = datetime.utcnow().date()
-    asset.updated_by = transferred_by
-    db.commit()
-    db.refresh(asset)
-    return asset
+    get_org_employee_or_404(db, asset.organization_id, new_employee_id, active_only=False)   # other org / made-up id: 404
+    if asset.status == AssetStatus.ASSIGNED:
+        holder = asset.employee.full_name if asset.employee else "an employee"
+        raise AssetConflict(f"Asset {asset.asset_tag} is held by {holder}. An asset cannot be transferred directly: "
+                            "return it to the organization first, then assign it to someone else.")
+    if asset.status == AssetStatus.AVAILABLE:
+        raise AssetConflict(f"Asset {asset.asset_tag} is not assigned to anyone; use Assign.")
+    raise AssetConflict(_not_available_message(asset))
 
 
 def export_assets_csv(db: Session, search=None, status=None, category=None, department=None, employee_id=None, sort_by="created_at", sort_order="desc", organization_id=None, employee_ids=None) -> str:
@@ -735,6 +746,29 @@ def create_asset_category(db: Session, data: AssetCategoryCreate, organization_i
     commit_or_conflict(db)
     db.refresh(category)
     return category
+
+
+REQUESTABLE_STATUSES = (AssetStatus.AVAILABLE, AssetStatus.ASSIGNED, AssetStatus.MAINTENANCE, AssetStatus.BROKEN)
+
+
+def get_requestable_asset_types(db: Session, organization_id: int) -> list[dict]:
+    """QA bug 19: what an employee can ask for = the assets their organisation actually holds (Assets page), one entry per
+    asset name (spelling differences in case/spaces merged), with how many are free to hand out right now. Retired, lost
+    and deleted assets are not offered."""
+    rows = (db.query(Asset.name, Asset.status)
+              .filter(Asset.organization_id == organization_id, Asset.deleted_at.is_(None),
+                      Asset.status.in_(REQUESTABLE_STATUSES))
+              .all())
+    kinds: dict[str, dict] = {}
+    for name, status in rows:
+        label = " ".join(str(name or "").split())
+        if not label:
+            continue
+        k = kinds.setdefault(label.casefold(), {"name": label, "total": 0, "available": 0})
+        k["total"] += 1
+        if status == AssetStatus.AVAILABLE:
+            k["available"] += 1
+    return sorted(kinds.values(), key=lambda k: k["name"].casefold())
 
 
 def get_asset_categories(db: Session, organization_id: Optional[int] = None) -> list[AssetCategory]:

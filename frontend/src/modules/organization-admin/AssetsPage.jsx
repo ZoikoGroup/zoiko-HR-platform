@@ -6,11 +6,11 @@ import {
 } from "../../service/hrService";
 import { PAGE_SIZE, Pager, isFutureDate, todayISO, useDebounced, useEmployeeOptions } from "./assetPickers";
 import {
-  EditAssetDialog, DeleteAssetDialog, ReturnAssetDialog, TransferAssetDialog, CategoryManagerDialog,
+  EditAssetDialog, DeleteAssetDialog, ReturnAssetDialog, CategoryManagerDialog,
 } from "./AssetActionDialogs";
 import {
   Package, Search, Plus, X, Loader2, CheckCircle, AlertCircle, User, ChevronDown,
-  Pencil, Trash2, Undo2, ArrowLeftRight, Tags,
+  Pencil, Trash2, Undo2, Tags,
 } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -39,7 +39,7 @@ export default function OrgAdminAssetsPage() {
   const [counts, setCounts] = useState(null);
   const [categories, setCategories] = useState([]);          // names, for the selects
   const [categoryRows, setCategoryRows] = useState([]);      // {id, name, ...}, for the category manager
-  const [action, setAction] = useState(null);                // { kind: "edit" | "delete" | "return" | "transfer", asset } | { kind: "categories" }
+  const [action, setAction] = useState(null);                // { kind: "edit" | "delete" | "return", asset } | { kind: "categories" }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -287,13 +287,10 @@ export default function OrgAdminAssetsPage() {
                           {status === "available" && (
                             <AssignDropdown asset={a} onAssign={handleAssign} />
                           )}
+                          {/* QA bug 20: no Transfer. An assigned asset is returned to the organization first, then assigned again. */}
                           {status === "assigned" && (
-                            <>
-                              <IconButton label={`Transfer ${a.asset_tag}`} title="Transfer" onClick={() => setAction({ kind: "transfer", asset: a })}
-                                className="text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30"><ArrowLeftRight size={14} /></IconButton>
-                              <IconButton label={`Return ${a.asset_tag}`} title="Return (unassign)" onClick={() => setAction({ kind: "return", asset: a })}
-                                className="text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"><Undo2 size={14} /></IconButton>
-                            </>
+                            <IconButton label={`Return ${a.asset_tag}`} title="Return to the organization" onClick={() => setAction({ kind: "return", asset: a })}
+                              className="text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30"><Undo2 size={14} /></IconButton>
                           )}
                           <IconButton label={`Edit ${a.asset_tag}`} title="Edit" onClick={() => setAction({ kind: "edit", asset: a })}
                             className="text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><Pencil size={14} /></IconButton>
@@ -319,9 +316,6 @@ export default function OrgAdminAssetsPage() {
       )}
       {action?.kind === "return" && (
         <ReturnAssetDialog asset={action.asset} onClose={closeAction} onReturned={afterAction} />
-      )}
-      {action?.kind === "transfer" && (
-        <TransferAssetDialog asset={action.asset} onClose={closeAction} onTransferred={afterAction} />
       )}
       {action?.kind === "categories" && (
         <CategoryManagerDialog categories={categoryRows} onClose={closeAction}

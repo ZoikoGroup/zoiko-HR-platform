@@ -2027,7 +2027,16 @@ def preview_pdf(db, actor, s: DocsSetupSession, file_id: int) -> bytes:
     else:
         meta = {"category": "_preview", "title": m.get("title") or f.filename, "template_id": "NEW", "doc_type": "", "risk": "",
                 "sensitivity": "", "orientation": "portrait", "family_id": "", "initials": False}
-    ctx = R.RenderContext(mode="template", content=PB.to_package(blocks), meta=meta, draft=True, version="draft")
+    from app.modules.hr import onboarding_package as OP
+    from app.modules.hr.models import Organization
+    cfg = OP.get_config(db, actor.organization_id)
+    org = db.get(Organization, actor.organization_id)
+    org_label = OP.header_label(cfg, org)
+    logo_bytes = OP.logo_bytes(db, actor.organization_id, cfg)
+    ctx = R.RenderContext(mode="template", content=PB.to_package(blocks), meta=meta, draft=True, version="draft",
+                          org_label=org_label, primary=cfg.get("brand_primary", "#0B3D91"),
+                          accent=cfg.get("brand_accent", "#00A3E0"), paper=cfg.get("paper", "A4"),
+                          spelling=cfg.get("spelling", "UK"), logo_png=logo_bytes)
     return R.render_pdf(meta["category"], ctx)
 
 

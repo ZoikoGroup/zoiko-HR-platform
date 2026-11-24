@@ -3,10 +3,12 @@ import {
   Monitor, Laptop, CreditCard, Headphones, Mouse, Keyboard,
   Plus, X, Clock, CheckCircle, XCircle, AlertCircle, ChevronDown, Loader2, Bell
 } from "lucide-react";
-import { getMyProfile, getMyAssets, getAssetRequests, createAssetRequest } from "../../../../service/employee";
+import { getMyProfile, getMyAssets, getAssetRequests, createAssetRequest, getRequestableAssetTypes } from "../../../../service/employee";
+import SearchableSelect from "../../../../components/SearchableSelect";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 
-const ASSET_TYPES = ["Laptop", "Keyboard", "Mouse", "ID Card", "Headset", "Monitor", "Webcam", "Docking Station"];
+// QA bug 19: the asset list is the organisation's own assets (Assets page), read from /hr/assets/requestable-types —
+// no fixed list of laptops, webcams … the organisation may not have.
 const PRIORITIES = ["Low", "Medium", "High"];
 
 const iconMap = {
@@ -67,7 +69,32 @@ export default function AssetDetails() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [employeeId, setEmployeeId] = useState(null);
+  const [assetTypes, setAssetTypes] = useState(null);          // null while loading; [{ name, total, available }]
+  const [assetTypesError, setAssetTypesError] = useState(null);
   const mounted = useRef(true);
+
+  // the list is read each time the dialog opens, so an asset the admin has just added is there
+  useEffect(() => {
+    if (!showModal) return;
+    let live = true;
+    setAssetTypes(null);
+    setAssetTypesError(null);
+    getRequestableAssetTypes()
+      .then((res) => {
+        if (!live) return;
+        const items = res?.items || res?.data?.items || (Array.isArray(res) ? res : []);
+        setAssetTypes(Array.isArray(items) ? items : []);
+      })
+      .catch((err) => {
+        if (!live) return;
+        setAssetTypes([]);
+        setAssetTypesError(err?.message || "Your organisation's assets could not be loaded.");
+      });
+    return () => { live = false; };
+  }, [showModal]);
+
+  const assetOptions = (assetTypes || []).map((t) => ({ value: t.name, label: t.name, available: t.available || 0 }));
+  const noAssets = Array.isArray(assetTypes) && assetTypes.length === 0 && !assetTypesError;
 
   useEffect(() => {
     mounted.current = true;
@@ -104,7 +131,8 @@ export default function AssetDetails() {
 
   const validate = () => {
     const e = {};
-    if (!form.assetType) e.assetType = "Select an asset type";
+    if (!form.assetType) e.assetType = "Select an asset";
+    else if (!assetOptions.some((o) => o.value === form.assetType)) e.assetType = "Select one of your organisation's assets";
     if (!form.reason.trim() || form.reason.length < 10) e.reason = "Provide at least 10 characters";
     return e;
   };
@@ -292,7 +320,7 @@ export default function AssetDetails() {
                 <h2 className="text-lg font-bold text-slate-800 dark:text-[#f1f5f9]">Request New Asset</h2>
                 <p className="text-xs text-slate-400 dark:text-[#94a3b8] mt-0.5">Submit a request to your IT team</p>
               </div>
-              <button onClick={() => { setShowModal(false); setErrors({}); }} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#0f172a] text-slate-400 dark:text-[#94a3b8] transition">
+              <button aria-label="Close" onClick={() => { setShowModal(false); setErrors({}); }} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#0f172a] text-slate-400 dark:text-[#94a3b8] transition">
                 <X size={18} />
               </button>
             </div>
@@ -305,19 +333,42 @@ export default function AssetDetails() {
 
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wide block mb-1.5">Asset Type</label>
-                <div className="relative">
-                  <select
-                    className={`w-full appearance-none border rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition pr-8 ${errors.assetType ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`}
+                <label htmlFor="asset-request-type" className="text-xs font-semibold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wide block mb-1.5">Asset</label>
+                {assetTypes === null ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-[#334155] bg-slate-50 dark:bg-[#0f172a] px-3 py-2.5 text-sm text-slate-500 dark:text-[#94a3b8]">
+                    <Loader2 size={14} className="animate-spin" /> Loading your organisation's assets…
+                  </div>
+                ) : assetTypesError ? (
+                  <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{assetTypesError}</p>
+                ) : noAssets ? (
+                  <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                    Your organisation has not added any assets yet, so there is nothing to request. Ask your HR or IT admin.
+                  </p>
+                ) : (
+                  <SearchableSelect
+                    id="asset-request-type"
                     value={form.assetType}
-                    onChange={(e) => setForm((p) => ({ ...p, assetType: e.target.value }))}
-                  >
-                    <option value="">Select asset...</option>
-                    {ASSET_TYPES.map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[#94a3b8] pointer-events-none" />
-                </div>
-                {errors.assetType && <p className="text-xs text-red-500 mt-1">{errors.assetType}</p>}
+                    onChange={(v) => { setForm((p) => ({ ...p, assetType: v })); setErrors((er) => ({ ...er, assetType: undefined })); }}
+                    options={assetOptions}
+                    placeholder="Select asset..."
+                    searchLabel="Search assets"
+                    searchPlaceholder="Search assets…"
+                    listLabel="Your organisation's assets"
+                    noMatchText="No asset matches"
+                    invalid={!!errors.assetType}
+                    describedBy={errors.assetType ? "asset-request-type-error" : undefined}
+                    renderOption={(o) => (
+                      <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                        <span className="truncate">{o.label}</span>
+                        <span className={`shrink-0 text-xs ${o.available ? "text-emerald-600" : "text-slate-400"}`}>
+                          {o.available ? `${o.available} available` : "None free now"}
+                        </span>
+                      </span>
+                    )}
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition ${errors.assetType ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`}
+                  />
+                )}
+                {errors.assetType && <p id="asset-request-type-error" className="text-xs text-red-500 mt-1">{errors.assetType}</p>}
               </div>
 
               <div>
@@ -360,7 +411,7 @@ export default function AssetDetails() {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || !assetOptions.length}
                 className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold transition shadow-sm shadow-blue-200 flex items-center justify-center gap-2"
               >
                 {submitting ? <><Loader2 size={14} className="animate-spin" /> Submitting...</> : "Submit Request"}

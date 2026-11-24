@@ -2,6 +2,7 @@
  * region and language, show the server's field errors, the phone box stays usable, and the portal only celebrates a
  * submission the server accepted. */
 import "./support/setup-jsdom.mjs";
+import { chooseOption, optionTexts } from "./support/searchableSelect.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -67,13 +68,15 @@ test("junk values show their rule's message under the field and nothing is sent 
 
 test("country, region and language are lists; the region list follows the country", async (t) => {
   await loadForms(t, [STARTER]);
-  assert.equal(byId("portal-HR-ONB-001-country").tagName, "SELECT");
+  // country and region are searchable dropdowns (long lists); language stays a plain list
+  assert.equal(byId("portal-HR-ONB-001-country").getAttribute("aria-haspopup"), "listbox");
   assert.equal(byId("portal-HR-ONB-001-preferred_language").tagName, "SELECT");
   assert.ok([...byId("portal-HR-ONB-001-preferred_language").options].some((o) => o.value === "hi" && o.textContent === "Hindi"));
-  fireEvent.change(byId("portal-HR-ONB-001-country"), { target: { value: "India" } });
-  assert.equal(byId("portal-HR-ONB-001-region").tagName, "SELECT");
-  assert.ok([...byId("portal-HR-ONB-001-region").options].some((o) => o.value === "Telangana"));
-  fireEvent.change(byId("portal-HR-ONB-001-country"), { target: { value: "Kenya" } });
+  await chooseOption("portal-HR-ONB-001-country", "India", { search: "ind" });
+  assert.equal(byId("portal-HR-ONB-001-country").value, "India");
+  assert.equal(byId("portal-HR-ONB-001-region").getAttribute("aria-haspopup"), "listbox");
+  assert.ok((await optionTexts("portal-HR-ONB-001-region")).includes("Telangana"));
+  await chooseOption("portal-HR-ONB-001-country", "Kenya");
   assert.equal(byId("portal-HR-ONB-001-region").tagName, "INPUT", "free text where the country has no region list");
 });
 

@@ -3,6 +3,7 @@
 import "./support/setup-jsdom.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { chooseOption } from "./support/searchableSelect.mjs";
 import React from "react";
 import { render, screen, cleanup, act, fireEvent, within } from "@testing-library/react";
 import { isFutureDate, todayISO } from "../src/modules/organization-admin/assetPickers.jsx";
@@ -139,6 +140,7 @@ async function loadEmployeePage(t, { afterSubmitList, failRefetch = false } = {}
       return afterSubmitList || { items: [SAVED] };
     },
     createAssetRequest: async (payload) => { calls.create.push(payload); return SAVED; },     // the api client returns the body itself
+    getRequestableAssetTypes: async () => ({ items: [{ name: "Monitor", total: 2, available: 1 }] }),   // QA bug 19: the org's assets
   };
   t.mock.module("../src/service/employee.js", { exports: employeeApi });
   t.mock.module("../src/components/employee/EmployeePageShell.jsx", {
@@ -148,7 +150,8 @@ async function loadEmployeePage(t, { afterSubmitList, failRefetch = false } = {}
   render(React.createElement(Page));
   await settle();
   fireEvent.click(screen.getByText("Request Asset"));
-  fireEvent.change(document.querySelector("select"), { target: { value: "Monitor" } });
+  await settle();
+  await chooseOption("asset-request-type", /^Monitor/);
   fireEvent.change(screen.getByPlaceholderText("Describe why you need this asset..."), { target: { value: "Need a second screen" } });
   fireEvent.click(screen.getByText("Submit Request"));
   await settle();

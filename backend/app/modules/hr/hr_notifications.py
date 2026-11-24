@@ -67,6 +67,10 @@ EVENTS = {
     "offboarding.withdrawal_requested": ("offboarding", "Withdrawal requested", "An employee asked to withdraw their resignation."),
     "offboarding.withdrawal_decided": ("offboarding", "Withdrawal decided", "HR has decided on your withdrawal request. Open My Exit for details."),
     "performance.review_shared": ("performance", "Performance review shared", "Your performance review has been shared with you."),
+    # recruitment: the interview schedule (QA bug 13: admins were never told); {title} = "<type> with <candidate> for <role>"
+    "interview.scheduled": ("recruitment", "Interview scheduled", "{title} on {date}."),
+    "interview.rescheduled": ("recruitment", "Interview rescheduled", "{title} moved to {date}."),
+    "interview.cancelled": ("recruitment", "Interview cancelled", "{title} on {date} was cancelled."),
 }
 
 

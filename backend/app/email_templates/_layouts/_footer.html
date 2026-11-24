@@ -28,18 +28,30 @@ Questions? <a class="dm-link" href="{{ support_url }}" target="_blank" style="co
 </p>
 {% endif %}
 {% if org_brand %}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;">
+{#- The Zoiko HR band (QA bug 15): the organization leads the email; Zoiko HR signs it off below a rule, centred, with its
+    logo, the product line and the links a reader looks for. One light logo (+ its dark-mode twin), as everywhere. -#}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:14px;border-top:1px solid #dfe5ec;">
 <tr>
-<td valign="middle" class="dm-text-muted" style="vertical-align:middle;padding-right:8px;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;color:#4b5563;">Powered by</td>
-<td valign="middle" class="zhr-foot-logo" style="vertical-align:middle;">
-<img class="zhr-logo zhr-logo-light" src="{{ logo_src }}" width="96" height="17" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:96px;max-width:96px;height:auto;color:{{ PALETTE.primary }};font-family:{{ FONT_STACK }};font-size:14px;font-weight:700;line-height:21px;">
-<!--[if !mso]><!--><div class="zhr-logo-dark-wrap" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="zhr-logo zhr-logo-dark" src="{{ logo_dark_src }}" width="96" height="17" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:96px;max-width:96px;height:auto;color:#ffffff;font-family:{{ FONT_STACK }};font-size:14px;font-weight:700;line-height:21px;"></div><!--<![endif]-->
+<td align="center" style="padding:18px 0 0 0;text-align:center;">
+<p class="dm-text-muted" style="margin:0 0 8px 0;font-family:{{ FONT_STACK }};font-size:11px;line-height:14px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6b7280;">Powered by</p>
+<a href="{{ zhr_site_url }}" target="_blank" style="display:inline-block;text-decoration:none;" class="zhr-foot-logo">
+<img class="zhr-logo zhr-logo-light" src="{{ logo_src }}" width="128" height="22" alt="Zoiko HR" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;width:128px;max-width:128px;height:auto;color:{{ PALETTE.primary }};font-family:{{ FONT_STACK }};font-size:16px;font-weight:700;line-height:22px;">
+<!--[if !mso]><!--><div class="zhr-logo-dark-wrap" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="zhr-logo zhr-logo-dark" src="{{ logo_dark_src }}" width="128" height="22" alt="Zoiko HR" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;width:128px;max-width:128px;height:auto;color:#ffffff;font-family:{{ FONT_STACK }};font-size:16px;font-weight:700;line-height:22px;"></div><!--<![endif]-->
+</a>
+<p class="dm-text-muted" style="margin:8px 0 10px 0;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;color:#4b5563;">The connected business operations platform</p>
+<p style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;">
+<a class="dm-link" href="{{ zhr_site_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:none;font-weight:600;">zoikohr.com</a>
+<span class="dm-text-muted" style="color:#9ca3af;">&nbsp;&middot;&nbsp;</span>
+<a class="dm-link" href="{{ support_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:none;font-weight:600;">Help &amp; support</a>
+<span class="dm-text-muted" style="color:#9ca3af;">&nbsp;&middot;&nbsp;</span>
+<a class="dm-link" href="{{ zhr_terms_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:none;font-weight:600;">Terms</a>
+</p>
+<p class="dm-text-muted" style="margin:0;font-family:{{ FONT_STACK }};font-size:11px;line-height:16px;color:#6b7280;">
+<strong>Zoiko HR</strong> is operated by Zoiko Tech Inc., a Zoiko Group company.
+</p>
 </td>
 </tr>
 </table>
-<p class="dm-text-muted" style="margin:8px 0 0 0;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;color:#4b5563;">
-<strong>Zoiko HR</strong> is operated by Zoiko Tech Inc., a Zoiko Group company.
-</p>
 {% else %}
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
 <tr>

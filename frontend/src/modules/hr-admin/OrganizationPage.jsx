@@ -1,3 +1,4 @@
+import OrganizationLogoCard from "../../components/OrganizationLogoCard";
 import { useEffect, useState } from "react";
 import {
   Building2,
@@ -146,6 +147,9 @@ export default function HrAdminOrganizationPage() {
             <SummaryCard icon={ShieldCheck} label="HR administrators" value={organization.hr_admins?.toLocaleString() ?? "—"} detail="People operations access" tone="violet" />
             <SummaryCard icon={HardDrive} label="User capacity" value={organization.max_users != null ? organization.max_users.toLocaleString() : "Unlimited"} detail="Maximum organization users" tone="amber" />
           </section>
+
+          {/* the logo at the top of every email and on offer documents (QA bug 15) */}
+          <OrganizationLogoCard organizationName={organization.name} />
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <Section title="Organization details" description="Company identity and primary contact information.">

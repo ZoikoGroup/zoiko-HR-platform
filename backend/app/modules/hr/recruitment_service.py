@@ -799,6 +799,7 @@ def create_interview(db: Session, data: InterviewCreate, organization_id: Option
             cand.status = RecruitmentCandidateStatus.INTERVIEW
             db.commit()
     interview.emails_sent = notify.notify_interview(db, interview, "scheduled") if send else 0
+    notify.notify_interview_in_app(db, interview, "scheduled")
     return interview
 
 
@@ -902,13 +903,17 @@ def update_interview(db: Session, interview_id: int, data: InterviewUpdate, orga
     db.commit()
     db.refresh(interview)
     sent = 0
-    if send:
-        if interview.status == InterviewStatus.CANCELLED and previous_status != InterviewStatus.CANCELLED:
-            sent = notify.notify_interview(db, interview, "cancelled")
-        elif previous_status == InterviewStatus.CANCELLED and interview.status == InterviewStatus.SCHEDULED:
-            sent = notify.notify_interview(db, interview, "scheduled")
-        elif moved and interview.status == InterviewStatus.SCHEDULED:
-            sent = notify.notify_interview(db, interview, "rescheduled", previous_display=previous_display)
+    change = None
+    if interview.status == InterviewStatus.CANCELLED and previous_status != InterviewStatus.CANCELLED:
+        change = "cancelled"
+    elif previous_status == InterviewStatus.CANCELLED and interview.status == InterviewStatus.SCHEDULED:
+        change = "scheduled"
+    elif moved and interview.status == InterviewStatus.SCHEDULED:
+        change = "rescheduled"
+    if change and send:
+        sent = notify.notify_interview(db, interview, change, previous_display=previous_display if change == "rescheduled" else None)
+    if change:
+        notify.notify_interview_in_app(db, interview, change)
     interview.emails_sent = sent
     return interview
 

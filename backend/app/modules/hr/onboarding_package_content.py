@@ -114,8 +114,8 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     # ── v2: the person ──
     "worker.full_name_caps": ("Employee's full name in capitals", ZHR, True, None),
     "worker.initials": ("Employee's initials", ZHR, True, None),
-    "worker.address_block": ("Employee's address, one line per part", ZHR, True, None),
-    "worker.address_inline": ("Employee's address on one line", ZHR, True, None),
+    "worker.address_block": ("Employee's address, one line per part", ZHR, False, "As on record with Company"),
+    "worker.address_inline": ("Employee's address on one line", ZHR, False, "As on record with Company"),
     # ── v2: Engagement Profile ──
     "engagement.programme_name": ("Programme name", ZHR, False, ""),
     "engagement.programme_short": ("Programme short name", ZHR, False, ""),
@@ -139,7 +139,7 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "employment.pay_statement": ("Pay amount, period and pay day", ZHR, True, None),
     "employment.duties_paragraph": ("The role's duties, from its Role Profile", ZHR, True, None),
     "offer.candidate_fit_summary": ("Personal paragraph on why the candidate fits the role", ZHR, False, ""),
-    "offer.compliance_documents": ("Documents to submit before the start date", ZHR, False, ""),
+    "offer.compliance_documents": ("Documents to submit before the start date", ZHR, False, "Government-issued photo identification; Proof of address; Educational credentials; Signed agreements"),
     "document.issue_date": ("Date the document is issued", ZHR, True, None),
     "document.issue_date_legal": ("Issue date in recital form (6th day of July, 2026)", ZHR, True, None),
     "document.reference": ("Document reference", ZHR, True, None),
@@ -153,8 +153,8 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "role.performance_structure": ("Performance structure", ZHR, False, ""),
     "kpi.areas": ("KPI areas with what success looks like", ZHR, True, None),
     # ── v2: further Company Profile values used by the documents ──
-    "company.nda_non_solicit_months": ("Non-solicitation period in the NDA (months)", ZHR, True, None),
-    "company.non_solicit_months": ("Non-solicitation period after the engagement ends (months)", ZHR, True, None),
+    "company.nda_non_solicit_months": ("Non-solicitation period in the NDA (months)", ZHR, False, "12"),
+    "company.non_solicit_months": ("Non-solicitation period after the engagement ends (months)", ZHR, False, "12"),
     "company.confidentiality_duration": ("How long confidentiality lasts after the engagement", ZHR, False, "indefinitely"),
     "company.affidavit_hours": ("Hours within which the affidavit is submitted", ZHR, False, "48"),
     "company.affidavit_notary": ("Whether the affidavit is sworn before a notary", ZHR, False, ""),
@@ -173,11 +173,11 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "time.hours_logged": ("Hours worked that day, read-only from the configured time-tracking tool", ZTIME, False,
                            "Filled automatically from time records"),
     # ── blanks an organisation's own templates leave for each hire (Set up docs maps them; HR types them per hire) ──
-    "worker.degree": ("Candidate's degree or highest qualification", ZHR, True, None),
-    "worker.institution": ("Institution that awarded the degree", ZHR, True, None),
-    "worker.place": ("Town or city where the new hire signs (from their address)", ZHR, True, None),
-    "employment.assessment_end_date": ("Last day of the assessment / first phase", ZHR, True, None),
-    "employment.next_stage_title": ("Title of the stage that follows the assessment (e.g. Phase 2)", ZHR, True, None),
+    "worker.degree": ("Candidate's degree or highest qualification", ZHR, False, "Relevant qualification"),
+    "worker.institution": ("Institution that awarded the degree", ZHR, False, "Recognised institution"),
+    "worker.place": ("Town or city where the new hire signs (from their address)", ZHR, False, "the workplace"),
+    "employment.assessment_end_date": ("Last day of the assessment / first phase", ZHR, False, "completion of the assessment period"),
+    "employment.next_stage_title": ("Title of the stage that follows the assessment (e.g. Phase 2)", ZHR, False, "Confirmed Employment"),
     # the authorised signatory's signature image (Settings › Company Profile); printed only where a template has the token
     "employer.signature": ("Authorised signatory's signature (image)", ZHR, False, ""),
 }
@@ -185,6 +185,48 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
 # Standard wording printed for these clauses until the organisation saves its own (Settings › Offer package). They are
 # therefore never "missing" and never hold a document back. {party} / {engagement} are the engagement profile's terms.
 STANDARD_CLAUSES: dict[str, str] = {
+    "required_clause_block":
+        "This offer is conditional on satisfactory background verification, reference checks, and proof of right to work.",
+    "probation":
+        "The {party}'s performance and conduct will be reviewed during the assessment period. The Company may confirm, extend, or end the {engagement} in accordance with applicable notice terms.",
+    "notice_and_termination":
+        "Either party may end the {engagement} by giving the agreed written notice. The Company reserves the right to make payment in lieu of notice or require the {party} to remain on garden leave during the notice period.",
+    "equal_opportunity":
+        "The Company is an equal opportunity employer and treats all employees and applicants fairly, regardless of age, disability, gender, marital status, race, religion, or sexual orientation.",
+    "confidentiality_and_ip":
+        "All inventions, designs, copyright, code, and intellectual property created by the {party} in the course of the {engagement} belong exclusively to the Company from creation.",
+    "remedies":
+        "A breach of confidentiality, intellectual property, or non-solicitation obligations may cause irreparable harm. The Company is entitled to seek injunctive relief in addition to any other legal remedies.",
+    "employee_privacy":
+        "The Company collects and processes personal data in line with its privacy notice and applicable data protection legislation. Data is processed solely for employment and operational purposes.",
+    "governing_law":
+        "This agreement is governed by the laws of the jurisdiction of employment, and the competent courts of that jurisdiction have exclusive authority over any dispute.",
+    "working_time":
+        "Normal working hours, overtime arrangements, and rest breaks comply with the Company's working time standards and applicable legal limits.",
+    "leave_and_holiday":
+        "Annual leave, public holidays, and statutory leaves accrue and must be booked in accordance with the Company's leave policy.",
+    "sickness_and_protected_leave":
+        "Sickness absence must be reported promptly under the Company's sickness policy. Statutory leaves and sick pay apply in accordance with law.",
+    "benefits_and_training":
+        "Company benefits and mandatory training programmes apply as set out in applicable policies and plan rules in effect from time to time.",
+    "outside_employment":
+        "The {party} must devote working time to the Company and must not undertake outside work or business interests that conflict with their duties without prior written consent.",
+    "policy_status":
+        "Company policies and handbooks provide guidance on operational practices and do not form part of the employment contract unless expressly stated.",
+    "grievance_and_discipline":
+        "Grievances and disciplinary issues are handled under the Company's standard grievance and disciplinary procedures, ensuring fairness and the right to be accompanied.",
+    "legal_precedence":
+        "Mandatory employment protections provided by applicable law prevail over any conflicting provision in this agreement.",
+    "outside_employment_lawful_scope":
+        "This declaration covers secondary employment, consultancy, directorships, and commercial engagements that could conflict with full-time commitment to the Company.",
+    "false_statement_consequences":
+        "Making a deliberately false or misleading statement in this affidavit constitutes serious misconduct and may result in disciplinary action up to termination of engagement.",
+    "applicant_privacy_notice":
+        "Applicant personal information is collected for recruitment assessment, reference checking, and onboarding administration, in compliance with applicable privacy regulations.",
+    "special_category_data_notice":
+        "Special category data provided on this form is processed strictly for equal opportunities monitoring, statutory compliance, and reasonable adjustment purposes in accordance with applicable data protection laws. It is stored securely with restricted access and retained only as long as necessary for these lawful purposes.",
+    "ethnicity_categories":
+        "Asian / Asian British\nBlack / African / Caribbean / Black British\nMixed / Multiple ethnic groups\nWhite\nOther ethnic group\nPrefer not to say",
     "conflict_of_opportunities":
         "Any business opportunity within the Company's field of business that the {party} learns of through the {engagement} "
         "belongs to the Company. The {party} will offer it to the Company first and will not pursue it, personally or through "
@@ -196,7 +238,6 @@ STANDARD_CLAUSES: dict[str, str] = {
     "non_competition":
         "While the {engagement} continues, the {party} will not, without the Company's written consent, work for or provide "
         "services to a business that competes with the Company.{non_compete_after}",
-    # a protection for the person only (it takes nothing away from them), so it is safe as the standard wording everywhere
     "protected_disclosure_and_whistleblowing":
         "Nothing in this document stops the {party} from reporting a possible breach of the law to a regulator, a government "
         "or law-enforcement authority or any other person the law protects such a report to, from making any disclosure that "
@@ -944,6 +985,8 @@ def blocks_for(category: str) -> list[dict]:
     """The platform default content of a package document. v2: the platform starter template (seeds/content/HR-PKG, written
     from the builders and proved identical by tests/hr/test_package_starters_parity.py); the builder only when no starter
     exists. v1 (ONBOARDING_PACKAGE_V2=false): the v1 builders, as before."""
+    if category not in DOCS:
+        return []
     if V2:
         from app.modules.doc_templates import package_templates as PT
         blocks = PT.starter_package_blocks(category)

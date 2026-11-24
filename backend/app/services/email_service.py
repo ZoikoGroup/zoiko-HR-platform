@@ -279,6 +279,9 @@ def _layout_context(branding: dict, context: dict, org_logo=None, org_logo_url: 
         "org_logo_height": org_logo[2] if org_logo else 0,
         "tenant_name": branding.get("tenant_name", ""),
         "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://app.zoikohr.com/contact",
+        # the Zoiko HR band at the foot of an organization's emails
+        "zhr_site_url": PRODUCTION_APP_URL,
+        "zhr_terms_url": f"{PRODUCTION_APP_URL}/terms",
         "lang": locale,
         "dir": "rtl" if primary_lang in _RTL_LANGUAGES else "ltr",
         "delivery_class": str(context.get("delivery_class") or "A").upper(),

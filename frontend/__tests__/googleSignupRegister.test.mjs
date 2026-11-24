@@ -1,6 +1,7 @@
 /** After "Continue with Google" for a person with no account: the Register page opens with their Google email filled in, and the
  * organization they register starts with the address already confirmed. */
 import "./support/setup-jsdom.mjs";
+import { chooseOption } from "./support/searchableSelect.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -49,10 +50,10 @@ const labelled = (label) => {
 };
 const type = (label, value) => fireEvent.change(labelled(label), { target: { value } });
 // B7-B13: a valid Indian organization (country first: the phone and the GSTIN are checked for it)
-const fillOrganization = (registered) => {
+const fillOrganization = async (registered) => {
   type("Organization Name", "Acme Inc."); type("Organization Type", "partnership");
   if (registered) type("Registered Email", registered);
-  type("Country", "India");
+  await chooseOption("reg-country", "India");             // the country is a searchable dropdown
   fireEvent.change(document.getElementById("reg-phone"), { target: { value: "98765 43210" } });
   type("GSTIN", "27AAPFU0939F1ZV"); type("Address", "1 Main Road");
 };
@@ -74,7 +75,7 @@ test("the admin step uses the Google name and email, and the email cannot be cha
   await open(t, GOOGLE_URL);
   fireEvent.click(screen.getByText("Core"));
   await next();
-  fillOrganization();
+  await fillOrganization();
   await next();
   assert.equal(labelled("Admin Name").value, "Lee Park");
   assert.equal(labelled("Admin Email").value, "lee.park@gmail.com");
@@ -86,7 +87,7 @@ test("registering sends Google's proof, and the success page says the address is
   const calls = await open(t, GOOGLE_URL);
   fireEvent.click(screen.getByText("Core"));
   await next();
-  fillOrganization();
+  await fillOrganization();
   await next();
   type("Password", "Passw0rd1");
   fireEvent.click(document.getElementById("termsAccepted"));
@@ -104,7 +105,7 @@ test("Google sign-in keeps OTP verification when the registered email is differe
   const calls = await open(t, GOOGLE_URL);
   fireEvent.click(screen.getByText("Core"));
   await next();
-  fillOrganization("finance@gmail.com");
+  await fillOrganization("finance@gmail.com");
   await next();
   type("Password", "Passw0rd1");
   fireEvent.click(document.getElementById("termsAccepted"));

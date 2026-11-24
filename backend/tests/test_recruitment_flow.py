@@ -335,3 +335,33 @@ def test_interview_result_email_templates_render():
         **base, "subject": "s", "recipient_name": "Hana", "cleared": False, "result_label": "Not selected", "rating": 3,
         "recorded_by": "Alex T", "candidate_emailed": True, "review_url": "https://app.example.com/zoiko-hr/recruitment/interviews"})
     assert "Not selected" in internal.text and "3 / 5" in internal.text and "moved to Rejected" in internal.text
+
+
+def _bell(env, person) -> list:
+    from app.modules.super_admin.models import Notification, NotificationTarget
+    return [n.title for n in env.db.query(Notification).join(NotificationTarget, NotificationTarget.notification_id == Notification.id)
+            .filter(NotificationTarget.kind == "user", NotificationTarget.ref == str(person.id))]
+
+
+def test_admins_hr_and_the_interviewer_see_the_interview_in_their_notifications(env):
+    """QA bug 13: scheduling, moving or cancelling an interview reaches the organisation admins, HR admins and the
+    interviewer in-app (the bell), also when the calendar e-mails are switched off."""
+    cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": "Sam Rivera", "email": "sam@mail.com", "position": "Dev"}))
+    iv = _ok(env.c.post("/hr/recruitment/interviews", json={
+        "candidate_id": cand["id"], "interviewer_id": env.interviewer.id, "interview_type": "video", "interview_date": FUTURE,
+        "start_time": "10:00", "end_time": "11:00", "timezone": "Asia/Kolkata", "notify": False}))
+    assert iv["emails_sent"] == 0                                    # no calendar e-mails were asked for ...
+    for person in (env.admin, env.hr, env.interviewer):              # ... and still everyone is told in-app
+        assert _bell(env, person).count("Interview scheduled") == 1, person.email
+    from app.modules.super_admin.models import Notification
+    note = env.db.query(Notification).filter(Notification.title == "Interview scheduled").first()
+    assert "Video call with Sam Rivera for Dev" in note.message and note.link == "/zoiko-hr/recruitment/interviews"
+    _ok(env.c.put(f"/hr/recruitment/interviews/{iv['id']}", json={"interview_date": LATER}))
+    _ok(env.c.put(f"/hr/recruitment/interviews/{iv['id']}", json={"status": "cancelled"}))
+    for person in (env.admin, env.hr, env.interviewer):
+        titles = _bell(env, person)
+        assert "Interview rescheduled" in titles and "Interview cancelled" in titles, (person.email, titles)
+    # editing something that is not the schedule does not notify again
+    before = len(_bell(env, env.admin))
+    _ok(env.c.put(f"/hr/recruitment/interviews/{iv['id']}", json={"location": "Room 2"}))
+    assert len(_bell(env, env.admin)) == before

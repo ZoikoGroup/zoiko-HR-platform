@@ -22,6 +22,10 @@ async function mount(t, profile) {
     getOnboardingProfiles: async () => ({ engagement_profiles: [] }),
     prefillCompanyProfile: async () => ({ proposal: {} }),
     saveCompanyProfile: async () => ({ fields: FIELDS, profile }),
+    // Company Profile also shows the logo and signature cards (shared with Offer package)
+    getOfferPackageLogo: async () => null, uploadOfferPackageLogo: async () => ({}), deleteOfferPackageLogo: async () => ({}),
+    getOfferPackageSignature: async () => null, uploadOfferPackageSignature: async () => ({}), deleteOfferPackageSignature: async () => ({}),
+    getOfferPackageSettings: async () => ({}), getOfferPackageTemplateSet: async () => ({}), saveOfferPackageSettings: async () => ({}),
   } });
   const { default: CompanyProfileSettings, jurisdictionCityChoices } = await import(`../src/modules/zoiko-hr/onboarding/CompanyProfileSettings.jsx?t=${Math.random()}`);
   render(React.createElement(CompanyProfileSettings));
@@ -34,7 +38,8 @@ test("the jurisdiction city is a styled select with the registered city and the 
   const box = document.getElementById("cp-jurisdiction_city");
   const country = document.getElementById("cp-jurisdiction_country");
   assert.equal(box.tagName, "SELECT");
-  assert.equal(box.className, country.className, "same look as the country dropdown");
+  // the country is now a searchable dropdown (a button with the same field classes plus its own layout)
+  assert.ok(country.className.startsWith(box.className), "same look as the country dropdown");
   assert.equal(box.getAttribute("list"), null);
   assert.equal(document.querySelector("datalist#cp-in-cities-jurisdiction_city"), null);
   const options = [...box.options].map((o) => o.value);

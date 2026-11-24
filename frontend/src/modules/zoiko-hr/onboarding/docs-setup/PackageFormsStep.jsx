@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
 import { addDocsSetupChange, decideDocsSetupProposal, getDocsSetupProposals } from "../../../../service/docsSetupService";
 import { Banner, errorText, formatValue, inputCls } from "./shared";
+import SearchableSelect from "../../../../components/SearchableSelect";
+import { categoryOptions, documentOptions } from "../../../../utils/documentRequestChoices";
 
 const TARGET = "request_category";
 
@@ -63,12 +65,19 @@ export default function PackageFormsStep({ session }) {
         </ul>
         <div className="grid gap-2 rounded-xl bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <div>
+            {/* dropdowns of the usual categories and documents (QA bug 14); typing something else still works */}
             <label htmlFor="pf-cat" className="mb-1 block text-xs font-semibold text-gray-600">Category</label>
-            <input id="pf-cat" className={inputCls} value={cat.label} placeholder="e.g. Driving licence" onChange={(e) => setCat((c) => ({ ...c, label: e.target.value }))} />
+            <SearchableSelect id="pf-cat" className={inputCls} value={cat.label} placeholder="Choose a category" allowCustom allowEmpty
+              options={categoryOptions(items.map((p) => (p.final_value ?? p.proposed_value)?.label).filter(Boolean))}
+              onChange={(v) => setCat((c) => ({ label: v, description: c.label === v ? c.description : "" }))}
+              searchLabel="Search categories" listLabel="Categories" searchPlaceholder="Search or type a new category" />
           </div>
           <div>
             <label htmlFor="pf-cat-desc" className="mb-1 block text-xs font-semibold text-gray-600">What to upload</label>
-            <input id="pf-cat-desc" className={inputCls} value={cat.description} onChange={(e) => setCat((c) => ({ ...c, description: e.target.value }))} />
+            <SearchableSelect id="pf-cat-desc" className={inputCls} value={cat.description} placeholder="Choose what to upload" allowCustom allowEmpty
+              emptyLabel="Nothing specific" options={documentOptions(cat.label)}
+              onChange={(v) => setCat((c) => ({ ...c, description: v }))}
+              searchLabel="Search documents" listLabel="Documents" searchPlaceholder="Search or type a document" />
           </div>
           <button type="button" onClick={addCat} disabled={busy || !cat.label.trim()}
             className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Plus className="h-4 w-4" />Add</button>

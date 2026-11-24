@@ -39,7 +39,7 @@ export const IMAGE_CARDS = {
 };
 
 /** An image the documents print: preview, upload or replace, remove. */
-function ImageCard({ kind, hasImage, onChanged, onMessage }) {
+export function ImageCard({ kind, hasImage, onChanged, onMessage }) {
   const cfg = IMAGE_CARDS[kind];
   const hasLogo = hasImage;
   const [url, setUrl] = useState("");

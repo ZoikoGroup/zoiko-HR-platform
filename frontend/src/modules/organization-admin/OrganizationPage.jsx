@@ -3,6 +3,7 @@ import { getOrganizationDetails, updateOrganizationDetails } from "../../service
 import { X, CheckCircle, AlertTriangle } from "lucide-react";
 import { formatDate } from "../../utils/dateTime";
 import { resolveCurrencyForCountry } from "../../utils/appCurrency";
+import OrganizationLogoCard from "../../components/OrganizationLogoCard";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@600;700&display=swap');
@@ -575,6 +576,11 @@ export default function OrgAdminOrganizationPage() {
               <DetailRow label="Registration Date" value={regDate} mono />
             </div>
           </div>
+        </div>
+
+        {/* the logo at the top of every email and on offer documents (QA bug 15) */}
+        <div className="rise" style={{ marginBottom: 16, animationDelay: ".28s" }}>
+          <OrganizationLogoCard organizationName={org.name} />
         </div>
 
         <div className="glass rise" style={{ marginBottom: 16, animationDelay: ".3s" }}>

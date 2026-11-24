@@ -438,12 +438,35 @@ def candidates(db, org: int, today: date) -> dict:
                db.query(applied_at).filter(scope, applied_at >= min(first_week, prev_w[0]),
                                            applied_at <= max(last_week, cur_w[1] - timedelta(days=1))).all()]
 
-    def stage(key):          # a count "now" — no honest previous value exists for a stage, so no trend is claimed
+    def stage(key, series=None):
+        # The value is a count "now". No honest previous value exists for a stage, so no trend percentage is claimed; the
+        # line shows the stage's weekly activity from dated records (QA bug 8: every card but Total had no graph).
         return {"value": by_status.get(key, 0), "current": None, "previous": None, "change_pct": None, "window": None,
-                "series": None, "better": "up"}
+                "series": series, "better": "up"}
+
+    def dated(model, column, *conditions):
+        return [_day(d) for (d,) in db.query(column).filter(model.organization_id == org, column >= first_week, *conditions).all()]
+
+    # interviews scheduled, offers made and hires per week
+    interviews = dated(RecruitmentInterview, RecruitmentInterview.created_at)
+    offers = dated(RecruitmentOffer, RecruitmentOffer.created_at)
+    hires = dated(RecruitmentCandidate, RecruitmentCandidate.hired_at)
+    # rejections per week: a candidate keeps no rejection date, so the last change of a rejected candidate stands for it
+    rejected_on = [_day(d) for (d,) in db.query(func.coalesce(RecruitmentCandidate.updated_at, applied_at)).filter(
+        scope, RecruitmentCandidate.status == RecruitmentCandidateStatus.REJECTED).all()]
+    # the pipeline at the end of each week: applied by then, not yet hired or rejected by then
+    people = [(_day(a), _day(h), _day(r) if s == RecruitmentCandidateStatus.REJECTED else None) for a, h, r, s in
+              db.query(applied_at, RecruitmentCandidate.hired_at, func.coalesce(RecruitmentCandidate.updated_at, applied_at),
+                       RecruitmentCandidate.status).filter(scope).all()]
+    week_ends = [min(first_week + timedelta(weeks=i, days=6), today) for i in range(WEEKS)]
+    pipeline = [sum(1 for a, h, r in people if a is not None and a <= end and not (h and h <= end) and not (r and r <= end))
+                for end in week_ends]
     kpis = {"total": _kpi(total, _count_in(applied, cur_w), _count_in(applied, prev_w), _weekly_counts(applied, today)),
-            "active": {**stage("_"), "value": sum(n for status, n in by_status.items() if status not in ("hired", "rejected"))},
-            "interview": stage("interview"), "offer": stage("offer"), "hired": stage("hired"), "rejected": stage("rejected")}
+            "active": {**stage("_", pipeline), "value": sum(n for status, n in by_status.items() if status not in ("hired", "rejected"))},
+            "interview": stage("interview", _weekly_counts(interviews, today)),
+            "offer": stage("offer", _weekly_counts(offers, today)),
+            "hired": stage("hired", _weekly_counts(hires, today)),
+            "rejected": stage("rejected", _weekly_counts(rejected_on, today))}
     sources = db.query(RecruitmentCandidate.source).filter(
         scope, RecruitmentCandidate.source.isnot(None), RecruitmentCandidate.source != "",
     ).distinct().all()
@@ -503,9 +526,11 @@ def onboarding(db, org: int, today: date) -> dict:
                                      _weekly_counts(item_done, today)),
         "completed": _kpi(_count_in(done, month), _count_in(done, month), _count_in(done, prev_month), _weekly_counts(done, today),
                           window="month"),
-        # a count "now": no honest previous value, so no trend is claimed
+        # a count "now": no honest previous value, so no trend is claimed; the line is the forms submitted for
+        # verification each week (QA bug 8: the card drew no graph)
         "payroll_to_verify": {"value": len(forms_waiting), "current": None, "previous": None, "change_pct": None, "window": None,
-                              "series": None, "better": "down"},
+                              "series": _weekly_counts([_day(f.submitted_at) for f in forms if f.submitted_at], today),
+                              "better": "down"},
     }
 
     by_status = Counter(h.status for h in hires)

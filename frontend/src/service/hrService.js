@@ -384,7 +384,6 @@ export const getAssetCategories = () => api.get("/hr/assets/categories");
 export const createAssetCategory = (payload) => api.post("/hr/assets/categories", payload);
 export const updateAssetCategory = (catId, payload) => api.put(`/hr/assets/categories/${catId}`, payload);
 export const deleteAssetCategory = (catId) => api.delete(`/hr/assets/categories/${catId}`);
-export const transferAsset = (assetId, payload) => api.put(`/hr/assets/${assetId}/transfer`, payload);
 export const assignAsset = (assetId, payload) => api.put(`/hr/assets/${assetId}/assign`, payload);
 export const returnAsset = (assetId, payload) => api.put(`/hr/assets/${assetId}/return`, payload);
 

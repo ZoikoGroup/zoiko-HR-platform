@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import asc, desc, or_
+from sqlalchemy import and_, asc, desc, or_
 from sqlalchemy.orm import Session
 
 from app.core.pagination import Page
@@ -96,10 +96,16 @@ def base_query(db: Session, actor, f: RecordFilter):
     if f.employee_id:
         q = q.filter(AttendanceRecord.employee_id == f.employee_id)
     if f.search and f.search.strip():
-        like = f"%{f.search.strip()}%"
-        q = q.filter(or_(Employee.first_name.ilike(like), Employee.last_name.ilike(like), Employee.employee_code.ilike(like),
-                         Department.name.ilike(like)))
+        q = q.filter(words_match(f.search, Employee.first_name, Employee.last_name, Employee.employee_code, Department.name))
     return q
+
+
+def words_match(text: str, *columns):
+    """Every typed word must be found (any letter case) in one of `columns`, in any order: "karthik rao", "Rao Karthik"
+    and "rao qa" all find Karthik Rao of QA (QA bug 11: the whole text was compared with each column on its own, so a full
+    name never matched). % and _ are taken literally. At most 6 words count."""
+    words = [w for w in str(text or "").split() if w][:6]
+    return and_(*[or_(*[c.icontains(w, autoescape=True) for c in columns]) for w in words]) if words else and_(True)
 
 
 def _hhmm(value: Optional[datetime]) -> Optional[str]:

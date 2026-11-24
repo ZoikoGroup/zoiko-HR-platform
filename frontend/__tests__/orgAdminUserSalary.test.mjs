@@ -3,6 +3,7 @@
  * derived from their registered country — never one org-wide currency.
  */
 import "./support/setup-jsdom.mjs";
+import { chooseOption } from "./support/searchableSelect.mjs";
 import { withQuery } from "./support/queryWrapper.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -100,7 +101,7 @@ test("the Add form names the salary currency from the entered country", async (t
   await open(t);
   fireEvent.click(screen.getAllByRole("button", { name: /Add User/ })[0]);
   await settle();
-  fireEvent.change(screen.getByLabelText(/^Country/), { target: { value: "Germany" } });
+  await chooseOption(screen.getByLabelText(/^Country/), "Germany");
   await settle();
   assert.match(document.body.textContent, /Amounts in .*\(EUR\)/);
 });
@@ -111,12 +112,12 @@ test("statutory fields relabel with the entered country", async (t) => {
   await settle();
   // No country yet: generic labels.
   assert.ok(screen.getByLabelText(/^Tax identification number/));
-  fireEvent.change(screen.getByLabelText(/^Country/), { target: { value: "India" } });
+  await chooseOption(screen.getByLabelText(/^Country/), "India");
   await settle();
   assert.ok(screen.getByLabelText(/^PAN/));
   assert.ok(screen.getByLabelText(/^UAN/));
   assert.ok(screen.getByLabelText(/^IFSC code/));
-  fireEvent.change(screen.getByLabelText(/^Country/), { target: { value: "United States" } });
+  await chooseOption(screen.getByLabelText(/^Country/), "United States");
   await settle();
   assert.ok(screen.getByLabelText(/^SSN/));
   assert.ok(screen.getByLabelText(/^Routing number/));

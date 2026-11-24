@@ -358,3 +358,27 @@ def test_offer_letter_snapshot_text(world):
                      "Monday to Friday, 09:00 to 17:30", "Please review this offer and accept or decline it using the secure link",
                      "This letter sets out the main terms of our offer"):
         assert expected in text, expected
+
+
+def test_sending_an_offer_without_a_start_date_says_so_and_cancels_nothing(world):
+    """QA bug 18: Send cancelled the current letter first and only then found the start date missing, so every click
+    left another cancelled letter and the reason never showed. Now the missing information is named and nothing changes."""
+    cand, o = _ready_offer(world, joining_date=None)
+    assert world.post("a_admin", f"/hr/recruitment/offers/{o['id']}/approve", json={"comment": "ok"}).status_code == 200
+    before = {d.id: d.status for d in world.db.query(GeneratedDocument).filter(GeneratedDocument.organization_id == 1)}
+    for _ in range(2):                                   # clicking again changes nothing either
+        r = world.post("a_hr", f"/hr/recruitment/offers/{o['id']}/letter/send")
+        assert r.status_code == 409, r.text
+        body = r.json()
+        detail = body.get("detail", body)
+        assert detail["code"] == "OFFER_INFORMATION_MISSING" and "employment.start_date" in detail["missing_fields"]
+        assert "start date" in detail["message"].lower()
+    world.db.expire_all()
+    after = {d.id: d.status for d in world.db.query(GeneratedDocument).filter(GeneratedDocument.organization_id == 1)}
+    assert after == before, "no letter was cancelled or created"
+    # with the start date the letter goes out
+    offer = world.db.get(RecruitmentOffer, o["id"])
+    offer.joining_date = date.today() + timedelta(days=30)
+    world.db.commit()
+    r = world.post("a_hr", f"/hr/recruitment/offers/{o['id']}/letter/send")
+    assert r.status_code == 200, r.text

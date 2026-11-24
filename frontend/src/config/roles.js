@@ -255,6 +255,8 @@ export const ROLE_DISALLOWED_PREFIXES = {
   // (A manager's own onboarding tasks are on their dashboard, not under /zoiko-hr/onboarding.)
   [ROLES.MANAGER]: [
     "/zoiko-hr/onboarding",
+    // Recruitment settings are HR's (the privacy-settings API refuses managers)
+    "/zoiko-hr/recruitment/settings",
     // the Offboarding module is HR's; a manager decides a direct report's resignation in Offboarding Tasks
     "/zoiko-hr/offboarding",
     "/zoiko-hr/workforce-planning/job-descriptions",

@@ -8,6 +8,7 @@ import { useAuth } from "../../context/AuthContext";
 import { importEmployees, downloadImportTemplate, getImportTemplateCountries, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import PhoneField from "../../components/PhoneField";
+import SearchableSelect from "../../components/SearchableSelect";
 import { COUNTRY_CHOICES, regionsFor, bankAccountInputFilter, countryIso, isIbanCountry, postalExample } from "../../utils/fieldRules";
 import { validateUserForm, userFieldProblem, changedFields, firstInvalid, ADD_REQUIRED, EDIT_REQUIRED } from "../../utils/userFormRules";
 import { serverAddEmployeeErrors } from "../../utils/addEmployeeForm";
@@ -269,13 +270,24 @@ function UserFormField({ f, prefix, form, setForm, errors, setErrors, roleOption
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
       </div>
     );
-  } else if (f.options || f.name === "country" || states) {
-    const options = f.options || (f.name === "country" ? COUNTRY_CHOICES.map((c) => [c.name, c.name]) : states.map((s) => [s, s]));
+  } else if (f.name === "country" || states) {
+    // long lists: searchable (QA bugs 3 / 4)
+    const list = f.name === "country" ? COUNTRY_CHOICES.map((c) => ({ value: c.name, label: c.name, keywords: [c.code] }))
+      : states.map((s) => ({ value: s, label: s }));
+    control = (
+      <SearchableSelect id={id} value={value} onChange={setValue} onBlur={blur} disabled={disabled} className={cls} options={list} allowEmpty
+        placeholder={f.blank || (f.name === "country" ? "Select a country" : "Select a state/region")}
+        invalid={invalid} describedBy={invalid ? errorId : undefined}
+        searchLabel={f.name === "country" ? "Search countries" : "Search states"} listLabel={f.name === "country" ? "Countries" : "States"}
+        searchPlaceholder={f.name === "country" ? "Search country" : "Search state / region"} />
+    );
+  } else if (f.options) {
+    const options = f.options;
     const known = !value || options.some(([v]) => v === value);
     control = (
       <div className="relative">
         <select id={id} value={value} onChange={set} onBlur={blur} disabled={disabled} className={`${cls} appearance-none pr-9`} {...a11y}>
-          <option value="">{f.blank || (f.name === "country" ? "Select a country" : f.name === "state" ? "Select a state/region" : "Select…")}</option>
+          <option value="">{f.blank || "Select…"}</option>
           {!known && <option value={value}>{value}</option>}
           {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>

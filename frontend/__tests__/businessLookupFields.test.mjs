@@ -4,6 +4,7 @@ import "./support/setup-jsdom.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React, { useState } from "react";
+import { chooseOption, optionTexts } from "./support/searchableSelect.mjs";
 import { readFileSync } from "node:fs";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
@@ -33,25 +34,28 @@ async function mount(t, initial, lookups = []) {
   return { get value() { return latest; } };
 }
 
-const countrySelect = () => screen.getAllByRole("combobox")[0];
+// the country and the state are searchable dropdowns (buttons); the ID type stays a plain <select>
+const countryButton = () => screen.getByRole("button", { name: "Registered in" });
+const idTypeSelect = () => screen.getAllByRole("combobox")[0];
 
 test("India: GSTIN / CIN / PAN, a state list and PIN code; no register lookup", async (t) => {
   await mount(t, { entity_country: "IN", entity_id_type: "gstin" });
   assert.ok(screen.getByText("GSTIN", { selector: "label" }));
-  assert.deepEqual([...screen.getAllByRole("combobox")[1].options].map((o) => o.textContent), ["GSTIN", "CIN (company)", "PAN", "LLPIN (LLP)"]);
+  assert.deepEqual([...idTypeSelect().options].map((o) => o.textContent), ["GSTIN", "CIN (company)", "PAN", "LLPIN (LLP)"]);
   assert.ok(screen.getByText("State / UT") && screen.getByText("PIN code"));
-  assert.ok(screen.getByRole("option", { name: "Maharashtra" }));
+  assert.ok((await optionTexts(screen.getByRole("button", { name: "State / UT" }))).includes("Maharashtra"));
   assert.equal(screen.queryByRole("button", { name: /Look up/ }), null);
   assert.match(document.body.textContent, /No public register/);
 });
 
 test("switching to the US brings EIN, ZIP code and the US states, and checks the formats as you type", async (t) => {
   const h = await mount(t, { entity_country: "IN", entity_id_type: "gstin", entity_region: "Goa" });
-  fireEvent.change(countrySelect(), { target: { value: "US" } });
+  await chooseOption(countryButton(), "United States");
   await settle();
   assert.equal(h.value.entity_id_type, "ein");
   assert.equal(h.value.entity_region, "", "an Indian state does not carry over to the US");
-  assert.ok(screen.getByText("EIN", { selector: "label" }) && screen.getByText("ZIP code") && screen.getByRole("option", { name: "California" }));
+  assert.ok(screen.getByText("EIN", { selector: "label" }) && screen.getByText("ZIP code"));
+  assert.ok((await optionTexts(screen.getByRole("button", { name: "State" }))).includes("California"));
   fireEvent.change(screen.getByPlaceholderText("12-3456789"), { target: { value: "123" } });
   assert.match(document.body.textContent, /doesn't look like a valid EIN/);
   fireEvent.change(screen.getByPlaceholderText("12-3456789"), { target: { value: "12-3456789" } });
@@ -74,7 +78,7 @@ test("an EU VAT number can be looked up and fills the name and address", async (
 test("Australia offers ABN (looked up) and ACN (not)", async (t) => {
   await mount(t, { entity_country: "AU", entity_id_type: "abn" });
   assert.ok(screen.getByRole("button", { name: /Look up/ }));
-  fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "acn" } });
+  fireEvent.change(idTypeSelect(), { target: { value: "acn" } });
   await settle();
   assert.equal(screen.queryByRole("button", { name: /Look up/ }), null);
   assert.ok(screen.getByText("Postcode") && screen.getByText("State / territory"));

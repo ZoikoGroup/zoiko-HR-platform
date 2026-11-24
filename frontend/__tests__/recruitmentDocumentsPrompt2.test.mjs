@@ -120,10 +120,11 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
   render(React.createElement(MemoryRouter, null, React.createElement(Candidates)));
   await settle();
 
-  fireEvent.click(screen.getByRole("button", { name: "Privacy notice status for Ari Applicant" }));
-  await settle();
-  assert.equal(calls.privacy, 1);
-  assert.ok(screen.getByText(/Notice issued/));
+  // the row offers View details (the profile shows the privacy notice); the list no longer loads it row by row
+  assert.ok(screen.getByRole("button", { name: "View details of Ari Applicant" }));
+  assert.ok(screen.getByRole("button", { name: "Edit Ari Applicant" }));
+  assert.equal(screen.queryByText(/No issued notice|Notice issued/), null);
+  assert.equal(calls.privacy, 0);
 
   fireEvent.click(screen.getByRole("checkbox", { name: "Select Ari Applicant for bulk rejection" }));
   fireEvent.click(screen.getByRole("button", { name: /Preview bulk rejection/ }));
