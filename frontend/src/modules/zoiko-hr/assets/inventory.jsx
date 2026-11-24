@@ -39,6 +39,7 @@ export default function Inventory() {
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [showAssign, setShowAssign] = useState(null);
+  const [showReturn, setShowReturn] = useState(null);
   const [assignEmployeeId, setAssignEmployeeId] = useState("");
   const [assigning, setAssigning] = useState(false);
 
@@ -287,15 +288,8 @@ export default function Inventory() {
                           {a.status === "assigned" && a.employee_id && (
                             <>
                               {/* QA bug 20: no Transfer; return it to the organization, then assign it again */}
-                              <button onClick={async () => {
-                                if (!window.confirm("Return this asset?")) return;
-                                try {
-                                  await returnAsset(a.id, { reason: "Manual return" });
-                                  await fetchData();
-                                } catch (err) {
-                                  setError(err.message || "Failed to return asset");
-                                }
-                              }} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors rounded hover:bg-green-50" title="Unassign">&#8617;</button>
+                              <button type="button" onClick={() => setShowReturn(a)} aria-label={`Return ${name} (${tag})`}
+                                className="p-1.5 text-gray-400 hover:text-green-600 transition-colors rounded hover:bg-green-50" title="Return to organization">&#8617;</button>
                             </>
                           )}
                           <button onClick={() => handleDelete(a.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors rounded hover:bg-red-50" title="Delete">&#10005;</button>
@@ -427,6 +421,11 @@ export default function Inventory() {
             </form>
           </div>
         </div>
+      )}
+
+      {showReturn && (
+        <ReturnAssetDialog asset={showReturn} onClose={() => setShowReturn(null)}
+          onReturned={async () => { setShowReturn(null); await fetchData(); }} />
       )}
 
       {showAssign && (

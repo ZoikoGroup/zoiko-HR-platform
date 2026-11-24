@@ -7,7 +7,7 @@
  *
  * Shows a preview of an email header (logo + organisation name), and lets an admin upload, replace or remove the logo.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ImagePlus, Loader2, Mail, Trash2 } from "lucide-react";
 import { deleteOfferPackageLogo, getOfferPackageLogo, uploadOfferPackageLogo } from "../service/hrService";
 
@@ -15,8 +15,9 @@ const TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_MB = 2;
 
 export default function OrganizationLogoCard({ organizationName, className = "" }) {
+  const titleId = useId();
   const [url, setUrl] = useState("");
-  const [state, setState] = useState("loading");      // loading | none | ready
+  const [state, setState] = useState("loading");      // loading | none | ready | error
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);                 // { tone: ok | error, text }
   const [rev, setRev] = useState(0);
@@ -33,7 +34,12 @@ export default function OrganizationLogoCard({ organizationName, className = "" 
         if (res?.blob) { objectUrl = URL.createObjectURL(res.blob); setUrl(objectUrl); setState("ready"); }
         else { setUrl(""); setState("none"); }
       })
-      .catch(() => { if (live) { setUrl(""); setState("none"); } });          // 404: no logo yet
+      .catch((e) => {
+        if (!live) return;
+        setUrl("");
+        if (e?.status === 404) { setState("none"); setMsg(null); }
+        else { setState("error"); setMsg({ tone: "error", text: e?.message || "The logo could not be loaded." }); }
+      });
     return () => { live = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [rev]);
 
