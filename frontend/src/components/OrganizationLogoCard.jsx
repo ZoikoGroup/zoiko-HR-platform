@@ -96,7 +96,7 @@ export default function OrganizationLogoCard({ organizationName, className = "" 
             {state === "loading" ? <Loader2 className="h-5 w-5 animate-spin text-slate-400" aria-label="Loading the logo" />
               : state === "ready" ? <img src={url} alt={`${name} logo`} className="object-contain"
                 style={{ display: "block", width: "auto", height: "auto", maxWidth: 160, maxHeight: 64 }} />
-                : <span className="px-2 text-center text-xs text-slate-400">No logo yet</span>}
+                : <span className="px-2 text-center text-xs text-slate-400">{state === "error" ? "Logo unavailable" : "No logo yet"}</span>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className={`inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 ${busy ? "pointer-events-none opacity-60" : ""}`}>
