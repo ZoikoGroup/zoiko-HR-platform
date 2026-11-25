@@ -21,7 +21,7 @@
    "roles": [
     "admin"
    ],
-   "about": "A live record of your organization's identity, plan, and workforce. · View audit log · Core identity information · Plan, status and account limits · Where this organization is registered — details given while registering · Update your organization details · IBM Plex Mono · Across your organization · Seats Over Limit"
+   "about": "A live record of your organization's identity, plan, and workforce. · View audit log · Core identity information · Plan, status and account limits · Where this organization is registered — details given while registering · Update your organization details · IBM Plex Mono · Across your organization · Seats Over Limit · Remove the logo? · Powered by Zoiko HR · Upload the logo as a PNG, JPG or WebP image. · Logo saved. Emails and new documents show it from now on. · Logo removed. Emails show your organisation's name on its own."
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -77,7 +77,7 @@
    "roles": [
     "hr_admin"
    ],
-   "about": "Organization profile, workforce and account details. · Company identity and primary contact information. · Location & regional settings · The region and formats used for your organization. · Organization details are unavailable · Organization details could not be loaded. · Code not set · People operations access · Maximum organization users · State or province · Payment Overdue — Recovery in Progress · Payment Overdue — Expansion Restricted · Payment Overdue — Services Restricted · Payment Overdue — Termination Imminent · Your subscription payment is overdue. Recovery is still in progress — update your payment method to avoid service restrictions."
+   "about": "Organization profile, workforce and account details. · Company identity and primary contact information. · Location & regional settings · The region and formats used for your organization. · Organization details are unavailable · Organization details could not be loaded. · Code not set · People operations access · Maximum organization users · State or province · Remove the logo? · Powered by Zoiko HR · Upload the logo as a PNG, JPG or WebP image. · Logo saved. Emails and new documents show it from now on. · Logo removed. Emails show your organisation's name on its own. · Payment Overdue — Recovery in Progress · Payment Overdue — Expansion Restricted · Payment Overdue — Services Restricted"
   },
   {
    "section": "HR ADMIN",
@@ -613,7 +613,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Awaiting an organization admin's decision · Compensation & Budget · View the hiring authorization record · Approve and open for candidates · What the position is, who it reports into and how many people you need. · Location & timing · Where the hire will work and when you would like them to start. · The person who owns this hire and signs off on candidates. · Yearly pay range per hire. Leave blank if the budget is not set yet. · Shown to candidates on the posting. Be specific about the work and what success looks like. · Create, approve, publish, and track hiring requests across the organization. · Budgeted Headcount Cost · Open in Candidates → · Choose a department · Add a currency"
+   "about": "Awaiting an organization admin's decision · Compensation & Budget · What the position is, who it reports into and how many people you need. · Location & timing · Where the hire will work and when you would like them to start. · The person who owns this hire and signs off on candidates. · Yearly pay range per hire. Leave blank if the budget is not set yet. · Shown to candidates on the posting. Be specific about the work and what success looks like. · View the hiring authorization record · Edit this requisition · Submit for approval · Approve and open for candidates · Reject this requisition · Put this requisition on hold · Reopen this requisition · Close this requisition"
   },
   {
    "section": "PRODUCTS",
@@ -628,7 +628,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "How the recruiting team reaches the candidate. · The role they applied for and where they came from. · Background that helps the hiring team shortlist. · Visible to the recruiting team only. · Manage applicant pool · Applicant details and activity · Review, screen, and move applicants through every hiring stage. · Load privacy notice status · Import from CV · View in Onboarding → · Email bounced – check the address · Candidate privacy notice · Optional reviewed note for final-stage offer rejections · Review bulk rejection · Review the server preflight results before confirming these candidate status changes."
+   "about": "How the recruiting team reaches the candidate. · The role they applied for and where they came from. · Background that helps the hiring team shortlist. · Visible to the recruiting team only. · Manage applicant pool · Applicant details and activity · Review, screen, and move applicants through every hiring stage. · Import from CV · View in Onboarding → · Email bounced – check the address · Candidate privacy notice · Optional reviewed note for final-stage offer rejections · Review bulk rejection · Review the server preflight results before confirming these candidate status changes. · Confirming rejects eligible candidates. Candidates skipped or not found will remain unchanged."
   },
   {
    "section": "PRODUCTS",
@@ -674,6 +674,20 @@
     "admin"
    ],
    "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Settings"
+   ],
+   "href": "/zoiko-hr/recruitment/settings",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ],
+   "about": "Candidate privacy, data retention and how offer letters are approved. · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded. · Candidate privacy and retention controls · Recruitment privacy settings · Manage candidate privacy contacts, retention, and recruitment data practices. · Privacy contact email · Candidate data retention (months) · Talent pool opt-in URL · CV parsing is used to extract candidate details · Issue a confirmation when offer conditions are cleared · Offer letters without approval · Recruitment privacy settings could not be loaded. · Recruitment privacy settings saved."
   },
   {
    "section": "PRODUCTS",
@@ -958,7 +972,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage your organization's assets and assign them to employees · Create and optionally assign to an employee · Assign to Employee · Purchase date cannot be in the future · Filter by status · Names are unique within your organization · Use Assign to give it to someone. · Condition on return · The asset becomes available again. · Name and asset tag are required. · Purchase date cannot be in the future. · Give a reason for the return. · A category needs a name. · New category name"
+   "about": "Manage your organization's assets and assign them to employees · Return to the organization · Create and optionally assign to an employee · Assign to Employee · Purchase date cannot be in the future · Filter by status · Names are unique within your organization · Use Assign to give it to someone. · Condition on return · Name and asset tag are required. · Purchase date cannot be in the future. · Give a reason for the return. · A category needs a name. · New category name"
   },
   {
    "section": "PRODUCTS",
@@ -1454,7 +1468,7 @@
     "employee",
     "manager"
    ],
-   "about": "Request New Asset · Submit a request to your IT team · Reason for Request · Provide at least 10 characters · Employee Self Service"
+   "about": "Request New Asset · Submit a request to your IT team · Your organisation has not added any assets yet, so there is nothing to request. Ask your HR or IT admin. · Reason for Request · Your organisation's assets could not be loaded. · Provide at least 10 characters · Your organisation's assets · None free now · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
