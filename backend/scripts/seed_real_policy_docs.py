@@ -91,6 +91,14 @@ def extract_docx_text(path: str) -> str:
 
 def main():
     from app.config import settings
+    # These are engineering design specs, not guides to the live app: answering from them named menus that don't
+    # exist ("31.3 HR — Offboarding Control Center"). Retired by scripts/retire_spec_knowledge.py; not reloaded
+    # unless someone explicitly forces it.
+    if "--force" not in sys.argv:
+        print("Refusing: these documents are engineering specs and are no longer used as assistant knowledge "
+              "(see scripts/retire_spec_knowledge.py). Pass --force to load them anyway.")
+        sys.exit(1)
+    sys.argv.remove("--force")
     if len(sys.argv) == 2 and settings.PLATFORM_KNOWLEDGE_ORG_ID:
         organization_id = settings.PLATFORM_KNOWLEDGE_ORG_ID
         owner_employee_id = int(sys.argv[1])

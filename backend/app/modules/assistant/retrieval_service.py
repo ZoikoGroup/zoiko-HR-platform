@@ -78,6 +78,18 @@ def _titles(db: Session, source_ids) -> dict[int, str]:
 MIN_RELEVANCE_SCORE = 0.5
 
 
+# The docs/new_docs engineering wireframes once loaded as knowledge (scripts/seed_real_policy_docs.py). They are
+# DESIGN specs for planned features — numbered sections, planned screen names ("31.3 HR — Offboarding Control
+# Center") — not guides to the live app, and answering from them sent people to menus that don't exist. They're
+# never evidence unless HR_ASSISTANT_USE_SPEC_DOCS is set; scripts/retire_spec_knowledge.py retires them for good.
+# Company policies published from the policy hub carry a policy_canonical_id and are never affected.
+SPEC_DOC_TITLES = frozenset({
+    "Employee Handbook & Code of Conduct", "Attendance & Leave Policy", "Expense & Reimbursement Policy",
+    "Remote Work & WFH Policy", "Benefits & Compensation Policy", "Onboarding & Offboarding Procedures",
+    "Compliance & Jurisdiction Policy Documents",
+})
+
+
 def _platform_titles_replaced(own_policy_ids: set[str]) -> set[str]:
     """Titles of platform documents superseded by the organization's own published policies."""
     if not own_policy_ids:
@@ -142,11 +154,13 @@ def eligible_version_ids(
         {canonical for _, _, org, _, canonical in rows if org == organization_id and canonical}
     ) if platform_org and platform_org != organization_id else set()
     out, seen = [], set()
-    for version_id, audience, source_org, title, _ in rows:
+    for version_id, audience, source_org, title, canonical in rows:
         if version_id in seen:
             continue
         seen.add(version_id)
         if source_org == platform_org and source_org != organization_id and title in replaced:
+            continue
+        if canonical is None and title in SPEC_DOC_TITLES and not settings.ASSISTANT_USE_SPEC_DOCS:
             continue
         if audience and (audience.get("type") or "all") != "all":
             from app.modules.hr.policy_documents import audience_includes

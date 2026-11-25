@@ -302,6 +302,22 @@ _SYSTEM_TASK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "How does offboarding work?", "What's the exit process?", "Steps to hire someone" — how a Zoiko HR FEATURE works is
+# answered from the platform's own screens (platform guide), not from documents. Leave, pay and "... policy" questions
+# stay with policy answers.
+_PROCESS_RE = re.compile(
+    r"\bhow\s+(does|do|is|are)\b.{0,40}\b(work|works|done|handled|managed|run)\b"
+    r"|\b(process|workflow|steps|procedure)\s+(for|of|to|when)\b|\bwhat\s+(is|are)\s+the\b.{0,30}\b(process|workflow|steps)\b",
+    re.IGNORECASE,
+)
+_MODULE_RE = re.compile(
+    r"\b(off-?board\w*|exits?|resign\w*|clearance|settlements?|exit\s+interviews?|onboard\w*|new\s+hires?|pre-?boarding|"
+    r"recruit\w*|hir(?:e|es|ing)|requisitions?|interviews?|candidates?|offers?|appraisals?|performance\s+reviews?|goals?|kpis?|"
+    r"assets?|learning|courses?|training\s+programs?|assessments?|travel\s+requests?|document\s+approvals?|e-?signatures?|"
+    r"departments?|designations?)\b",
+    re.IGNORECASE,
+)
+
 _WHERE_START_RE = re.compile(r"^\s*where\b", re.IGNORECASE)
 
 _CAPABILITIES_RE = re.compile(
@@ -339,6 +355,8 @@ You are the Zoiko HR Assistant for authenticated workplace self-service. The pro
   something and to answer what the Zoiko HR platform offers. It is platform information, not company policy, and
   is never cited. Never name a screen that is not in it — the evidence may describe planned screens (e.g.
   "My Time Off", "Report a concern") that don't exist; if no listed screen fits, say "the left menu" or 'Talk to HR'.
+- Never mention document section numbers or headings (e.g. "31.3 HR — Offboarding Control Center") and never present
+  a document's heading as a place in the app. Only tell the user to open or go to something listed in <screens>.
 - The evidence describes HR standards and planned platform capabilities; it does not prove Zoiko HR has a feature
   today. Explain the policy or process, but never say the system does something (e.g. "the system runs the
   offboarding workflow") unless a screen in <screens> shows it.
@@ -487,6 +505,8 @@ def classify_intent(text: str) -> str:
         return "department_directory"
     if (_NAV_WHERE_RE.search(text) or _SETUP_RE.search(text) or _SYSTEM_TASK_RE.search(text)
             or (_NAV_HOW_RE.search(text) and _nav_destination(text))):
+        return "navigation_help"
+    if _PROCESS_RE.search(text) and _MODULE_RE.search(text) and not re.search(r"\bpolic(y|ies)\b", text, re.IGNORECASE):
         return "navigation_help"
     return "policy_qa"
 
@@ -1037,6 +1057,24 @@ _IDENTIFIER_RE = re.compile(r"(?<![/\w])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?![/\w])
 
 # Misspellings of the product name the model produces at low reasoning effort ("Zozo HR", "Zoho HR").
 _BRAND_RE = re.compile(r"\bZo(?:zo|ho|ik|kio|iko)\s*HR\b")
+# Document section references copied from source documents — never places in the app:
+# ' (listed under "31.3 HR — Offboarding Control Center")' and a bare '"31.3 HR — Offboarding Control Center"'.
+_SECTION_REF_PAREN_RE = re.compile(r"\s*\((?:listed|see|under|in|per|from|as in)\b[^()]*?\b\d+(?:\.\d+)+\b[^()]*\)",
+                                   re.IGNORECASE)
+_SECTION_HEADING_RE = re.compile(
+    r"(?:\b(?:[Ss]ection|[Ss]ec\.?|[Ss]ee)\s+|§\s*)?[“\"']?\b\d+(?:\.\d+)+\s+[A-Z][\w&/]*(?:\s+(?:[—–-]|[A-Z][\w&/]*))+[”\"']?")
+def _strip_section_headings(text: str) -> str:
+    """Removes document section headings; a short sentence that was only a pointer to one ("See 31.3 HR — ... for
+    details.") goes entirely rather than leaving a fragment."""
+    def fix(sentence: str) -> str:
+        if not _SECTION_HEADING_RE.search(sentence):
+            return sentence
+        rest = _SECTION_HEADING_RE.sub("", sentence)
+        return "" if len(re.findall(r"[A-Za-z]{2,}", rest)) < 5 else rest
+    cleaned = "".join(fix(part) for part in re.split(r"(?<=[.!?])(?=\s)", text)).strip()
+    return cleaned or _SECTION_HEADING_RE.sub("", text).strip() or text      # never leave an empty answer
+
+
 # Provider-style citation markers ("【85】") — citations travel in metadata, never in the text.
 _CITATION_MARK_RE = re.compile(r"\s*【[^】]*】")
 
@@ -1049,7 +1087,10 @@ def _plain_identifiers(text: str | None) -> str | None:
         return text
     text = _IDENTIFIER_RE.sub(lambda m: m.group(1).replace("_", " "), text)
     text = _BRAND_RE.sub("Zoiko HR", text)
-    return _CITATION_MARK_RE.sub("", text)
+    text = _SECTION_REF_PAREN_RE.sub("", text)
+    text = _strip_section_headings(text)
+    text = _CITATION_MARK_RE.sub("", text)
+    return re.sub(r"(?<=\S) {2,}(?=\S)", " ", text)       # spaces left where a reference was removed
 
 
 def _screens_block(query: str, role: str | None) -> str:

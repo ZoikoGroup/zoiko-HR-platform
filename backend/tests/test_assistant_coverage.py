@@ -329,3 +329,57 @@ def test_screen_map_is_current_with_the_app():
     before = json.loads(nav.read_text(encoding="utf-8"))
     subprocess.run([node, str(root / "backend" / "scripts" / "export_platform_nav.mjs")], check=True, capture_output=True)
     assert json.loads(nav.read_text(encoding="utf-8")) == before, "run node backend/scripts/export_platform_nav.mjs"
+
+
+# ── Engineering specs are not app guides (live feedback, 25 Nov) ──────────────
+
+def test_spec_documents_are_never_evidence(monkeypatch):
+    # "31.3 HR — Offboarding Control Center" was a section heading in a spec document, repeated as a menu
+    from app.config import settings
+    from app.modules.assistant import retrieval_service as rs
+
+    class _Q:
+        def __init__(self, rows): self.rows = rows
+        def __getattr__(self, _): return lambda *a, **k: self
+        def all(self): return self.rows
+
+    rows = [(1, None, 2, "Onboarding & Offboarding Procedures", None),           # spec doc on the platform org
+            (2, None, 37, "Exit Policy (version 1)", "HR-POL-050")]             # a company's published policy
+    monkeypatch.setattr(settings, "PLATFORM_KNOWLEDGE_ORG_ID", 2)
+    monkeypatch.setattr(settings, "ASSISTANT_USE_SPEC_DOCS", False)
+    db = SimpleNamespace(query=lambda *a, **k: _Q(rows))
+    assert rs.eligible_version_ids(db, 37) == [2]
+    monkeypatch.setattr(settings, "ASSISTANT_USE_SPEC_DOCS", True)
+    assert rs.eligible_version_ids(db, 37) == [1, 2]
+
+
+def test_every_seeded_spec_title_is_excluded():
+    import ast, pathlib
+    from app.modules.assistant.retrieval_service import SPEC_DOC_TITLES
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "seed_real_policy_docs.py").read_text(encoding="utf-8")
+    node = next(n for n in ast.parse(src).body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "REAL_DOCUMENTS")
+    assert {d["title"] for d in ast.literal_eval(node.value)} == set(SPEC_DOC_TITLES)
+    assert "--force" in src                       # the seed script no longer reloads them by accident
+
+
+@pytest.mark.parametrize("question", ["How does offboarding work?", "What is the exit process?",
+                                      "How does the appraisal process work?", "What are the steps to hire someone?"])
+def test_how_a_feature_works_is_answered_from_the_platform(question):
+    assert orch.classify_intent(question) == "navigation_help"
+
+
+@pytest.mark.parametrize("question", ["How does maternity leave work?", "What is the offboarding policy?",
+                                      "How do I resign?", "How do leave requests work?"])
+def test_policy_process_questions_stay_policy(question):
+    assert orch.classify_intent(question) == "policy_qa"
+
+
+def test_document_section_references_are_removed():
+    t = orch._plain_identifiers
+    assert t("Open it (listed under “31.3 HR — Offboarding Control Center”) now.") == "Open it now."
+    assert t("Start an exit. See 31.3 HR — Offboarding Control Center for details. Then track it.") == \
+        "Start an exit. Then track it."
+    assert t("You may take 1.5 days of leave, and version 2.0 applies.") == \
+        "You may take 1.5 days of leave, and version 2.0 applies."
+    assert t("31.3 HR — Offboarding Control Center")            # never an empty answer
+    assert "Never mention document section numbers or headings" in orch.BASE_SYSTEM_PROMPT
