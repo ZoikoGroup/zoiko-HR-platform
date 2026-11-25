@@ -1,8 +1,8 @@
 name: Deploy Zoiko HR Platform
 
 on:
-  push:
-    branches: [main]
+  # Production deploys ONLY after CI has passed on main. There is deliberately no `push` trigger: with one, a merge
+  # deployed immediately, before (and regardless of) the tests, and then deployed a second time once CI finished.
   workflow_run:
     workflows: ["CI"]
     branches: [main]
@@ -11,13 +11,19 @@ on:
   # missed or its run was cancelled. Manual runs deploy the current main HEAD.
   workflow_dispatch:
 
+# One production deploy at a time; a deploy that has started is never cancelled halfway through.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   # Optional: build the frontend on a CI runner instead of on the VM (faster, and a failed build can never leave
   # the site half-updated). Only used when the repository secret VITE_API_BASE_URL (the production API URL) is
   # set; without it this job is skipped and the VM builds the frontend exactly as before.
   prepare:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # a manual run, or a CI run that PASSED for a push to main (a pull-request CI run never deploys)
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     outputs:
       ci_build: ${{ steps.check.outputs.ci_build }}
     steps:
@@ -86,16 +92,22 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           CI_BUILD: ${{ needs.prepare.outputs.ci_build }}
+          # the commit CI tested (a manual run: the current main HEAD). Deployed exactly, never "whatever main is now",
+          # so a commit merged while this one was being tested cannot go live untested.
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         with:
           host: ${{ secrets.GCP_SSH_HOST }}
           username: ${{ secrets.GCP_SSH_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
-          envs: CI_BUILD
+          envs: CI_BUILD,DEPLOY_SHA
           script: |
             set -e
+            echo "Deploying $DEPLOY_SHA"
 
             cd /var/www/zoiko-hr-backend/app
-            git pull origin main
+            git fetch origin main
+            # fast-forward to the tested commit; if a newer tested commit is already live this is a no-op
+            git merge --ff-only "$DEPLOY_SHA"
             cd backend
             source venv/bin/activate
             pip install -r requirements.txt
@@ -111,7 +123,8 @@ jobs:
             else
               # no CI build available: build on the VM, as before
               cd /var/www/zoiko-hr-platform/app
-              git pull origin main
+              git fetch origin main
+              git merge --ff-only "$DEPLOY_SHA"
               cd frontend
               npm install
               npm run build
