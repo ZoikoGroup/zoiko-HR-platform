@@ -175,6 +175,9 @@ class Settings(BaseSettings):
     # policy) instead of only "no reliable answer". False restores strict
     # evidence-only answering.
     ASSISTANT_GENERAL_GUIDANCE: bool = Field(default=True, validation_alias="HR_ASSISTANT_GENERAL_GUIDANCE")
+    # The docs/new_docs engineering wireframes are design specs, not guides to the live app; answering from them
+    # named menus that don't exist. Off: they are never used as evidence (retrieval_service.SPEC_DOC_TITLES).
+    ASSISTANT_USE_SPEC_DOCS: bool = Field(default=False, validation_alias="HR_ASSISTANT_USE_SPEC_DOCS")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
     # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────

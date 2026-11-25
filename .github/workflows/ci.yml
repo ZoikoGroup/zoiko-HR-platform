@@ -131,6 +131,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # The HR assistant answers "where / how do I ..." from a map of the menu and each page's own text. A PR that
+      # changes the menu or page copy must regenerate it, or the assistant describes screens that no longer exist.
+      - name: Check the assistant's screen map matches the app
+        run: |
+          node backend/scripts/export_platform_nav.mjs
+          if ! git diff --quiet -- backend/app/modules/assistant/platform_nav.json; then
+            echo "::error::The menu or page text changed but the assistant's screen map wasn't regenerated. Run 'node backend/scripts/export_platform_nav.mjs' and commit backend/app/modules/assistant/platform_nav.json."
+            git diff --stat -- backend/app/modules/assistant/platform_nav.json
+            exit 1
+          fi
+
       - name: Run frontend unit tests (node:test)
         working-directory: frontend
         # Name the stuck test instead of hanging; cap parallel test processes so memory stays bounded on the runner.

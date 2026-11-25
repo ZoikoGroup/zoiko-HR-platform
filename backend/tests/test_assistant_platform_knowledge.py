@@ -30,6 +30,9 @@ class _FakeQuery:
 
 def _eligible(monkeypatch, rows, platform_org=PLATFORM, tenant=TENANT):
     monkeypatch.setattr(settings, "PLATFORM_KNOWLEDGE_ORG_ID", platform_org)
+    # these sample documents carry the spec titles, excluded by default (test_assistant_coverage covers that);
+    # here the shared-knowledge mechanism itself is under test
+    monkeypatch.setattr(settings, "ASSISTANT_USE_SPEC_DOCS", True)
     db = SimpleNamespace(query=lambda *a, **k: _FakeQuery(rows))
     return rs.eligible_version_ids(db, tenant)
 

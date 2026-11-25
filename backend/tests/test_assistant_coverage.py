@@ -219,8 +219,11 @@ def test_every_screen_carries_its_own_page_text():
 
 
 def test_adding_an_employee_is_the_new_hires_workflow_for_admins():
+    # no instant answer: "Employees" is a manager screen and New Hires matches only through the task expansion,
+    # so the guided answer decides — and New Hires is what it sees first
     screen, visible = guide.find_screen("How do I add a new employee?", "admin")
-    assert screen["href"] == "/zoiko-hr/onboarding/new-hires" and visible
+    assert not (screen and visible and screen["href"] != "/zoiko-hr/onboarding/new-hires")
+    assert guide.catalog_for("How do I add a new employee?", "admin").splitlines()[0].startswith("- Zoiko HR → Onboarding → New Hires")
 
 
 @pytest.mark.parametrize("question", ["I'm just starting to set up. Where do I go first?", "how do I get started",
@@ -250,3 +253,133 @@ def test_platform_guide_prompt_rules():
     assert "Never invent" in p and "cited_fragment_ids must be []" in p
     assert "navigation_guide" in tool_registry.NO_DATA_INTENTS
     assert guardrails.check_output_disclosure("[PLATFORM GUIDE MODE] x") == "prompt_leak"
+
+
+
+# ── Features the software doesn't have (live feedback, 24 Nov) ───────────────
+
+def test_missing_features_never_get_a_nearest_screen():
+    # "terminate" appears nowhere in the platform: no instant nearest-screen answer, the platform guide answers
+    q = "how do I terminate an employee"
+    assert guide.find_screen(q, "admin") == (None, False)
+    assert guide.unknown_terms(q) == {"terminate"}
+    assert orch.classify_intent(q) == "navigation_help"
+
+
+@pytest.mark.parametrize("question", ["Where do I go to offboard an employee", "How do I offboard an employee?"])
+def test_offboarding_questions_reach_the_offboarding_module_not_new_hires(question):
+    # 24 Nov: production answered "Onboarding → New Hires" for offboarding. Main has since added an Offboarding
+    # module (plan-gated): offboarding questions rank it first and are never answered with New Hires.
+    screen, _ = guide.find_screen(question, "admin")
+    assert not screen or "/onboarding/" not in screen["href"]
+    top = guide.catalog_for(question, "admin").splitlines()[:3]
+    assert any("/zoiko-hr/offboarding" in line for line in top)       # the model sees the Offboarding screens first
+    assert "/onboarding/new-hires" not in top[0]
+    assert orch.classify_intent(question) == "navigation_help"
+
+
+def test_plan_gated_screens_say_when_the_plan_lacks_them():
+    gated = [s for s in guide.screens() if s.get("plan_feature") == "hr.lifecycle.offboarding"]
+    assert gated and all("current plan does not include" not in s["about"] for s in gated)  # the page, not the gate
+    screen = next(s for s in gated if s["href"] == "/zoiko-hr/offboarding/cases")
+    text = guide.describe(screen, True, {"hr.lifecycle.offboarding": "Advanced"})
+    assert "plan doesn't include it" in text and "Advanced" in text and "Billing & Plan" in text
+    assert guide.describe(screen, True, {}).startswith("You'll find that under")
+    assert "[not included in your organization's plan" in guide.catalog_for("exit cases", "admin",
+                                                                          plan_states={"hr.lifecycle.offboarding": ""})
+    assert "Billing & Plan" in orch.PLATFORM_GUIDE_PROMPT
+
+
+def test_an_exact_answer_covers_the_whole_ask():
+    # "resign" is the task — Company Documents only matched "company"
+    assert guide.find_screen("How do I resign from the company?", "employee") == (None, False)
+    assert orch.classify_intent("How do I resign from the company?") == "policy_qa"
+
+
+@pytest.mark.parametrize("question,href", [
+    ("Where do I apply for leave?", "/employee/leaves/apply"),
+    ("I need to see my payslip", "/employee/documents/payslips"),
+    ("where do I submit a travel expense", "/employee/travel/expenses"),
+])
+def test_existing_features_still_get_instant_answers(question, href):
+    screen, visible = guide.find_screen(question, "employee")
+    assert screen["href"] == href and visible and not guide.unknown_terms(question)
+
+
+def test_guide_says_when_a_feature_doesnt_exist():
+    p = orch.PLATFORM_GUIDE_PROMPT
+    assert "COMPLETE list of what this user can do" in p
+    assert "doesn't currently have that feature" in p
+    assert "does not prove Zoiko HR has a feature" in orch.BASE_SYSTEM_PROMPT
+
+
+def test_personal_process_questions_stay_with_policy_answers():
+    for q in ("How do I resign?", "How do I change my address in the system?"):
+        assert orch.classify_intent(q) == "policy_qa", q
+
+
+def test_screen_map_is_current_with_the_app():
+    # the same check CI runs: regenerating the map from the menu and pages changes nothing
+    import json, pathlib, shutil, subprocess
+    root = pathlib.Path(__file__).resolve().parents[2]
+    node = shutil.which("node")
+    if not node or not (root / "frontend" / "node_modules").exists():
+        pytest.skip("node / frontend dependencies not installed")
+    nav = root / "backend" / "app" / "modules" / "assistant" / "platform_nav.json"
+    before = json.loads(nav.read_text(encoding="utf-8"))
+    subprocess.run([node, str(root / "backend" / "scripts" / "export_platform_nav.mjs")], check=True, capture_output=True)
+    assert json.loads(nav.read_text(encoding="utf-8")) == before, "run node backend/scripts/export_platform_nav.mjs"
+
+
+# ── Engineering specs are not app guides (live feedback, 25 Nov) ──────────────
+
+def test_spec_documents_are_never_evidence(monkeypatch):
+    # "31.3 HR — Offboarding Control Center" was a section heading in a spec document, repeated as a menu
+    from app.config import settings
+    from app.modules.assistant import retrieval_service as rs
+
+    class _Q:
+        def __init__(self, rows): self.rows = rows
+        def __getattr__(self, _): return lambda *a, **k: self
+        def all(self): return self.rows
+
+    rows = [(1, None, 2, "Onboarding & Offboarding Procedures", None),           # spec doc on the platform org
+            (2, None, 37, "Exit Policy (version 1)", "HR-POL-050")]             # a company's published policy
+    monkeypatch.setattr(settings, "PLATFORM_KNOWLEDGE_ORG_ID", 2)
+    monkeypatch.setattr(settings, "ASSISTANT_USE_SPEC_DOCS", False)
+    db = SimpleNamespace(query=lambda *a, **k: _Q(rows))
+    assert rs.eligible_version_ids(db, 37) == [2]
+    monkeypatch.setattr(settings, "ASSISTANT_USE_SPEC_DOCS", True)
+    assert rs.eligible_version_ids(db, 37) == [1, 2]
+
+
+def test_every_seeded_spec_title_is_excluded():
+    import ast, pathlib
+    from app.modules.assistant.retrieval_service import SPEC_DOC_TITLES
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "seed_real_policy_docs.py").read_text(encoding="utf-8")
+    node = next(n for n in ast.parse(src).body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "REAL_DOCUMENTS")
+    assert {d["title"] for d in ast.literal_eval(node.value)} == set(SPEC_DOC_TITLES)
+    assert "--force" in src                       # the seed script no longer reloads them by accident
+
+
+@pytest.mark.parametrize("question", ["How does offboarding work?", "What is the exit process?",
+                                      "How does the appraisal process work?", "What are the steps to hire someone?"])
+def test_how_a_feature_works_is_answered_from_the_platform(question):
+    assert orch.classify_intent(question) == "navigation_help"
+
+
+@pytest.mark.parametrize("question", ["How does maternity leave work?", "What is the offboarding policy?",
+                                      "How do I resign?", "How do leave requests work?"])
+def test_policy_process_questions_stay_policy(question):
+    assert orch.classify_intent(question) == "policy_qa"
+
+
+def test_document_section_references_are_removed():
+    t = orch._plain_identifiers
+    assert t("Open it (listed under “31.3 HR — Offboarding Control Center”) now.") == "Open it now."
+    assert t("Start an exit. See 31.3 HR — Offboarding Control Center for details. Then track it.") == \
+        "Start an exit. Then track it."
+    assert t("You may take 1.5 days of leave, and version 2.0 applies.") == \
+        "You may take 1.5 days of leave, and version 2.0 applies."
+    assert t("31.3 HR — Offboarding Control Center")            # never an empty answer
+    assert "Never mention document section numbers or headings" in orch.BASE_SYSTEM_PROMPT
