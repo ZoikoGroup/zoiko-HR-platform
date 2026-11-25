@@ -2,6 +2,7 @@
 // per what period. The currency follows the work country until someone picks one by hand.
 import { useEffect, useState } from "react";
 import { getRegions } from "../service/hrService";
+import SearchableSelect from "./SearchableSelect";
 import { REMUNERATION_TYPES, PAY_PERIODS, currencySymbol } from "../utils/money";
 
 const field = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white";
@@ -37,12 +38,24 @@ export function guessCountry(regions, text) {
   return hit?.code || null;
 }
 
-export function CountrySelect({ regions, value, onChange, placeholder = "Select country", className = field, id }) {
+/** The country, searchable by name or ISO code (QA bug 4: the long native list could not be searched). value: ISO code. */
+export function CountrySelect({ regions, value, onChange, placeholder = "Select country", className = field, id, ariaLabel, invalid, describedBy }) {
+  const options = (regions?.countries || []).map((c) => ({ value: c.code, label: c.name }));
   return (
-    <select id={id} value={value || ""} onChange={(e) => onChange(e.target.value || null)} className={className}>
-      <option value="">{placeholder}</option>
-      {(regions?.countries || []).map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-    </select>
+    <SearchableSelect id={id} value={value || ""} onChange={(v) => onChange(v || null)} options={options} allowEmpty
+      placeholder={placeholder} ariaLabel={ariaLabel} invalid={invalid} describedBy={describedBy} className={className}
+      searchLabel="Search countries" listLabel="Countries" searchPlaceholder="Search country" noMatchText="No country matches" />
+  );
+}
+
+/** A state / region from a fixed list, searchable. value: the region name; "" = none chosen. */
+export function RegionSelect({ regions, value, onChange, placeholder = "Select state / region", className = field, id, ariaLabel, invalid, describedBy, label = "states" }) {
+  const options = (regions || []).map((r) => ({ value: r, label: r }));
+  return (
+    <SearchableSelect id={id} value={value || ""} onChange={(v) => onChange(v || "")} options={options} allowEmpty
+      placeholder={placeholder} ariaLabel={ariaLabel} invalid={invalid} describedBy={describedBy} className={className}
+      searchLabel={`Search ${label}`} listLabel={label.charAt(0).toUpperCase() + label.slice(1)} searchPlaceholder={`Search ${label}`}
+      noMatchText="Nothing matches" />
   );
 }
 

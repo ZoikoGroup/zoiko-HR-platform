@@ -93,7 +93,7 @@
   },
   {
    "type": "paragraph",
-   "text": "Sworn and declared before me on this ______ day of ____________, 20____, by {{worker.full_name_caps}}.",
+   "text": "Sworn and declared before me on this ______ day of ____________, {{document.year}}, by {{worker.full_name_caps}}.",
    "id": "b11",
    "locked": true
   },

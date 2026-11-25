@@ -23,7 +23,14 @@ export function getRefreshToken() {
 
 export function getStoredUser() {
   const raw = localStorage.getItem(USER_KEY);
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // a truncated/old session must not break every screen that reads the signed-in person
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
 }
 
 // The signed-in person as the API sends it is camelCase (`organizationId`); older stored copies may be snake_case.

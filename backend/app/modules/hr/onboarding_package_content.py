@@ -944,6 +944,8 @@ def blocks_for(category: str) -> list[dict]:
     """The platform default content of a package document. v2: the platform starter template (seeds/content/HR-PKG, written
     from the builders and proved identical by tests/hr/test_package_starters_parity.py); the builder only when no starter
     exists. v1 (ONBOARDING_PACKAGE_V2=false): the v1 builders, as before."""
+    if category not in DOCS:
+        return []
     if V2:
         from app.modules.doc_templates import package_templates as PT
         blocks = PT.starter_package_blocks(category)

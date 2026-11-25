@@ -431,8 +431,15 @@ def _package_ctx(db, v: TemplateVariant, content: list):
     if starter:
         meta.update({k: starter[k] for k in ("category", "title", "template_id", "doc_type", "risk", "sensitivity", "orientation",
                                              "family_id", "initials")})
+    from app.modules.hr import onboarding_package as OP
+    cfg = OP.get_config(db, v.owner_organization_id) if db and v.owner_organization_id else {}
+    logo_bytes = OP.logo_bytes(db, v.owner_organization_id, cfg) if db and v.owner_organization_id else None
+    org_label = OP.header_label(cfg)
     return R.RenderContext(mode="template", content=package_blocks.to_package(content), meta=meta,
-                           version=f"draft v{v.version}", draft=True)
+                           version=f"draft v{v.version}", draft=True, org_label=org_label,
+                           primary=cfg.get("brand_primary", "#0B3D91"), accent=cfg.get("brand_accent", "#00A3E0"),
+                           paper=cfg.get("paper", "A4"), spelling=cfg.get("spelling", "UK"),
+                           logo_png=logo_bytes)
 
 
 def package_preview_pdf(db, v: TemplateVariant, content: list) -> bytes:

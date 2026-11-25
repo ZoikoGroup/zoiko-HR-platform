@@ -127,6 +127,26 @@ def interviewer_name(db: Session, interview) -> Optional[str]:
     return interview.interviewer
 
 
+def notify_interview_in_app(db: Session, interview, kind: str) -> int:
+    """The bell: organisation admins, HR admins and the interviewer see the interview scheduled / rescheduled / cancelled
+    (QA bug 13). Independent of the calendar e-mails, which the person scheduling may switch off. Never raises."""
+    try:
+        from app.modules.hr.hr_notifications import notify_employee
+        ids = {e.id for e in _hr_recipients(db, interview.organization_id)}
+        if interview.interviewer_id:
+            ids.add(interview.interviewer_id)
+        if not ids:
+            return 0
+        label = INTERVIEW_TYPE_LABELS.get(interview.interview_type, interview.interview_type or "Interview")
+        title = f"{label} with {interview.candidate_name or 'a candidate'}" + (f" for {interview.position}" if interview.position else "")
+        notify_employee(db, interview.organization_id, sorted(ids), f"interview.{kind}", link="/zoiko-hr/recruitment/interviews",
+                        date=interview.interview_date, title=title[:120])
+        return len(ids)
+    except Exception:
+        logger.exception("interview %s notification failed", kind)
+        return 0
+
+
 def notify_interview(db: Session, interview, kind: str, previous_display: Optional[str] = None) -> int:
     """kind: scheduled | rescheduled | cancelled. Returns how many emails were queued."""
     try:

@@ -386,7 +386,7 @@ def exclusivity_affidavit():
         HOOK("outside_employment_lawful_scope"),
         HOOK("false_statement_consequences"),
         SIG([("Deponent", "{{worker.full_name}}", "{{role.title}}", "")]),
-        P("Sworn and declared before me on this ______ day of ____________, 20____, by {{worker.full_name_caps}}."),
+        P("Sworn and declared before me on this ______ day of ____________, {{document.year}}, by {{worker.full_name_caps}}."),
         WHEN("company.affidavit_notary", [
             H3("Notary Public"),
             TABLE(["Name of Notary Public", "Registration number", "Seal", "Signature", "Date"], [["", "", "", "", ""]],

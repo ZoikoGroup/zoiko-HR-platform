@@ -547,8 +547,12 @@ def fields_spec() -> list[dict]:
 def profile_view(db, organization_id: int) -> dict:
     profile = get_profile(db, organization_id)
     out = {k: v for k, v in profile.items() if not k.startswith("_")}
+    from app.modules.hr import onboarding_package
+    has_logo = bool(onboarding_package.logo_bytes(db, organization_id))
+    has_sig = bool(onboarding_package.signature_bytes(db, organization_id))
     return {"profile": out, "completeness": completeness(profile), "fields": fields_spec(),
-            "registered_address": registered_address(profile)}
+            "registered_address": registered_address(profile),
+            "has_logo": has_logo, "has_signature": has_sig}
 
 
 def prefill(db, organization_id: int) -> dict:

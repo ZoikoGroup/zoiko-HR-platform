@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, Loader2, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import { getBusinessFormats, lookupBusiness } from "../service/hrService";
-import { CountrySelect } from "./RemunerationFields";
+import { CountrySelect, RegionSelect } from "./RemunerationFields";
 
 const field = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white";
 const labelCls = "text-xs text-gray-500 font-medium";
@@ -120,7 +120,7 @@ export default function BusinessLookupFields({ regions, value, onChange }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className={labelCls}>Registered in</label>
-          <CountrySelect regions={regions} value={country} onChange={changeCountry} />
+          <CountrySelect regions={regions} value={country} onChange={changeCountry} ariaLabel="Registered in" />
         </div>
         <div>
           <label className={labelCls}>Identifier</label>
@@ -178,10 +178,8 @@ export default function BusinessLookupFields({ regions, value, onChange }) {
           <div>
             <label className={labelCls}>{fmt.region_label}</label>
             {regionList ? (
-              <select value={value.entity_region || ""} onChange={(e) => set({ entity_region: e.target.value })} className={field}>
-                <option value="">Select…</option>
-                {regionList.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+              <RegionSelect regions={regionList} value={value.entity_region || ""} onChange={(v) => set({ entity_region: v })} className={field}
+                ariaLabel={fmt.region_label} placeholder="Select…" />
             ) : (
               <input value={value.entity_region || ""} onChange={(e) => set({ entity_region: e.target.value })} className={field} maxLength={120} />
             )}

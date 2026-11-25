@@ -3,6 +3,7 @@
  * the employee import takes, and reports real server errors.
  */
 import "./support/setup-jsdom.mjs";
+import { chooseOption } from "./support/searchableSelect.mjs";
 import { withQuery } from "./support/queryWrapper.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -69,7 +70,8 @@ test("required fields are enforced and everything filled in is sent", async (t) 
 
   type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
   type(/^Department/, "Platform"); type(/^Designation/, "Senior Engineer"); type(/^Gender/, "male"); type(/^Employment type/, "contract");
-  type(/^City/, "Pune"); type(/^Country/, "India");
+  type(/^City/, "Pune");
+  await chooseOption(screen.getByLabelText(/^Country/), "India");      // the country is a searchable dropdown
   // India's statutory fields appear once the country is entered
   type(/^Basic salary/, "50000"); type(/^PAN/, "ABCDE1234F"); type(/^IFSC/, "HDFC0001234");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));

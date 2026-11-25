@@ -255,13 +255,11 @@ def _get_records_query(
     if employee_ids is not None:
         query = query.filter(AttendanceRecord.employee_id.in_(list(employee_ids) or [-1]))
 
-    if search:
-        stmt = f"%{search}%"
+    if search and search.strip():
+        # word by word, so a full name ("karthik rao") matches (QA bug 11)
+        from app.modules.hr.attendance.records_service import words_match
         query = query.join(Employee, AttendanceRecord.employee_id == Employee.id).filter(
-            (Employee.first_name.ilike(stmt)) |
-            (Employee.last_name.ilike(stmt)) |
-            (Employee.employee_code.ilike(stmt))
-        )
+            words_match(search, Employee.first_name, Employee.last_name, Employee.employee_code))
 
     if status:
         query = query.filter(AttendanceRecord.status == status)

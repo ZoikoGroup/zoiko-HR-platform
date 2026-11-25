@@ -139,7 +139,7 @@ def test_assign_transfer_and_create_refuse_a_leaver_with_a_clear_409(world):
     assert r.status_code == 409 and "no longer an active employee" in r.json()["message"]
     held = _row(world, "L-2", status=AssetStatus.ASSIGNED, employee=world.u["a_emp1"])
     r = world.put("a_admin", f"/hr/assets/{held.id}/transfer", json={"employee_id": leaver})
-    assert r.status_code == 409
+    assert r.status_code == 409                                    # QA bug 20: transfer is never a way round
     r = _asset(world, asset_tag="L-3", employee_id=leaver)
     assert r.status_code == 409
     assert world.db.query(Asset).filter_by(asset_tag="L-3").count() == 0
@@ -152,11 +152,14 @@ def test_assign_transfer_and_create_refuse_a_leaver_with_a_clear_409(world):
 def test_an_assigned_asset_is_not_silently_reassigned(world):
     held = _row(world, "R-1", status=AssetStatus.ASSIGNED, employee=world.u["a_emp1"])
     r = world.put("a_admin", f"/hr/assets/{held.id}/assign", json={"employee_id": world.u["a_emp2"].id})
-    assert r.status_code == 409 and "Transfer" in r.json()["message"]
+    assert r.status_code == 409 and "Return it to the organization first" in r.json()["message"]
     world.db.expire_all()
     assert world.db.get(Asset, held.id).employee_id == world.u["a_emp1"].id
+    # QA bug 20: nor does Transfer hand it straight over
     moved = world.put("a_admin", f"/hr/assets/{held.id}/transfer", json={"employee_id": world.u["a_emp2"].id})
-    assert moved.status_code == 200 and moved.json()["employee_id"] == world.u["a_emp2"].id
+    assert moved.status_code == 409
+    world.db.expire_all()
+    assert world.db.get(Asset, held.id).employee_id == world.u["a_emp1"].id
 
 
 @pytest.mark.parametrize("status", [AssetStatus.MAINTENANCE, AssetStatus.RETIRED, AssetStatus.LOST, AssetStatus.BROKEN])

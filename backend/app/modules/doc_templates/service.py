@@ -94,12 +94,28 @@ def _profile_legal_name(organization) -> str:
         return ""
 
 
+def _profile_signatory(organization) -> dict:
+    """The authorised signatory named in the Company Profile (printed on the employer's side of a signature block)."""
+    from sqlalchemy.orm import object_session
+    db = object_session(organization) if organization is not None else None
+    if db is None or getattr(organization, "id", None) is None:
+        return {}
+    try:
+        from app.modules.hr import company_profile
+        p = company_profile.get_profile(db, organization.id)
+        return {"signatory_name": (p.get("signatory_name") or "").strip(), "signatory_title": (p.get("signatory_title") or "").strip()}
+    except Exception:
+        logger.warning("company profile signatory could not be read for org %s", getattr(organization, "id", None))
+        return {}
+
+
 def letterhead(entity, organization) -> dict:
     """Letterhead of a generated document. Logo: the one uploaded in Onboarding settings, else the employer entity's own."""
     logo_bytes = _settings_logo(organization)
+    org_legal = _profile_legal_name(organization) or getattr(organization, "organization_name", "") or getattr(organization, "display_name", "") or "Company Name"
     if entity is None:          # no employer entity: the Company Profile's full legal name, as the onboarding documents print it
-        return {"legal_name": _profile_legal_name(organization) or getattr(organization, "organization_name", ""),
-                "logo_bytes": logo_bytes}
+        return {"legal_name": org_legal,
+                "logo_bytes": logo_bytes, **_profile_signatory(organization)}
     from app.core import business_ids
     reg = None
     if entity.registration_number:
@@ -109,7 +125,8 @@ def letterhead(entity, organization) -> dict:
     if entity.logo_file and not logo_bytes:
         from app.modules.hr.file_storage import resolve_stored_file
         logo = resolve_stored_file(entity.logo_file)
-    return {"legal_name": entity.legal_name or "", "trading_name": entity.trading_name,
+    legal = entity.legal_name or org_legal
+    return {**_profile_signatory(organization), "legal_name": legal, "trading_name": entity.trading_name,
             "address": fields.REGISTRY["employer.registered_address"].source(fields.FieldContext(db=None, organization=organization,
                                                                                                  entity=entity)),
             "registration": reg, "logo_path": logo, "logo_bytes": logo_bytes}

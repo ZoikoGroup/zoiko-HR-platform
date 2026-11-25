@@ -438,6 +438,11 @@ def _offer_for(db, hire):
 
 def _load_offer_for(db, hire):
     cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.onboarding_new_hire_id == hire.id).first()
+    if cand is None and getattr(hire, "email", None):
+        cand = (db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.organization_id == hire.organization_id,
+            func.lower(RecruitmentCandidate.email) == hire.email.casefold())
+            .order_by(RecruitmentCandidate.id.desc()).first())
     offer = (db.query(RecruitmentOffer).filter(RecruitmentOffer.candidate_id == cand.id).order_by(RecruitmentOffer.id.desc()).first()
              if cand else None)
     req = None

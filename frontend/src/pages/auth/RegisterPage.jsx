@@ -1,6 +1,7 @@
 import PlanComparison from "../../components/PlanComparison";
 import PasswordInput from "../../components/PasswordInput";
 import PhoneField from "../../components/PhoneField";
+import SearchableSelect from "../../components/SearchableSelect";
 import { fieldProblem, INDUSTRIES, COUNTRY_CHOICES, regionsFor, businessIdTypes, businessIdType } from "../../utils/fieldRules";
 import { planHighlights } from "../../config/planMatrix";
 import { useEffect, useState, useRef } from "react";
@@ -562,19 +563,20 @@ export default function RegisterPage() {
                     <div className="grid sm:grid-cols-2 gap-x-5 gap-y-4">
                       <div>
                         <label htmlFor="reg-country" className={label}>Country<Req /></label>
-                        <select id="reg-country" required value={form.country} onChange={(e) => handleCountryChange(e.target.value)} className={field} {...aria("country")}>
-                          <option value="">Select country</option>
-                          {COUNTRY_CHOICES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
-                        </select>
+                        <SearchableSelect id="reg-country" value={form.country} onChange={handleCountryChange} className={field}
+                          invalid={!!aria("country")["aria-invalid"]} describedBy={aria("country")["aria-describedby"]} allowEmpty placeholder="Select country"
+                          options={COUNTRY_CHOICES.map((c) => ({ value: c.name, label: c.name, keywords: [c.code] }))}
+                          searchLabel="Search countries" listLabel="Countries" searchPlaceholder="Search country" />
                         {fieldError("country")}
                       </div>
                       <div>
                         <label htmlFor="reg-state" className={label}>State / Province</label>
                         {countryStates.length > 0 || !form.country ? (
-                          <select id="reg-state" value={form.state} onChange={(e) => update("state", e.target.value)} disabled={countryStates.length === 0} className={field} {...aria("state")}>
-                            <option value="">{countryStates.length === 0 ? "Select country first" : "Select state"}</option>
-                            {countryStates.map((s) => <option key={s} value={s}>{s}</option>)}
-                          </select>
+                          <SearchableSelect id="reg-state" value={form.state} onChange={(v) => update("state", v)} disabled={countryStates.length === 0}
+                            className={field} invalid={!!aria("state")["aria-invalid"]} describedBy={aria("state")["aria-describedby"]} allowEmpty
+                            placeholder={countryStates.length === 0 ? "Select country first" : "Select state"}
+                            options={countryStates.map((s) => ({ value: s, label: s }))}
+                            searchLabel="Search states" listLabel="States" searchPlaceholder="Search state / province" />
                         ) : (
                           <input id="reg-state" type="text" maxLength={80} value={form.state} onChange={(e) => update("state", e.target.value)}
                             onBlur={() => blurCheck("state")} className={field} {...aria("state")} />

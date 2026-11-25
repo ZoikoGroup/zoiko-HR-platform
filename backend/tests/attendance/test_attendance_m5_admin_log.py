@@ -76,6 +76,12 @@ def test_rows_carry_department_hours_and_source(api, log):
     ({"search": "Sales"}, [1]),                             # department name
     ({"search": "C-emp2"}, [1]),                            # employee code
     ({"search": "Emp", "department": "Engineering"}, [0, 2]),   # search and department together
+    # QA bug 11: a full name matches (word by word, any letter case, any order)
+    ({"search": "emp2 person"}, [1]),
+    ({"search": "PERSON EMP2"}, [1]),
+    ({"search": "emp2 sales"}, [1]),                        # a word of the name and the department
+    ({"search": "emp2 nobody"}, []),                        # every word has to match
+    ({"search": "%"}, []),                                  # typed wildcards are taken literally
 ])
 def test_filters(api, log, params, expected):
     api.as_("hr")

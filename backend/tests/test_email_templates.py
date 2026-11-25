@@ -87,10 +87,12 @@ def test_exactly_one_zoiko_hr_logo_per_email(rendered):
         # alt text is styled so the brand still reads with images blocked
         assert "color:#06508d" in img, label
         if out.branding.get("tenant_name"):
-            # an organization's email: its own brand heads it, Zoiko HR is "Powered by" in the footer
-            assert 'width="96"' in img and 'height="17"' in img, label
+            # an organization's email: its own brand heads it, Zoiko HR signs it off in the footer band (QA bug 15):
+            # "Powered by", the logo linked to zoikohr.com, the product line and the links
+            assert 'width="128"' in img and 'height="22"' in img, label
             assert out.html.index('class="org-wordmark') < out.html.index(img), label
-            assert "Powered by" in out.html, label
+            assert "Powered by" in out.html and "The connected business operations platform" in out.html, label
+            assert 'href="https://app.zoikohr.com/terms"' in out.html and "Help &amp; support" in out.html, label
         else:
             assert 'width="180"' in img and 'height="31"' in img and "font-size:22px" in img, label
         # the reversed dark-mode variant exists once and is hidden by default

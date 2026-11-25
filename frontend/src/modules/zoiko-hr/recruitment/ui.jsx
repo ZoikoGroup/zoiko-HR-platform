@@ -5,7 +5,8 @@
  */
 import { useEffect, useId, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight, Briefcase, Calendar, ChevronDown, ChevronRight, FileCheck2, LayoutDashboard, Search, Send,
+import { getStoredUser } from "../../../service/api";
+import { ArrowDownRight, ArrowUpRight, Briefcase, SlidersHorizontal, Calendar, ChevronDown, ChevronRight, FileCheck2, LayoutDashboard, Search, Send,
   Users, X } from "lucide-react";
 
 export const NAV_ITEMS = [
@@ -15,10 +16,18 @@ export const NAV_ITEMS = [
   { label: "Interviews", href: "/zoiko-hr/recruitment/interviews", icon: Calendar },
   { label: "Offer Management", href: "/zoiko-hr/recruitment/offers", icon: FileCheck2 },
   { label: "Offers Issued", href: "/zoiko-hr/recruitment/offers-issued", icon: Send },
+  { label: "Settings", href: "/zoiko-hr/recruitment/settings", icon: SlidersHorizontal, hrOnly: true },
 ];
 
+const HR_ROLES = ["super_admin", "admin", "hr_admin"];
+/** The Recruitment tabs this person may open: Settings is for HR and organisation admins only. */
+export function recruitmentNavFor(user) {
+  const role = String(user?.role?.value || user?.role || "").toLowerCase();
+  return NAV_ITEMS.filter((i) => !i.hrOnly || HR_ROLES.includes(role));
+}
+
 // the page each heading belongs to (the header never reads the URL, so it also works where the router is replaced)
-const PAGE_OF_TITLE = { "Recruitment Dashboard": "Dashboard", "Candidate Profile": "Candidates" };
+const PAGE_OF_TITLE = { "Recruitment Dashboard": "Dashboard", "Candidate Profile": "Candidates", "Recruitment Settings": "Settings" };
 
 // ── tones (icon tiles, pills, sparklines) ───────────────────────────────────────────────────────────────────────────
 export const TONES = {
@@ -38,7 +47,7 @@ export const TONES = {
  * actions, and the section tabs as folder tabs that join the content below.
  */
 export function RecruitmentLayout(props) {
-  return <ModuleLayout module="Recruitment" items={NAV_ITEMS} pageOfTitle={PAGE_OF_TITLE} {...props} />;
+  return <ModuleLayout module="Recruitment" items={recruitmentNavFor(getStoredUser())} pageOfTitle={PAGE_OF_TITLE} {...props} />;
 }
 
 /**
@@ -326,7 +335,7 @@ export function FilterSelect({ label, value, onChange, options, allLabel }) {
 /** Underlined text tabs ("All Offers · Offers Issued · …"). */
 export function UnderlineTabs({ tabs, value, onChange, label }) {
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto border-b border-gray-200">
+    <div role="tablist" aria-label={label} className="flex flex-wrap gap-x-1 border-b border-gray-200">
       {tabs.map((t) => (
         <button key={t.value} type="button" role="tab" aria-selected={value === t.value} onClick={() => onChange(t.value)}
           className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${value === t.value ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"}`}>

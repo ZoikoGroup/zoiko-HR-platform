@@ -1,13 +1,13 @@
-// Org Admin asset actions (audit A12): edit, delete, return, transfer and category management.
+// Org Admin asset actions (audit A12): edit, delete, return and category management. QA bug 20: there is no transfer; an
+// assigned asset is returned to the organization first and then assigned to the next person.
 // Every dialog shows the server's message inline and disables its buttons while its request runs.
 import { useState } from "react";
-import { AlertCircle, CheckCircle, Loader2, Search, X } from "lucide-react";
+import { AlertCircle, Loader2, X } from "lucide-react";
 import {
-  updateAsset, deleteAsset, returnAsset, transferAsset,
+  updateAsset, deleteAsset, returnAsset,
   createAssetCategory, updateAssetCategory, deleteAssetCategory,
 } from "../../service/hrService";
-import { employeeName, employeeEmail } from "../../utils/fieldAccess";
-import { isFutureDate, todayISO, useEmployeeOptions } from "./assetPickers";
+import { isFutureDate, todayISO } from "./assetPickers";
 
 const CONDITION_OPTIONS = ["new", "good", "fair", "poor", "damaged"];
 const NON_ASSIGNED_STATUSES = ["available", "maintenance", "retired", "lost"];
@@ -83,7 +83,7 @@ function useRequest() {
   return { busy, error, setError, run };
 }
 
-// ── Edit: details only. Who holds it changes through Assign / Transfer / Return, and "assigned" is set by Assign. ─────
+// ── Edit: details only. Who holds it changes through Assign / Return, and "assigned" is set by Assign. ─────
 export function EditAssetDialog({ asset, categories = [], onClose, onSaved }) {
   const isAssigned = asset.status === "assigned";
   const [form, setForm] = useState({
@@ -245,50 +245,9 @@ export function ReturnAssetDialog({ asset, onClose, onReturned }) {
             {CONDITION_OPTIONS.map((v) => (<option key={v} value={v}>{v}</option>))}
           </select>
         </div>
-        <p className="text-xs text-slate-400">The asset becomes available again.</p>
+        <p className="text-xs text-slate-400">The asset comes back to the organization and becomes available; assign it to the next person from the list.</p>
         <Actions onClose={onClose} busy={busy} submitLabel="Return asset" busyLabel="Returning..." />
       </form>
-    </Dialog>
-  );
-}
-
-// ── Transfer to another active employee ─────────────────────────────────────────────────────────────────────────────
-export function TransferAssetDialog({ asset, onClose, onTransferred }) {
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(null);
-  const { items, loading, error: searchError } = useEmployeeOptions(query, { limit: 10 });
-  const { busy, error, run } = useRequest();
-  const options = items.filter((e) => e.id !== asset.employee_id);
-  return (
-    <Dialog title="Transfer asset" subtitle={`${asset.name} · ${tagOf(asset)} · held by ${holderOf(asset) || "—"}`}
-      onClose={onClose} busy={busy}>
-      <ErrorLine message={error || searchError} />
-      <div className="relative">
-        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input type="text" placeholder="Search active employees..." value={query} autoFocus
-          onChange={(e) => { setQuery(e.target.value); setSelected(null); }}
-          className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-[#334155] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-      </div>
-      <div className="max-h-56 overflow-y-auto border border-slate-100 dark:border-[#334155] rounded-xl">
-        {loading && options.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-4">Searching...</p>
-        ) : options.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-4">No other active employees match</p>
-        ) : options.map((emp) => (
-          <button key={emp.id} type="button" onClick={() => setSelected(emp)}
-            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between border-b border-slate-50 dark:border-[#334155] last:border-0 transition ${
-              selected?.id === emp.id ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-200"
-            }`}>
-            <span className="min-w-0">
-              <span className="font-medium block truncate">{employeeName(emp)}</span>
-              {employeeEmail(emp) && <span className="text-xs text-slate-400 block truncate">{employeeEmail(emp)}</span>}
-            </span>
-            {selected?.id === emp.id && <CheckCircle size={14} className="text-blue-500 flex-shrink-0" />}
-          </button>
-        ))}
-      </div>
-      <Actions onClose={onClose} busy={busy} disabled={!selected} submitLabel="Transfer" busyLabel="Transferring..."
-        onSubmit={async () => { if (await run(() => transferAsset(asset.id, { employee_id: selected.id }))) onTransferred?.(); }} />
     </Dialog>
   );
 }

@@ -726,6 +726,24 @@ def _approve_offer_for_sending(db, actor, offer: RecruitmentOffer) -> bool:
     return True
 
 
+def _require_offer_information(db: Session, actor, offer: RecruitmentOffer, canonical_id: str) -> None:
+    """Refuse (409 OFFER_INFORMATION_MISSING, naming each item) when the letter would lack information; changes nothing."""
+    from app.modules.doc_templates import fields as F, preflight
+    try:
+        r = preflight.run_preflight(db, organization_id=actor.organization_id, actor=actor, canonical_id=canonical_id,
+                                    subject_type="candidate", subject_id=offer.candidate_id,
+                                    source_ref=_ref("recruitment_offer", offer.id), organization=actor.organization)
+    finally:
+        db.rollback()                                  # a check only: nothing it touched is kept
+    missing = list(dict.fromkeys(r.missing_fields or []))
+    if not missing:
+        return
+    names = [(F.REGISTRY[k].label if k in F.REGISTRY else k.replace("_", " ").replace(".", " ")).lower() for k in missing]
+    where = " Add it to the offer and send again." if len(names) == 1 else " Add them to the offer and send again."
+    raise HTTPException(409, {"code": "OFFER_INFORMATION_MISSING", "missing_fields": missing,
+                              "message": f"The offer letter cannot be sent yet: the {', '.join(names)} {'is' if len(names) == 1 else 'are'} missing." + where})
+
+
 def send_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedDocument:
     """Prepare, approve when configured, issue and synchronously email an offer's candidate signing link."""
     access.require_hr(actor)
@@ -745,6 +763,12 @@ def send_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedD
     current = _letter(db, offer)
     if current is not None and current.status in ("ISSUED", "EXECUTED"):
         raise HTTPException(409, "This offer letter has already been issued. Use Resend to send a fresh signing link.")
+
+    # QA bug 18: information the letter needs (e.g. the start date) is checked BEFORE anything is replaced. Sending used to
+    # cancel the current letter first and only then find the start date missing, so every click left one more cancelled
+    # letter and the reason was never shown. Only missing information blocks here: other preflight outcomes (no released
+    # template for the country, …) are what the sendable starter below is for.
+    _require_offer_information(db, actor, offer, canonical_id)
 
     def block_unreviewed_cross_border_preview(doc):
         if doc is None or doc.release_mode != "STARTER_PREVIEW":

@@ -1,17 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefcase, ExternalLink, ArrowLeft, ChevronLeft, ChevronRight, Edit2, Trash2, Clock, User, UserPlus, X, Upload, CloudUpload, Sparkles, FileText, Loader2, CheckCircle2, Settings } from "lucide-react";
+import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefcase, ExternalLink, ArrowLeft, ChevronLeft, ChevronRight, Edit2, Eye, Trash2, Clock, User, UserPlus, X, Upload, CloudUpload, Sparkles, FileText, Loader2, CheckCircle2 } from "lucide-react";
 import { Avatar, Card, KpiCard, KpiGrid, PersonCell, PrimaryButton, RecruitmentLayout, SecondaryButton, StatusPill, th, useInsights } from "./ui";
 import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions, parseCV } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { validateCandidateForm, serverFieldErrors, candidatePayload, placeFromLocation } from "../../../utils/candidateForm";
-import { CountrySelect, guessCountry, useRegions } from "../../../components/RemunerationFields";
+import { CountrySelect, RegionSelect, guessCountry, useRegions } from "../../../components/RemunerationFields";
 import { useBusinessFormats } from "../../../components/BusinessLookupFields";
 import PhoneField from "../../../components/PhoneField";
 import EmailSuggestion from "../../../components/EmailSuggestion";
 import { experienceText, sourceLabel, shown, candidateCsv, candidateTimeline } from "../../../utils/candidateDisplay";
 import { bulkRejectCandidates, getCandidateDocumentsStatus, sendCandidatePrivacyNotice } from "../../../service/recruitmentDocumentsService";
-import RecruitmentPrivacySettings from "./PrivacySettings";
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
@@ -139,13 +138,10 @@ export default function Candidates() {
   const initialFormRef = useRef("");
   const [privacyStatus, setPrivacyStatus] = useState(null);
   const [privacyBusy, setPrivacyBusy] = useState(false);
-  const [rowPrivacy, setRowPrivacy] = useState({});
-  const [rowPrivacyBusy, setRowPrivacyBusy] = useState({});
   const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
   const [bulkNotes, setBulkNotes] = useState("");
   const [bulkPreview, setBulkPreview] = useState(null);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [showPrivacySettings, setShowPrivacySettings] = useState(false);
   const candInsights = useInsights("candidates");
   const candKpis = candInsights.data?.kpis || {};
 
@@ -454,18 +450,6 @@ export default function Candidates() {
     }
   };
 
-  const loadPrivacyStatus = async (candId) => {
-    setRowPrivacyBusy((prev) => ({ ...prev, [candId]: true }));
-    try {
-      const result = await getCandidateDocumentsStatus(candId);
-      setRowPrivacy((prev) => ({ ...prev, [candId]: result }));
-    } catch (err) {
-      setNotice(err?.message || "Candidate privacy status could not be loaded.");
-    } finally {
-      setRowPrivacyBusy((prev) => ({ ...prev, [candId]: false }));
-    }
-  };
-
   const resendPrivacyNotice = async (candId) => {
     setPrivacyBusy(true);
     setNotice("");
@@ -473,7 +457,6 @@ export default function Candidates() {
       await sendCandidatePrivacyNotice(candId);
       const updated = await getCandidateDocumentsStatus(candId);
       setPrivacyStatus(updated);
-      setRowPrivacy((prev) => ({ ...prev, [candId]: updated }));
       setNotice("Privacy notice issued to the candidate.");
     } catch (err) {
       setNotice(err?.message || "Privacy notice could not be issued.");
@@ -681,15 +664,14 @@ export default function Candidates() {
               <FormSection icon={MapPin} title="Profile" helper="Background that helps the hiring team shortlist.">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field id="cand-country" label="Country" error={errors.country} badge={fromCv("country")}>
-                    <CountrySelect id="cand-country" regions={regions} value={form.country} onChange={setCountry} className={inputCls(errors.country)} />
+                    <CountrySelect id="cand-country" regions={regions} value={form.country} onChange={setCountry} className={inputCls(errors.country)}
+                      invalid={!!errors.country} describedBy={errors.country ? "cand-country-error" : undefined} />
                   </Field>
                   <Field id="cand-region" label={regionLabel(form.country)} error={errors.region} badge={fromCv("region")}>
                     {regionsOf(form.country) ? (
-                      <select id="cand-region" value={form.region} onChange={(e) => setField("region", e.target.value)}
-                        aria-describedby={errors.region ? "cand-region-error" : undefined} className={inputCls(errors.region)}>
-                        <option value="">Select {regionLabel(form.country).toLowerCase()}</option>
-                        {regionsOf(form.country).map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
+                      <RegionSelect id="cand-region" regions={regionsOf(form.country)} value={form.region} onChange={(v) => setField("region", v)}
+                        placeholder={`Select ${regionLabel(form.country).toLowerCase()}`} label={regionLabel(form.country).toLowerCase().includes("state") ? "states" : "regions"}
+                        invalid={!!errors.region} describedBy={errors.region ? "cand-region-error" : undefined} className={inputCls(errors.region)} />
                     ) : (
                       <input id="cand-region" value={form.region} maxLength={80} autoComplete="address-level1" placeholder="e.g. Telangana"
                         aria-invalid={!!errors.region} aria-describedby={errors.region ? "cand-region-error" : undefined}
@@ -886,7 +868,6 @@ export default function Candidates() {
   return (
     <RecruitmentLayout title="Candidates" subtitle="Review, screen, and move applicants through every hiring stage."
       actions={<>
-        <SecondaryButton icon={Settings} onClick={() => setShowPrivacySettings((value) => !value)} aria-expanded={showPrivacySettings}>Privacy settings</SecondaryButton>
         <SecondaryButton icon={FileText} onClick={exportCsv}>Export CSV</SecondaryButton>
         <input ref={cvFileInputRef} type="file" accept=".pdf,.docx,.doc,.txt" onChange={handleImportCV} className="hidden" id="cv-import-input" />
         <label htmlFor="cv-import-input"
@@ -918,7 +899,6 @@ export default function Candidates() {
           <KpiCard label="Rejected" icon={X} tone="red" kpi={candKpis.rejected} loading={candInsights.loading && !candInsights.data} />
         </KpiGrid>
 
-        {showPrivacySettings && <RecruitmentPrivacySettings embedded />}
 
         {selectedCandidateIds.length > 0 && (
           <section className="flex flex-wrap items-end gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -971,17 +951,13 @@ export default function Candidates() {
                       ? [...new Set([...prev, ...eligiblePageIds])]
                       : prev.filter((candId) => !eligiblePageIds.includes(candId)))} />
                 </th>
-                <th className="px-3 py-3 font-semibold">Name</th>
-                <th className="px-3 py-3 font-semibold hidden sm:table-cell">Email</th>
-                <th className="px-3 py-3 font-semibold hidden lg:table-cell">Phone</th>
-                <th className="px-3 py-3 font-semibold">Position</th>
-                <th className="px-3 py-3 font-semibold hidden lg:table-cell">Location</th>
-                <th className="px-3 py-3 font-semibold hidden xl:table-cell">Exp</th>
-                <th className="px-3 py-3 font-semibold hidden xl:table-cell">Requisition</th>
-                <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-3 py-3 font-semibold hidden md:table-cell">Applied</th>
-                <th className="px-3 py-3 font-semibold hidden lg:table-cell">Source</th>
-                <th className="px-3 py-3 font-semibold"></th>
+                <th className="px-2 py-3 font-semibold sm:px-3">Candidate</th>
+                <th className="hidden px-3 py-3 font-semibold 2xl:table-cell">Phone</th>
+                <th className="hidden px-3 py-3 font-semibold sm:table-cell">Position</th>
+                <th className="hidden px-3 py-3 font-semibold xl:table-cell">Location</th>
+                <th className="px-2 py-3 font-semibold sm:px-3">Status</th>
+                <th className="hidden px-3 py-3 font-semibold xl:table-cell">Applied</th>
+                <th className="px-1 py-3 font-semibold sm:px-3"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -990,32 +966,41 @@ export default function Candidates() {
                   <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" aria-label={`Select ${c.name} for bulk rejection`} disabled={c.status === "hired" || c.status === "rejected"} checked={selectedCandidateIds.includes(c.id)} onChange={() => toggleSelected(c.id)} />
                   </td>
-                  <td className="px-3 py-3"><PersonCell name={c.name} /></td>
-                  <td className="hidden max-w-[220px] truncate px-3 py-3 text-gray-500 sm:table-cell" title={c.email || ""}>{c.email || "-"}</td>
-                  <td className="hidden lg:table-cell px-2 sm:px-3 py-3 text-gray-500 whitespace-nowrap">{shown(c.phone)}</td>
-                  <td className="max-w-[180px] truncate px-3 py-3 text-gray-500" title={c.position || ""}>{c.position || "-"}</td>
-                  <td className="hidden max-w-[160px] truncate px-3 py-3 text-gray-500 lg:table-cell" title={shown(c.location)}>{shown(c.location)}</td>
-                  <td className="hidden xl:table-cell px-2 sm:px-3 py-3 text-gray-500 whitespace-nowrap">{experienceText(c.experience)}</td>
-                  <td className="hidden max-w-[160px] truncate px-3 py-3 text-gray-500 xl:table-cell" title={c.requisition_title || ""}>{c.requisition_title || "-"}</td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-1.5">
+                  <td className="px-2 py-3 sm:px-3">
+                    <div className="max-w-[8rem] sm:max-w-[11rem] xl:max-w-[13rem] 2xl:max-w-[16rem]"><PersonCell name={c.name} sub={c.email || undefined} /></div>
+                    {/* small screens: the columns hidden there */}
+                    <p className="mt-1 max-w-[8rem] truncate text-xs text-gray-500 sm:hidden">{c.position || "-"}</p>
+                  </td>
+                  <td className="hidden whitespace-nowrap px-3 py-3 text-gray-500 2xl:table-cell">{shown(c.phone)}</td>
+                  <td className="hidden px-3 py-3 sm:table-cell">
+                    <p className="max-w-[9rem] truncate text-gray-700 lg:max-w-[12rem]" title={c.position || ""}>{c.position || "-"}</p>
+                    {c.requisition_title && <p className="mt-0.5 max-w-[9rem] truncate text-xs text-gray-400 lg:max-w-[12rem]" title={c.requisition_title}>{c.requisition_title}</p>}
+                  </td>
+                  <td className="hidden px-3 py-3 xl:table-cell">
+                    <p className="max-w-[9.5rem] truncate text-gray-500" title={shown(c.location)}>{shown(c.location)}</p>
+                    {c.experience != null && c.experience !== "" && <p className="mt-0.5 text-xs text-gray-400">{experienceText(c.experience)} experience</p>}
+                  </td>
+                  <td className="px-2 py-3 sm:px-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <StatusPill tone={STAGE_TONE[c.status] || "gray"}>{STAGE_LABEL[c.status] || c.status}</StatusPill>
                       {c.onboarding_new_hire_id && (
                         <span title="Onboarding started" className="text-green-600 text-xs font-medium">✓ Onboarding</span>
                       )}
                     </div>
                   </td>
-                  <td className="hidden md:table-cell px-3 py-3 text-xs text-gray-400 whitespace-nowrap">{daysAgo(c.applied_at || c.created_at)}</td>
-                  <td className="hidden md:table-cell px-3 py-3 text-xs text-gray-400 whitespace-nowrap">{sourceLabel(c.source)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    <div className="flex gap-1">
-                      <button type="button" title="Load privacy notice status" aria-label={`Privacy notice status for ${c.name}`} onClick={(e) => { e.stopPropagation(); loadPrivacyStatus(c.id); }} className="p-1.5 text-gray-400 hover:text-emerald-600">
-                        {rowPrivacyBusy[c.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                  <td className="hidden whitespace-nowrap px-3 py-3 xl:table-cell">
+                    <p className="text-xs text-gray-500">{daysAgo(c.applied_at || c.created_at)}</p>
+                    <p className="mt-0.5 text-xs text-gray-400">{sourceLabel(c.source)}</p>
+                  </td>
+                  <td className="whitespace-nowrap px-1 py-3 sm:px-3">
+                    <div className="flex justify-end gap-1">
+                      {/* View details opens the candidate's profile (which also shows and re-issues the privacy notice) */}
+                      <button type="button" title="View details" aria-label={`View details of ${c.name}`} onClick={(e) => { e.stopPropagation(); navigate(`/zoiko-hr/recruitment/candidates/${c.id}`); }} className="p-1.5 text-gray-400 hover:text-blue-600">
+                        <Eye className="h-4 w-4" />
                       </button>
-                      <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
+                      <button type="button" title="Edit candidate" aria-label={`Edit ${c.name}`} onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
                       <button type="button" title="Delete candidate" aria-label={`Delete ${c.name}`} onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
-                    {rowPrivacy[c.id] && <p className="mt-1 text-[10px] text-gray-500">{rowPrivacy[c.id].privacy_notice_sent_at ? `Notice issued ${formatDate(rowPrivacy[c.id].privacy_notice_sent_at)}` : "No issued notice"}</p>}
                   </td>
                 </tr>
               ))}

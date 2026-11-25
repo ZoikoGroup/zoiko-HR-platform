@@ -112,7 +112,8 @@ test("a failed settings load shows Retry, and Retry loads the form", async (t) =
 
 test("the authorised signatory's signature can be uploaded next to the company logo (QA R1-9, R2-6)", async (t) => {
   await loadSettings(t);
-  const input = screen.getByLabelText("Signatory's signature file");
+  // the signature card shows in Company Profile and in Offer package; both upload the same signature
+  const input = screen.getAllByLabelText("Signatory's signature file")[0];
   assert.match(document.body.textContent, /Authorised signatory's signature/);
   assert.match(document.body.textContent, /No signature yet/);
   const file = new File(["png"], "signature.png", { type: "image/png" });
@@ -120,7 +121,7 @@ test("the authorised signatory's signature can be uploaded next to the company l
   await settle();
   assert.ok(screen.getAllByRole("status").some((s) => /Signature saved/.test(s.textContent)));
   const bad = new File(["gif"], "signature.gif", { type: "image/gif" });
-  fireEvent.change(screen.getByLabelText("Signatory's signature file"), { target: { files: [bad] } });
+  fireEvent.change(screen.getAllByLabelText("Signatory's signature file")[0], { target: { files: [bad] } });
   await settle();
   assert.ok(screen.getAllByRole("alert").some((a) => /signature as a PNG, JPG or WebP/.test(a.textContent)));
 });

@@ -160,6 +160,8 @@ export const updateMyProfile = (payload) => api.put("/hr/employees/me", payload)
 export const getMyAssets = (employeeId) => api.get(`/hr/assets${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const createAssetRequest = (payload) => api.post("/hr/assets/requests", payload);
 export const getAssetRequests = (params = {}) => api.get("/hr/assets/requests", { params });
+// QA bug 19: what an employee can request = the assets their organisation holds ({ items: [{ name, total, available }] })
+export const getRequestableAssetTypes = () => api.get("/hr/assets/requestable-types");
 
 // ════════════════════════════════════════════════════════════════════════════
 // EMPLOYEE SELF-SERVICE — CONTACT HR

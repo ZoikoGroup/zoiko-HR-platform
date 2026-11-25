@@ -15,7 +15,9 @@ import {
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import { getCompanyProfile, getOnboardingProfiles, prefillCompanyProfile, saveCompanyProfile } from "../../../service/hrService";
 import { COUNTRY_CHOICES } from "../../../utils/fieldRules";
+import SearchableSelect from "../../../components/SearchableSelect";
 import { SettingsCard, useSettingsSection } from "./settingsUi";
+import { ImageCard } from "./OfferPackageSettings";
 
 const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 const errorInputCls = "border-rose-300 focus:border-rose-400 focus:ring-rose-100";
@@ -160,13 +162,10 @@ function Field({ spec, value, error, onChange, country }) {
       </select>
     );
   } else if (spec.kind === "country") {
-    const known = COUNTRY_CHOICES.some((c) => c.code === value);
     control = (
-      <select id={id} className={cls} value={value ?? ""} aria-invalid={!!error} aria-describedby={describedBy} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Select a country…</option>
-        {value && !known && <option value={value}>{value}</option>}
-        {COUNTRY_CHOICES.map((c) => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
-      </select>
+      <SearchableSelect id={id} className={cls} value={value ?? ""} invalid={!!error} describedBy={describedBy} onChange={onChange}
+        options={COUNTRY_CHOICES.map((c) => ({ value: c.code, label: `${c.name} (${c.code})` }))} allowEmpty placeholder="Select a country…"
+        searchLabel="Search countries" listLabel="Countries" searchPlaceholder="Search country or code" />
     );
   } else if (spec.kind === "list") {
     control = (
@@ -485,7 +484,14 @@ export default function CompanyProfileSettings() {
                 {msg.text}
               </div>
             )}
-            <p className="text-xs text-gray-500">The logo is set under Offer package documents below.</p>
+            <div className="pt-2">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ImageCard kind="logo" hasImage={!!view?.has_logo} onMessage={setMsg}
+                  onChanged={(res) => setView((v) => ({ ...v, has_logo: !!res?.settings?.has_logo }))} />
+                <ImageCard kind="signature" hasImage={!!view?.has_signature} onMessage={setMsg}
+                  onChanged={(res) => setView((v) => ({ ...v, has_signature: !!res?.settings?.has_signature }))} />
+              </div>
+            </div>
           </>
         )}
       </SettingsCard>

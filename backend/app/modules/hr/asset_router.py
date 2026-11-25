@@ -379,6 +379,19 @@ def list_asset_categories(
     return asset_service.get_asset_categories(db, current_user.organization_id)
 
 
+@asset_router.get(
+    "/requestable-types",
+    summary="Asset types an employee can request",
+    description="The distinct assets the caller's organization holds (by name), with how many are available. Retired, lost "
+                "and deleted assets are left out. Open to every signed-in user: it names kinds of asset, not who holds them.",
+)
+def list_requestable_asset_types(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return {"items": asset_service.get_requestable_asset_types(db, current_user.organization_id)}
+
+
 @asset_router.post(
     "/categories",
     response_model=AssetCategoryResponse,

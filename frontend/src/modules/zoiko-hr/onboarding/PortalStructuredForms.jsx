@@ -12,6 +12,7 @@ import {
   errorMessage, getPortalForms, savePortalForm, submitPortalForm,
 } from "../../../service/onboardingPrompt2Service";
 import PhoneField from "../../../components/PhoneField";
+import SearchableSelect from "../../../components/SearchableSelect";
 import { COUNTRY_CHOICES, LANGUAGES, fieldProblem, regionsFor } from "../../../utils/fieldRules";
 
 const editable = (form) => ["NOT_STARTED", "DRAFT", "RETURNED"].includes(String(form?.status || "").toUpperCase());
@@ -193,24 +194,21 @@ export default function PortalStructuredForms({ token, onChanged }) {
     const input = field.input || (field.type === "date" ? "date" : null);
 
     if (input === "country") {
-      const known = COUNTRY_CHOICES.some((c) => c.name === value);
       return (
-        <select {...common} value={value} onChange={(e) => set(e.target.value)}>
-          <option value="">Choose a country</option>
-          {value && !known && <option value={value} disabled>{value} (choose from the list)</option>}
-          {COUNTRY_CHOICES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
-        </select>
+        <SearchableSelect id={common.id} disabled={common.disabled} className={common.className} invalid={!!common["aria-invalid"]}
+          describedBy={common["aria-describedby"]} onBlur={common.onBlur} value={value} onChange={set} allowEmpty placeholder="Choose a country"
+          options={COUNTRY_CHOICES.map((c) => ({ value: c.name, label: c.name, keywords: [c.code] }))}
+          searchLabel="Search countries" listLabel="Countries" searchPlaceholder="Search country" />
       );
     }
     if (input === "region") {
       const list = regionsFor(values.country || form.work_country);
       if (list) {
         return (
-          <select {...common} value={value} onChange={(e) => set(e.target.value)}>
-            <option value="">Choose a state / region</option>
-            {value && !list.includes(value) && <option value={value} disabled>{value} (choose from the list)</option>}
-            {list.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
+          <SearchableSelect id={common.id} disabled={common.disabled} className={common.className} invalid={!!common["aria-invalid"]}
+            describedBy={common["aria-describedby"]} onBlur={common.onBlur} value={value} onChange={set} allowEmpty
+            placeholder="Choose a state / region" options={list.map((r) => ({ value: r, label: r }))}
+            searchLabel="Search states" listLabel="States" searchPlaceholder="Search state / region" />
         );
       }
     }

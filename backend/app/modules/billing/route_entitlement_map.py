@@ -134,6 +134,7 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     **_r("DELETE", "/hr/assets/{asset_id}", "hr.assets.core"),
     **_r("GET", "/hr/assets/requests", "hr.assets.core"),
     **_r("POST", "/hr/assets/requests", "hr.assets.core"),
+    **_r("GET", "/hr/assets/requestable-types", "hr.assets.core"),
 
     # hr.compensation.core
     **_r("GET", "/hr/compensation", "hr.compensation.core"),

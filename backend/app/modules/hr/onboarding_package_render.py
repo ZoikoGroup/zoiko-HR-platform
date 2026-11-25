@@ -311,7 +311,11 @@ def expand(blocks: list, ctx: "RenderContext") -> list:
 def content_for(category: str, ctx: "RenderContext") -> list:
     """The document's content: what the context carries (the organisation's released version, or the version a document was
     issued under), else the platform default."""
-    return ctx.content if ctx.content is not None else C.blocks_for(category)
+    if ctx.content is not None:
+        return ctx.content
+    if category in C.DOCS:
+        return C.blocks_for(category)
+    return []
 
 
 def blocks(category: str, ctx: "RenderContext") -> list:
@@ -956,7 +960,19 @@ def blank_rows(n, cols):
 
 def doc_meta(category: str, ctx: RenderContext) -> dict:
     """The document's description: the context's (organisation documents, the organisation's mode), else the platform's."""
-    return ctx.meta or C.DOCS[category]
+    return ctx.meta or C.DOCS.get(category) or {
+        "category": category,
+        "title": category.replace("_", " ").title(),
+        "template_id": category,
+        "doc_type": "",
+        "risk": "",
+        "sensitivity": "",
+        "orientation": "portrait",
+        "family_id": "",
+        "initials": False,
+        "pages": "",
+        "signers": 0,
+    }
 
 
 def render_pdf(category: str, ctx: RenderContext) -> bytes:

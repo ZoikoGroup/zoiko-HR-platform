@@ -219,6 +219,7 @@ const products = {
           { label: "Interviews",             href: "/zoiko-hr/recruitment/interviews",    icon: Calendar, featureKey: "hr.recruitment.core" },
           { label: "Offer Management",       href: "/zoiko-hr/recruitment/offers",        icon: FileCheck2, featureKey: "hr.recruitment.core" },
           { label: "Offers Issued",          href: "/zoiko-hr/recruitment/offers-issued", icon: Send, featureKey: "hr.recruitment.core" },
+          { label: "Settings",               href: "/zoiko-hr/recruitment/settings",      icon: SlidersHorizontal, featureKey: "hr.recruitment.core", excludeRoles: [ROLES.MANAGER] },
         ]},
         { label: "Onboarding",         icon: UserCheck, children: [
           { label: "Dashboard",             href: "/zoiko-hr/onboarding",               icon: LayoutDashboard, featureKey: "hr.onboarding.core" },

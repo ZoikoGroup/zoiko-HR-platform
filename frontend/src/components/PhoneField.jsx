@@ -6,6 +6,7 @@
  * Only digits, spaces and + - ( ) can be typed; a pasted value is cleaned and the person is told.
  */
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "./SearchableSelect";
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 import { COUNTRY_CHOICES, callingCode, countryIso, DEFAULT_PHONE_REGION, phoneInputFilter } from "../utils/fieldRules";
 
@@ -23,6 +24,15 @@ function split(value, fallbackIso) {
     return { iso, national: code ? text.slice(code[0].length) : text };
   }
   return { iso: fallbackIso, national: text };
+}
+
+/** "+91", "91", "india", "IN": what a person may type to find a country. */
+function matchCountry(option, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const digits = q.replace(/[^\d]/g, "");
+  if (digits && /^\+?\d+$/.test(q)) return option.dial.replace("+", "").startsWith(digits);
+  return option.name.toLowerCase().includes(q) || option.value.toLowerCase() === q;
 }
 
 export default function PhoneField({
@@ -52,7 +62,8 @@ export default function PhoneField({
   const emit = (nextIso, nextNational) => onChange?.(nextNational.trim() ? `${callingCode(nextIso)} ${nextNational.trim()}` : "");
 
   const options = useMemo(
-    () => COUNTRY_CHOICES.map((c) => ({ ...c, dial: callingCode(c.code) })).filter((c) => c.dial),
+    () => COUNTRY_CHOICES.map((c) => ({ ...c, dial: callingCode(c.code) })).filter((c) => c.dial)
+      .map((c) => ({ ...c, value: c.code, label: `${c.dial} ${c.name}`, display: `${c.dial} ${c.code}` })),
     [],
   );
 
@@ -60,17 +71,23 @@ export default function PhoneField({
     // The layout belongs to this component (QA report #17, BUG-15): whatever classes a page passes, the code box keeps a fixed
     // width and the number box keeps room to type; on very narrow screens the number box wraps below instead of collapsing.
     <div className="flex w-full flex-wrap gap-2 sm:flex-nowrap">
-      <select
-        aria-label="Phone country code"
+      <SearchableSelect
+        options={options}
         value={iso}
         disabled={disabled}
-        onChange={(e) => { setIso(e.target.value); emit(e.target.value, national); }}
+        onChange={(next) => { setIso(next); emit(next, national); }}
+        ariaLabel="Phone country code"
+        searchLabel="Search countries"
+        listLabel="Countries"
+        searchPlaceholder="Search country or code"
+        noMatchText="No country matches"
+        match={matchCountry}
+        listWidth={288}
+        renderOption={(o) => (<><span className="w-12 shrink-0 tabular-nums text-gray-500">{o.dial}</span><span className="truncate">{o.name}</span></>)}
         // the code box is always narrow: a width class passed in for the number box (w-full) must not stretch it and push
         // the number box off the screen
         className={`${stripLayout(`${className} ${selectClassName}`)} w-28 shrink-0 grow-0`}
-      >
-        {options.map((c) => <option key={c.code} value={c.code}>{`${c.dial} ${c.name}`}</option>)}
-      </select>
+      />
       <div className="min-w-[9rem] flex-1">
         <input
           id={id}

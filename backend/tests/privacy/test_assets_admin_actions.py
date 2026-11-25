@@ -74,11 +74,34 @@ def test_return_rejects_an_unknown_condition_and_an_unassigned_asset(world):
     assert r.status_code == 400 and "not currently assigned" in r.json()["message"]
 
 
-def test_transfer_moves_an_assigned_asset_to_another_active_employee(world):
+def test_an_asset_goes_back_to_the_organization_before_anyone_else_gets_it(world):
+    """QA bug 20: no direct hand-over from one employee to another; Return, then Assign."""
     a = _row(world, "TR-1", status=AssetStatus.ASSIGNED, employee=world.u["a_emp1"])
     r = world.put("a_hr", f"/hr/assets/{a.id}/transfer", json={"employee_id": world.u["a_emp2"].id})
-    assert r.status_code == 200 and r.json()["employee_id"] == world.u["a_emp2"].id
-    assert world.put("a_hr", f"/hr/assets/{a.id}/transfer", json={"employee_id": world.u["b_emp1"].id}).status_code == 404
+    assert r.status_code == 409 and "return it to the organization first" in r.json()["message"]
+    world.db.expire_all()
+    assert world.db.get(Asset, a.id).employee_id == world.u["a_emp1"].id, "still with its holder"
+    assert world.put("a_hr", f"/hr/assets/{a.id}/assign", json={"employee_id": world.u["a_emp2"].id}).status_code == 409
+
+    back = world.put("a_hr", f"/hr/assets/{a.id}/return", json={"reason": "moving to the new hire", "condition": "good"})
+    assert back.status_code == 200 and (back.json()["status"], back.json()["employee_id"]) == ("available", None)
+    given = world.put("a_hr", f"/hr/assets/{a.id}/assign", json={"employee_id": world.u["a_emp2"].id})
+    assert given.status_code == 200 and given.json()["employee_id"] == world.u["a_emp2"].id
+    # another organization's asset stays a plain 404
+    other = _row(world, "TR-B", org=2)
+    assert world.put("a_hr", f"/hr/assets/{other.id}/transfer", json={"employee_id": world.u["a_emp2"].id}).status_code == 404
+
+
+def test_the_return_is_kept_in_the_activity_log_with_its_reason(world):
+    from app.modules.super_admin.models import AuditLog as SuperAdminAuditLog
+    a = _row(world, "TR-2", status=AssetStatus.ASSIGNED, employee=world.u["a_emp1"])
+    assert world.put("a_admin", f"/hr/assets/{a.id}/return", json={"reason": "leaving the team", "condition": "fair"}).status_code == 200
+    world.db.expire_all()
+    row = (world.db.query(SuperAdminAuditLog).filter(SuperAdminAuditLog.action_type == "asset.returned")
+           .order_by(SuperAdminAuditLog.id.desc()).first())
+    assert row is not None and row.entity_id == a.id
+    text = str(row.details)
+    assert "leaving the team" in text and "fair" in text
 
 
 # ── categories ───────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
  * message under its own field (aria-invalid + aria-describedby), focuses the first bad field, keeps what was typed, accepts real
  * international values, and maps the server's field messages back onto the fields. */
 import "./support/setup-jsdom.mjs";
+import { chooseOption } from "./support/searchableSelect.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -37,15 +38,17 @@ const set = (id, value) => fireEvent.change(document.getElementById(id), { targe
 const errorOf = (id) => document.getElementById(`${id}-error`)?.textContent || "";
 const next = async () => { fireEvent.click(screen.getByRole("button", { name: "Continue" })); await settle(); };
 
-function fillValid() {
+async function fillValid() {
   set("reg-orgName", "AT&T"); set("reg-orgType", "corporation"); set("reg-registeredEmail", "hr@acme-corp.com");
-  set("reg-country", "India"); set("reg-phone", "98765 43210"); set("reg-taxNumber", "27AAPFU0939F1ZV");
-  set("reg-industry", "Software"); set("reg-address", "12 MG Road, Indiranagar"); set("reg-state", "Karnataka"); set("reg-city", "Bengaluru");
+  await chooseOption("reg-country", "India");                // country and state are searchable dropdowns
+  set("reg-phone", "98765 43210"); set("reg-taxNumber", "27AAPFU0939F1ZV");
+  set("reg-industry", "Software"); set("reg-address", "12 MG Road, Indiranagar");
+  await chooseOption("reg-state", "Karnataka"); set("reg-city", "Bengaluru");
 }
 
 test("B7–B12 the QA inputs are refused, each under its own field, the first bad field gets focus and the input is kept", async (t) => {
   await open(t);
-  fillValid();
+  await fillValid();
   set("reg-orgName", "@#$%");                 // B7
   set("reg-phone", "98765 43");               // B8 (letters cannot even be typed: see the next test)
   set("reg-taxNumber", "HELLO!!");            // B9
@@ -74,7 +77,7 @@ test("B8 letters cannot be typed into the phone box, and the person is told why"
 
 test("B9 the registration number follows the country: GSTIN check digit for India, its own label and example", async (t) => {
   await open(t);
-  fillValid();
+  await fillValid();
   set("reg-taxNumber", "27AAPFU0939F1ZA");
   await next();
   assert.equal(errorOf("reg-taxNumber"), "That GSTIN fails its check digit. Please re-check the number.");
@@ -85,7 +88,7 @@ test("B9 the registration number follows the country: GSTIN check digit for Indi
 
 test("B10 industry is chosen from a list; Other asks for a name with the department rules", async (t) => {
   await open(t);
-  fillValid();
+  await fillValid();
   assert.equal(document.getElementById("reg-industry").tagName, "SELECT");
   set("reg-industry", "Other");
   set("reg-industryOther", "1234");
@@ -95,7 +98,7 @@ test("B10 industry is chosen from a list; Other asks for a name with the departm
 
 test("B13 the admin name refuses digits and symbols but accepts real names", async (t) => {
   await open(t);
-  fillValid();
+  await fillValid();
   await next();
   set("reg-adminName", "Priya 123");
   set("reg-adminEmail", "priya@acme-corp.com");
@@ -112,7 +115,7 @@ test("B13 the admin name refuses digits and symbols but accepts real names", asy
 
 test("B7 real organization names with digits and symbols are accepted", async (t) => {
   await open(t);
-  fillValid();
+  await fillValid();
   for (const name of ["3M", "7-Eleven", "H&M", "Tata Consultancy Services (TCS)"]) {
     set("reg-orgName", name);
     fireEvent.blur(document.getElementById("reg-orgName"));
@@ -126,7 +129,7 @@ test("a field message from the server is shown under that field on the right ste
     throw Object.assign(new Error("x"), { status: 422, validation: [{ loc: ["body", "city"], msg: "Use letters only. Spaces, hyphens, apostrophes and full stops are allowed." }] });
   };
   await open(t, register);
-  fillValid();
+  await fillValid();
   await next();
   set("reg-adminName", "Priya Sharma"); set("reg-adminEmail", "hr@acme-corp.com");
   fireEvent.change(document.getElementById("reg-password"), { target: { value: "Passw0rd1" } });

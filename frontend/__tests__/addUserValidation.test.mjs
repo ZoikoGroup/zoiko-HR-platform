@@ -1,6 +1,7 @@
 /** B16–B38 (QA report 6 Nov 2026): Add User checks every field with the shared rules, shows each message under its own field,
  * focuses the first bad field and sends nothing; real international values are accepted; Edit User checks only what changed. */
 import "./support/setup-jsdom.mjs";
+import { chooseOption } from "./support/searchableSelect.mjs";
 import { withQuery } from "./support/queryWrapper.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -53,7 +54,7 @@ test("B16–B38 every QA input is refused under its own field, the first is focu
   await openAdd(t);
   userSvc.createUser = async (p) => { sent.push(p); return { message: "ok" }; };
   set("email", "john@acme-corp.com");
-  set("country", "India");
+  await chooseOption("add-user-country", "India");
   for (const [k, v] of Object.entries(QA)) set(k, v);
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
@@ -74,12 +75,12 @@ test("B16–B38 every QA input is refused under its own field, the first is focu
 
 test("B32/B31 country is a list; India's states are a list; letters cannot be typed into an Indian bank account", async (t) => {
   await openAdd(t);
-  assert.equal(document.getElementById("add-user-country").tagName, "SELECT");
-  set("country", "India");
-  assert.equal(document.getElementById("add-user-state").tagName, "SELECT");
+  assert.equal(document.getElementById("add-user-country").getAttribute("aria-haspopup"), "listbox", "a searchable list");
+  await chooseOption("add-user-country", "India", { search: "ind" });
+  assert.equal(document.getElementById("add-user-state").getAttribute("aria-haspopup"), "listbox", "India's states: a searchable list");
   set("bank_account", "12ab34");
   assert.equal(document.getElementById("add-user-bank_account").value, "1234");
-  set("country", "Germany");
+  await chooseOption("add-user-country", "Germany");
   assert.equal(document.getElementById("add-user-state").tagName, "INPUT", "no fixed list for Germany: typed with the place rules");
   cleanup();
 });
@@ -104,8 +105,8 @@ test("B16–B38 real international values are accepted and sent", async (t) => {
     current_address: "12 MG Road, Indiranagar", permanent_address: "#4, 3rd Cross, Koramangala", city: "Bengaluru",
     pincode: "560001", pan_number: "ABCDE1234F", uan_number: "101234567890", bank_account: "123456789012", bank_ifsc: "HDFC0001234",
   };
-  set("country", "India");
-  set("state", "Karnataka");
+  await chooseOption("add-user-country", "India");
+  await chooseOption("add-user-state", "Karnataka", { search: "karn" });
   for (const [k, v] of Object.entries(good)) set(k, v);
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();

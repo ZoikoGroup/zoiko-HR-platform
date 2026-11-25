@@ -66,6 +66,7 @@ const ZoikoHROnboardingDocuments = lazyRoute(() => import("../modules/zoiko-hr/o
 const ZoikoHROnboardingChecklists = lazyRoute(() => import("../modules/zoiko-hr/onboarding/checklists.jsx"));
 const ZoikoHROnboardingSettings = lazyRoute(() => import("../modules/zoiko-hr/onboarding/settings.jsx"));
 const ZoikoHRDocsSetupWizard = lazyRoute(() => import("../modules/zoiko-hr/onboarding/docs-setup/DocsSetupWizard.jsx"));
+const RecruitmentSettings = lazyRoute(() => import("../modules/zoiko-hr/recruitment/settings.jsx"));
 // Offboarding module (HR and organisation admins)
 const OffboardingDashboard = lazyRoute(() => import("../modules/zoiko-hr/offboarding/dashboard.jsx"));
 const OffboardingCases = lazyRoute(() => import("../modules/zoiko-hr/offboarding/cases.jsx"));
@@ -298,6 +299,8 @@ const routeOverrides = {
   "/zoiko-hr/attendance/analytics": <ZoikoHRAttendanceAnalytics />,
   "/zoiko-hr/performance": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceDashboard /></PlanGate>,
   "/zoiko-hr/recruitment": <RecruitmentDashboard />,
+  // Recruitment → Settings (privacy, retention, offer approval): HR and organisation admins
+  "/zoiko-hr/recruitment/settings": <RecruitmentSettings />,
   "/zoiko-hr/onboarding": <ZoikoHROnboardingDashboard />,
   "/zoiko-hr/onboarding/new-hires": <ZoikoHROnboardingNewHires />,
   "/zoiko-hr/onboarding/pre-onboarding": <ZoikoHROnboardingPreOnboarding />,

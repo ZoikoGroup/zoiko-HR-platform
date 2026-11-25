@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { isFutureDate, todayISO } from "../../organization-admin/assetPickers";
-import { getAssets, createAsset, updateAsset, deleteAsset, getAssetCategories, getAssetEmployeeOptions, transferAsset, assignAsset, returnAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
+import { ReturnAssetDialog } from "../../organization-admin/AssetActionDialogs";
+import { getAssets, createAsset, updateAsset, deleteAsset, getAssetCategories, getAssetEmployeeOptions, assignAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -38,6 +39,7 @@ export default function Inventory() {
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [showAssign, setShowAssign] = useState(null);
+  const [showReturn, setShowReturn] = useState(null);
   const [assignEmployeeId, setAssignEmployeeId] = useState("");
   const [assigning, setAssigning] = useState(false);
 
@@ -72,7 +74,7 @@ export default function Inventory() {
 
   useEffect(() => { fetchData(); fetchLookups(); }, []);
 
-  // The assign / transfer picker searches active staff on the server as the admin types.
+  // The assign picker searches active staff on the server as the admin types.
   const [empSearch, setEmpSearch] = useState("");
   useEffect(() => {
     if (!showAssign) return undefined;
@@ -145,7 +147,7 @@ export default function Inventory() {
       const payload = {
         name: form.name.trim(), asset_tag: form.assetTag.trim(),
         category: form.category || null, serial_number: form.serialNumber || null,
-        department: form.department || null,             // who holds it changes through Assign / Transfer / Return
+        department: form.department || null,             // who holds it changes through Assign / Return
         assigned_date: form.assignedDate || null, status: form.status, condition: form.condition,
         purchase_date: form.purchaseDate || null, purchase_cost: form.purchasePrice ? Number(form.purchasePrice) : null,
         notes: form.notes || null,
@@ -285,16 +287,9 @@ export default function Inventory() {
                           )}
                           {a.status === "assigned" && a.employee_id && (
                             <>
-                              <button onClick={() => { setShowAssign(a); setAssignEmployeeId(""); setEmpSearch(""); }} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded hover:bg-blue-50" title="Transfer">&#8644;</button>
-                              <button onClick={async () => {
-                                if (!window.confirm("Return this asset?")) return;
-                                try {
-                                  await returnAsset(a.id, { reason: "Manual return" });
-                                  await fetchData();
-                                } catch (err) {
-                                  setError(err.message || "Failed to return asset");
-                                }
-                              }} className="p-1.5 text-gray-400 hover:text-green-600 transition-colors rounded hover:bg-green-50" title="Unassign">&#8617;</button>
+                              {/* QA bug 20: no Transfer; return it to the organization, then assign it again */}
+                              <button type="button" onClick={() => setShowReturn(a)} aria-label={`Return ${name} (${tag})`}
+                                className="p-1.5 text-gray-400 hover:text-green-600 transition-colors rounded hover:bg-green-50" title="Return to organization">&#8617;</button>
                             </>
                           )}
                           <button onClick={() => handleDelete(a.id)} className="p-1.5 text-gray-400 hover:text-red-600 transition-colors rounded hover:bg-red-50" title="Delete">&#10005;</button>
@@ -428,11 +423,16 @@ export default function Inventory() {
         </div>
       )}
 
+      {showReturn && (
+        <ReturnAssetDialog asset={showReturn} onClose={() => setShowReturn(null)}
+          onReturned={async () => { setShowReturn(null); await fetchData(); }} />
+      )}
+
       {showAssign && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
             <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-gray-800">{showAssign.status === "assigned" ? "Transfer Asset" : "Assign Asset"}</h2>
+              <h2 className="text-lg font-bold text-gray-800">Assign Asset</h2>
               <button onClick={() => setShowAssign(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
             <div className="p-6 space-y-4">
@@ -458,11 +458,7 @@ export default function Inventory() {
                 <button type="button" disabled={!assignEmployeeId || assigning} onClick={async () => {
                   setAssigning(true);
                   try {
-                    if (showAssign.status === "assigned") {
-                      await transferAsset(showAssign.id, { employee_id: parseInt(assignEmployeeId) });
-                    } else {
-                      await assignAsset(showAssign.id, { employee_id: parseInt(assignEmployeeId) });
-                    }
+                    await assignAsset(showAssign.id, { employee_id: parseInt(assignEmployeeId) });
                     setShowAssign(null);
                     setAssignEmployeeId("");
                     await fetchData();
@@ -472,7 +468,7 @@ export default function Inventory() {
                     setAssigning(false);
                   }
                 }} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors">
-                  {assigning ? "Assigning..." : showAssign.status === "assigned" ? "Transfer" : "Assign"}
+                  {assigning ? "Assigning..." : "Assign"}
                 </button>
               </div>
             </div>
