@@ -123,14 +123,9 @@ def _defaults(org) -> dict:
     }
 
 
-def header_label(cfg: dict, org: Optional[Any] = None) -> str:
-    """The running header's "LABEL | HR": the header label from the settings, else the employer legal name from settings or organization record."""
-    label = (cfg.get("header_label") or "").strip()
-    if not label:
-        label = (cfg.get("legal_name") or "").strip()
-    if not label and org is not None:
-        label = (getattr(org, "organization_name", None) or getattr(org, "display_name", None) or "").strip()
-    return (label or "ZOIKO HR").upper()[:60]
+def header_label(cfg: dict) -> str:
+    """The running header's "LABEL | HR": the header label from the settings, else the employer legal name from the settings."""
+    return ((cfg.get("header_label") or "").strip() or (cfg.get("legal_name") or "").strip()).upper()[:60]
 
 
 def _row(db, organization_id):
@@ -139,8 +134,7 @@ def _row(db, organization_id):
 
 
 def get_config(db, organization_id: int) -> dict:
-    org = _org(db, organization_id) if db is not None else None
-    cfg = _defaults(org)
+    cfg = _defaults(_org(db, organization_id))
     row = _row(db, organization_id)
     if row and row.value:
         try:
@@ -155,15 +149,6 @@ def get_config(db, organization_id: int) -> dict:
     for key in CP.OWNED_BY_PROFILE:
         cfg[key] = profile.get(key) if profile.get(key) is not None else cfg.get(key)
     cfg["registered_address"] = CP.registered_address(profile)
-    # Fall back to Organization record for legal_name, header_label, registered_address
-    if org is not None:
-        org_name = (getattr(org, "organization_name", None) or getattr(org, "display_name", None) or "").strip()
-        if not (cfg.get("legal_name") or "").strip() and org_name:
-            cfg["legal_name"] = org_name
-        if not (cfg.get("header_label") or "").strip() and cfg.get("legal_name"):
-            cfg["header_label"] = cfg["legal_name"]
-        if not (cfg.get("registered_address") or "").strip() and getattr(org, "address", None):
-            cfg["registered_address"] = org.address.strip()
     return cfg
 
 
@@ -291,13 +276,8 @@ def save_logo(db, actor, data: bytes) -> dict:
     """Validate an uploaded logo (PNG, JPEG or WebP, max 2 MB), strip metadata by re-encoding it as PNG, scale it down, store it."""
     png = _clean_png(data, "a logo", LOGO_MAX_PX)
     cfg = get_config(db, actor.organization_id)
-    key = storage.get_store().put(actor.organization_id, f"org-logo-{secrets.token_hex(6)}.png", png)
-    cfg["logo_key"] = key
+    cfg["logo_key"] = storage.get_store().put(actor.organization_id, f"org-logo-{secrets.token_hex(6)}.png", png)
     _write_config(db, actor.organization_id, cfg)
-    org = db.get(Organization, actor.organization_id)
-    if org is not None:
-        org.logo_url = key
-        db.commit()
     return settings_view(db, actor.organization_id)
 
 
@@ -305,10 +285,6 @@ def remove_logo(db, actor) -> dict:
     cfg = get_config(db, actor.organization_id)
     cfg["logo_key"] = ""
     _write_config(db, actor.organization_id, cfg)
-    org = db.get(Organization, actor.organization_id)
-    if org is not None and org.logo_url:
-        org.logo_url = None
-        db.commit()
     return settings_view(db, actor.organization_id)
 
 
@@ -324,30 +300,7 @@ def _stored_image(db, organization_id: int, key_name: str, cfg: Optional[dict] =
 
 
 def logo_bytes(db, organization_id: int, cfg: Optional[dict] = None) -> Optional[bytes]:
-    data = _stored_image(db, organization_id, "logo_key", cfg)
-    if data:
-        return data
-    # Fall back to Organization.logo_url
-    if db is not None:
-        try:
-            org = db.get(Organization, organization_id)
-            if org and getattr(org, "logo_url", None):
-                url = str(org.logo_url).strip()
-                if url.startswith("data:image/"):
-                    import base64
-                    try:
-                        return base64.b64decode(url.split(",", 1)[1])
-                    except Exception:
-                        pass
-                try:
-                    stored = storage.get_store().get(url)
-                    if stored:
-                        return stored
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    return None
+    return _stored_image(db, organization_id, "logo_key", cfg)
 
 
 def public_branding(db, organization_id: int) -> tuple:
@@ -561,11 +514,10 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     details = hire.profile_details or {}
     from app.core.regions import country_name
 
-    start = hire.joining_date or (offer.joining_date if offer else None) or (date.today() + timedelta(days=14))
-    profile = _profile_for(db, hire.organization_id)
-    country_code = (offer.work_country if offer else None) or hire.work_country or profile.get("jurisdiction_country") or profile.get("country") or getattr(org, "country", None)
+    start = hire.joining_date or (offer.joining_date if offer else None)
+    country_code = (offer.work_country if offer else None) or hire.work_country
     hours = getattr(offer, "hours_per_week", None) if offer else None
-    working_hours = f"{float(hours):g} hours per week" if hours else "40 hours per week"
+    working_hours = f"{float(hours):g} hours per week" if hours else None
     base_pay = None
     if offer and offer.salary:
         cur = offer.currency or getattr(org, "currency", None) or ""
@@ -575,20 +527,14 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     emp = getattr(hire, "employee", None)
     if address is None and emp is not None and getattr(emp, "current_address", None):
         address = emp.current_address
-    hr_email = cfg.get("hr_contact_email") or getattr(org, "registered_email", None) or "hr@company.com"
-    hr_name = cfg.get("hr_contact_name") or "HR Department"
-    hr_contact = " – ".join(p for p in (hr_name, hr_email) if p) or "HR Department"
-    legal_name = (cfg.get("legal_name") or getattr(org, "organization_name", None) or getattr(org, "display_name", None) or "Company Name").strip()
-    reg_addr = cfg.get("registered_address") or getattr(org, "address", None) or "Registered Office"
-    sig_name = real_person_name(cfg.get("signatory_name")) or "Authorised Signatory"     # a stored label is never printed
-    sig_title = cfg.get("signatory_title") or "Director"
-    work_location = (offer.work_location if offer else None) or hire.work_region or getattr(org, "city", None) or "Company Office"
+    hr_contact = " – ".join(p for p in (cfg.get("hr_contact_name"), cfg.get("hr_contact_email")) if p) or None
+    emp = getattr(hire, "employee", None)
     values = {
         "generated_at": _fmt_date(date.today(), cfg),
-        "employer.legal_name": legal_name,
-        "employer.registered_address": reg_addr,
-        "employer.signatory_name": sig_name,
-        "employer.signatory_title": sig_title,
+        "employer.legal_name": cfg.get("legal_name") or None,
+        "employer.registered_address": cfg.get("registered_address") or None,
+        "employer.signatory_name": cfg.get("signatory_name") or None,
+        "employer.signatory_title": cfg.get("signatory_title") or None,
         "employer.hr_contact": hr_contact,
         "worker.full_name": hire.candidate_name,
         "worker.email": hire.email,
@@ -601,25 +547,25 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "employment.employment_type": _pretty(hire.employment_type or (offer.employment_type if offer else None)),
         "employment.start_date": _fmt_date(start, cfg),
         "employment.continuous_service_date": _fmt_date(start, cfg),
-        "employment.work_location": work_location,
-        "employment.work_arrangement": _pretty(offer.work_arrangement if offer else None) or "On-site",
+        "employment.work_location": (offer.work_location if offer else None),          # never the org record's city
+        "employment.work_arrangement": _pretty(offer.work_arrangement if offer else None),
         "employment.working_hours": working_hours,
         "employment.work_pattern": (offer.work_pattern if offer else None) or working_hours,
         "employment.base_pay": base_pay,
-        "employment.pay_frequency": cfg.get("pay_frequency") or "monthly",
+        "employment.pay_frequency": cfg.get("pay_frequency") or None,
         "employment.variable_pay": (f"Equity: {offer.equity}" if offer and offer.equity else None),
-        "employment.benefits_reference": cfg.get("benefits_reference") or "the company benefits summary",
-        "employment.leave_entitlement": _leave_text(cfg.get("leave_entitlement")) or "25 days plus public holidays",
-        "employment.country": (country_name(country_code) if country_code else None) or cfg.get("jurisdiction") or "India",
+        "employment.benefits_reference": cfg.get("benefits_reference") or None,
+        "employment.leave_entitlement": _leave_text(cfg.get("leave_entitlement")),
+        "employment.country": country_name(country_code) if country_code else (cfg.get("jurisdiction") or None),
         "offer.response_deadline": _fmt_date(response_deadline(cfg, start, hire_inputs(hire).get("document.issue_date")), cfg),
         "offer.secure_link": secure_link,
         "contract.id": contract_id,
-        "agreement.post_employment_period": cfg.get("post_employment_period") or "12 months",
+        "agreement.post_employment_period": cfg.get("post_employment_period") or None,
         "document.version": C.PACKAGE_VERSION,
         "document.effective_date": _fmt_date(cfg.get("effective_date") or start or date.today(), cfg),
         "job.role_purpose": (req.description.strip()[:1200] if req and req.description else None),
         "job.skills_essential": (req.requirements.strip()[:800] if req and req.requirements else None),
-        "kpi.review_cycle": cfg.get("kpi_review_cycle") or "Weekly, in the 1:1 meeting",
+        "kpi.review_cycle": cfg.get("kpi_review_cycle") or None,
     }
     for key, val in hire_inputs(hire).items():                    # HR's per-hire entries win
         values[key] = _fmt_date(val, cfg) if key == "employment.start_date" else val
@@ -677,32 +623,33 @@ def real_person_name(value) -> Optional[str]:
 
 def _template_blank_values(hire, cfg: dict, offer, values: dict) -> dict:
     """Values for the blanks an organisation's own templates leave for each hire (degree, institution, place of signing,
-    end of the assessment, the next stage's title). HR's entry for this hire wins; robust fallbacks prevent missing placeholders."""
+    end of the assessment, the next stage's title). HR's entry for this hire wins; there is no other record of a degree or
+    a next-stage title, so those come only from HR (the package panel lists them as missing until typed)."""
     from app.modules.hr import doc_formatting as F
     inputs = hire_inputs(hire)
     details = hire.profile_details or {}
     fmt = cfg.get("date_format") or "DMY"
-    place = (inputs.get("worker.place") or str(details.get("city_display") or details.get("city") or "").strip()
-             or values.get("company.jurisdiction_city") or cfg.get("city") or "the workplace")
     out = {
-        "worker.degree": inputs.get("worker.degree") or "Relevant degree or professional qualification",
-        "worker.institution": inputs.get("worker.institution") or (getattr(offer, "academic_institution", None) if offer else None) or "Recognised institution",
-        "worker.place": place,
-        "employment.next_stage_title": inputs.get("employment.next_stage_title") or "Confirmed Employment",
-        "employer.signatory_name": real_person_name(values.get("employer.signatory_name")) or real_person_name(cfg.get("signatory_name")) or "Authorised Signatory",
+        "worker.degree": inputs.get("worker.degree") or None,
+        "worker.institution": inputs.get("worker.institution") or (getattr(offer, "academic_institution", None) if offer else None),
+        "worker.place": (inputs.get("worker.place") or str(details.get("city_display") or details.get("city") or "").strip()
+                         or None),
+        "employment.next_stage_title": inputs.get("employment.next_stage_title") or None,
+        "employer.signatory_name": real_person_name(values.get("employer.signatory_name")),
         "employer.signature": "",
     }
     end = F.to_date(inputs.get("employment.assessment_end_date"))
     if end is None:                      # the engagement profile's assessment length, counted from the start date
         start = F.to_date(hire.joining_date or (offer.joining_date if offer else None)
-                          or inputs.get("employment.start_date")) or date.today()
+                          or inputs.get("employment.start_date"))
         months = values.get("engagement.assessment_months")
         try:
-            months = int(months) if months not in (None, "") else 6
+            months = int(months) if months not in (None, "") else None
         except (TypeError, ValueError):
-            months = 6
-        end = _add_months(start, months) - timedelta(days=1)
-    out["employment.assessment_end_date"] = (F.format_date_long(end, fmt) or None) if end else "completion of assessment period"
+            months = None
+        if start is not None and months:
+            end = _add_months(start, months) - timedelta(days=1)
+    out["employment.assessment_end_date"] = (F.format_date_long(end, fmt) or None) if end else None
     return out
 
 
@@ -924,7 +871,6 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     from app.core.regions import country_name
     from app.modules.hr import company_profile as CP
     from app.modules.hr import doc_formatting as F
-    org = _org(db, hire.organization_id)
     profile = _profile_for(db, hire.organization_id)
     eng, role = hire_profiles(db, hire)
     eng = eng or {}
@@ -932,7 +878,7 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     inputs = hire_inputs(hire)
     fmt = cfg.get("date_format") or "DMY"
     details = hire.profile_details or {}
-    legal = (profile.get("legal_name") or cfg.get("legal_name") or getattr(org, "organization_name", None) or getattr(org, "display_name", None) or "Company Name").strip()
+    legal = profile.get("legal_name") or None
 
     # company
     if (profile.get("address_line1") or "").strip():
@@ -943,10 +889,6 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         company_lines = CP.address_parts(profile)
     if not company_lines and (cfg.get("registered_address") or "").strip():     # saved before the Company Profile existed
         company_lines = [ln.strip() for ln in re.split(r"[\n]", cfg["registered_address"]) if ln.strip()]
-    if not company_lines and getattr(org, "address", None):
-        company_lines = [ln.strip() for ln in str(org.address).splitlines() if ln.strip()]
-    if not company_lines:
-        company_lines = [legal, "Registered Office"]
     # Keep the package's existing counsel-clause setting as a compatibility source
     # for organisations that have not yet migrated this wording into Company Profile.
     clause_law = ((cfg.get("clauses") or {}).get("governing_law") or {}).get("text")
@@ -954,11 +896,6 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     if law is None and profile.get("jurisdiction_country") and profile.get("jurisdiction_city"):
         country = country_name(profile["jurisdiction_country"]) or profile["jurisdiction_country"]
         law = f"the laws of {country}; the courts at {profile['jurisdiction_city']} have exclusive jurisdiction"
-    if law is None:
-        country_c = profile.get("jurisdiction_country") or profile.get("country") or hire.work_country or getattr(org, "country", None) or "GB"
-        c_name = country_name(country_c) or country_c
-        j_city = profile.get("jurisdiction_city") or profile.get("city") or getattr(org, "city", None) or "the competent courts"
-        law = f"the laws of {c_name}; the courts at {j_city} have exclusive jurisdiction"
     channel = (profile.get("reports_channel_text") or "").strip()
 
     # the person
@@ -967,10 +904,6 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     worker_lines = F.address_lines(addr, addr.get("country")) if has_address else []
     if not worker_lines and v1.get("worker.postal_address"):          # HR typed the address as one line
         worker_lines = [ln.strip() for ln in str(v1["worker.postal_address"]).split(",") if ln.strip()]
-    if not worker_lines and getattr(hire, "address", None):
-        worker_lines = [str(hire.address).strip()]
-    if not worker_lines:
-        worker_lines = ["As on record with Company"]
 
     # pay: the offer's amount, else the amount HR typed for this hire in the package panel
     currency = _pay_currency(offer, profile, hire)
@@ -999,26 +932,13 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     if amount is None and v1.get("employment.base_pay"):
         amount = v1["employment.base_pay"]
         statement = v1.get("employment.pay_terms") or amount
-    if not statement:
-        statement = "As specified in the formal offer terms, paid monthly"
-    if not amount:
-        amount = "Competitive"
-    start = hire.joining_date or (offer.joining_date if offer else None) or F.to_date(inputs.get("employment.start_date")) or (date.today() + timedelta(days=14))
+    start = hire.joining_date or (offer.joining_date if offer else None) or F.to_date(inputs.get("employment.start_date"))
     issue = F.to_date(inputs.get("document.issue_date")) or date.today()
-    duties = role.get("contract_duties") or " ".join(role.get("offer_responsibilities") or []) or "Carry out the core duties of the role to the agreed quality and standards."
+    duties = role.get("contract_duties") or " ".join(role.get("offer_responsibilities") or []) or None
     initials = F.initials(hire.candidate_name)
     with_associates = legal
     if legal and profile.get("associated_companies_clause"):
         with_associates = f"{legal} (and its associated companies)"
-    compliance_docs = _list(profile.get("compliance_documents"))
-    if not compliance_docs:
-        compliance_docs = [
-            "Government-issued photo identification (passport or national identity card)",
-            "Proof of residential address (utility bill or bank statement within 3 months)",
-            "Proof of right to work in the country of employment",
-            "Educational degree certificates and professional credentials",
-            "Signed copies of the Offer Letter, NDA and Employment Contract"
-        ]
     return {
         "company.legal_name": legal,
         "company.short_name": profile.get("short_name") or legal,
@@ -1029,15 +949,15 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "company.gstin": profile.get("gstin") or None,
         "company.phone": profile.get("phone") or None,
         "company.website": profile.get("website") or None,
-        "company.onboarding_return_email": profile.get("onboarding_return_email") or profile.get("hr_contact_email") or getattr(org, "registered_email", None) or "onboarding@company.com",
-        "company.reports_email": profile.get("reports_email") or profile.get("hr_contact_email") or getattr(org, "registered_email", None) or "reports@company.com",
+        "company.onboarding_return_email": profile.get("onboarding_return_email") or profile.get("hr_contact_email") or None,
+        "company.reports_email": profile.get("reports_email") or None,
         "company.reports_channel": f" and {channel}" if channel else "",
-        "company.time_tracking_tool": profile.get("time_tracking_tool_name") or "the company's time-tracking tool",
-        "company.task_system": profile.get("task_system_name") or "the company's task system",
-        "company.jurisdiction_city": profile.get("jurisdiction_city") or profile.get("city") or getattr(org, "city", None) or "London",
+        "company.time_tracking_tool": profile.get("time_tracking_tool_name") or None,
+        "company.task_system": profile.get("task_system_name") or None,
+        "company.jurisdiction_city": profile.get("jurisdiction_city") or None,
         "company.governing_law": law,
         "company.copyright_line": profile.get("copyright_holder") or legal,
-        "company.sign_off": profile.get("signatory_sign_off") or "Human Resources",
+        "company.sign_off": profile.get("signatory_sign_off") or None,
         "company.group_name": profile.get("group_name") or None,
         "worker.full_name_caps": F.name_caps(hire.candidate_name) or None,
         "worker.initials": initials or None,
@@ -1045,35 +965,35 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "worker.address_inline": ", ".join(worker_lines) or None,
         "engagement.programme_name": eng.get("programme_name") or None,
         "engagement.programme_short": eng.get("programme_short") or None,
-        "engagement.party_term": eng.get("party_term") or "Employee",
-        "engagement.engagement_term": eng.get("engagement_term") or "employment",
-        "engagement.assessment_months": eng.get("assessment_months") or 6,
-        "engagement.assessment_label": eng.get("assessment_label") or "Probation",
+        "engagement.party_term": eng.get("party_term") or None,
+        "engagement.engagement_term": eng.get("engagement_term") or None,
+        "engagement.assessment_months": eng.get("assessment_months"),
+        "engagement.assessment_label": eng.get("assessment_label") or None,
         "engagement.conversion_text": eng.get("conversion_text") or None,
         "engagement.conversion_heading": ("Programme Structure and Conversion Pathway" if eng.get("programme_name")
                                           else f"{eng.get('assessment_label') or 'Probation'} and Confirmation"),
         "engagement.conversion_paragraph": eng.get("conversion_text") or (
             "Conversion to the next stage is not automatic and depends on the review at the end of the "
             f"{eng.get('assessment_label') or 'Probation'}."),
-        "engagement.remuneration_label": eng.get("remuneration_label") or "Salary",
-        "engagement.work_schedule": _work_schedule(eng) or "Monday to Friday, 9:00 AM to 5:00 PM",
+        "engagement.remuneration_label": eng.get("remuneration_label") or None,
+        "engagement.work_schedule": _work_schedule(eng),
         "engagement.saturday_rule": eng.get("saturday_rule") or None,
         "engagement.leave_rule": eng.get("leave_rule") or None,
         "engagement.workspace_requirements": _list(eng.get("workspace_requirements")),
         "employment.start_date_long": F.format_date_long(start, fmt) or None,
-        "employment.notice_text": _employee_notice_text(profile, eng) or "30 days' written notice",
+        "employment.notice_text": _employee_notice_text(profile, eng),
         "employment.employer_notice_text": F.notice_text(profile.get("employer_notice_value"),
-                                                         profile.get("employer_notice_unit")) or "30 days' written notice",
+                                                         profile.get("employer_notice_unit")) or None,
         "employment.pay_amount": amount,
         "_typed_base_pay": typed_base,
         "employment.pay_statement": statement,
         "employment.duties_paragraph": duties,
         "offer.candidate_fit_summary": inputs.get("offer.candidate_fit_summary") or None,
-        "offer.compliance_documents": compliance_docs,
+        "offer.compliance_documents": _list(profile.get("compliance_documents")),
         "document.issue_date": F.format_date(issue, fmt),
         "document.issue_date_legal": F.format_date_legal(issue),
         "document.reference": f"{initials or 'NH'}-{hire.id}",
-        "role.title": role.get("title") or hire.position or "Team Member",
+        "role.title": role.get("title") or None,
         "role.about": _list(role.get("about")),
         "role.responsibility_groups": _list(role.get("responsibility_groups")),
         "role.offer_responsibilities": _list(role.get("offer_responsibilities")),
@@ -1082,20 +1002,20 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "role.performance_structure": _list(role.get("performance_structure")),
         "kpi.areas": _list(role.get("kpi_areas")),
         # one non-solicitation period: the NDA prints the post-termination period (the older NDA-only value as a fallback)
-        "company.nda_non_solicit_months": profile.get("non_solicit_post_termination_months") or profile.get("nda_non_solicit_months") or "12",
-        "company.nda_non_compete_months": profile.get("nda_non_compete_months") or "0",
-        "company.non_solicit_months": profile.get("non_solicit_post_termination_months") or "12",
-        "company.confidentiality_duration": profile.get("nda_confidentiality_duration") or "indefinitely",
-        "company.affidavit_hours": profile.get("affidavit_submission_hours") or "48",
+        "company.nda_non_solicit_months": profile.get("non_solicit_post_termination_months") or profile.get("nda_non_solicit_months"),
+        "company.nda_non_compete_months": profile.get("nda_non_compete_months"),
+        "company.non_solicit_months": profile.get("non_solicit_post_termination_months"),
+        "company.confidentiality_duration": profile.get("nda_confidentiality_duration") or None,
+        "company.affidavit_hours": profile.get("affidavit_submission_hours"),
         "company.affidavit_notary": "yes" if profile.get("affidavit_requires_notary") else "",
         "company.affidavit_stamp_note": profile.get("affidavit_stamp_paper_note") or None,
-        "company.brand_label": profile.get("brand_label") or "Brand",
+        "company.brand_label": profile.get("brand_label") or None,
         "company.brands": _list(profile.get("brands")),
-        "company.group_name_caps": ((profile.get("group_name") or legal or "COMPANY").upper()),
+        "company.group_name_caps": ((profile.get("group_name") or legal or "").upper()) or None,
         "company.velocity_motto": profile.get("velocity_motto") or None,
-        "company.velocity_deadline": profile.get("velocity_deadline_text") or "Every Friday by the end of the working day",
+        "company.velocity_deadline": profile.get("velocity_deadline_text") or None,
         "document.year": str(issue.year),
-        "engagement.timezone": eng.get("timezone_label") or "UTC",
+        "engagement.timezone": eng.get("timezone_label") or None,
         "employment.work_location_suffix": f", at {offer.work_location}" if offer is not None and offer.work_location else "",
         "employment.country_is_in": "yes" if ((offer.work_country if offer is not None else None) or hire.work_country or "")
                                     .upper() == "IN" else "",
@@ -1299,7 +1219,7 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
     ctx = R.RenderContext(mode="issue", values=values, clauses=cfg.get("clauses") or {},
                           optional=set(C.OPTIONAL_BY_DOC.get(category, set())),
                           activities=(hire.profile_details or {}).get("outside_activities"),
-                          org_label=header_label(cfg, db.get(Organization, hire.organization_id)), primary=cfg["brand_primary"],
+                          org_label=header_label(cfg), primary=cfg["brand_primary"],
                           accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                           effective_date=values.get("document.effective_date") or "", esign=esign,
                           logo_png=_cached(db, ("logo", hire.organization_id), lambda: logo_bytes(db, hire.organization_id, cfg)),
@@ -1341,7 +1261,7 @@ def readiness(ctx: R.RenderContext, category: str) -> dict:
 
 def template_context(db, organization_id: int) -> R.RenderContext:
     cfg = get_config(db, organization_id)
-    return R.RenderContext(mode="template", org_label=header_label(cfg, db.get(Organization, organization_id)),
+    return R.RenderContext(mode="template", org_label=header_label(cfg),
                            primary=cfg["brand_primary"], accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                            effective_date=_fmt_date(cfg.get("effective_date") or date.today(), cfg),
                            logo_png=logo_bytes(db, organization_id, cfg))

@@ -107,9 +107,8 @@ def test_a_missing_value_is_named_never_printed_as_a_raw_token(world):
     markup, _ = R.inline("Dear {{worker.full_name}}, you live at {{worker.address_inline}}. {{clause:remedies}}", ctx, "html")
     markup = _h.unescape(markup)
     assert "{{" not in markup and "Siddartha Rao" in markup
-    # the worker's address has a standing fallback (onboarding package content): it reads as on record, never as a token
-    assert "As on record with Company" in markup
-    assert "injunctive relief" in markup, "the remedies clause has standard wording"
+    assert f"Missing: {C.FIELDS['worker.address_inline'][0]}" in markup
+    assert f"Missing: {C.CLAUSES['remedies'][0]}" in markup
     tpl, _ = R.inline("{{worker.address_inline}}", R.RenderContext(mode="template"))
     assert "{{worker.address_inline}}" in tpl, "the blank template set still shows the placeholder itself"
 
@@ -188,10 +187,8 @@ def test_a_label_is_never_taken_for_the_signatory_name(world):
     row.value = json.dumps(stored)
     world.db.commit()
     ctx = P.render_context(world.db, h, "nda", final=True)
-    # the label is never printed: the signatory falls back to "Authorised Signatory" (onboarding package content)
-    text = _text(R.render_pdf("nda", ctx))
-    assert "Candidate Signature" not in text
-    assert "Authorised Signatory" in text
+    assert "employer.signatory_name" in P.readiness(ctx, "nda")["missing_fields"]
+    assert "Candidate Signature" not in _text(R.render_pdf("nda", ctx))
 
 
 def test_template_blank_values_come_from_the_hire_offer_and_engagement(world):
@@ -341,8 +338,7 @@ def test_signing_page_shows_the_company_profile_name_and_logo(world):
                              headers=world._h("a_admin")).status_code == 200
     name, logo = P.public_branding(world.db, 1)
     assert name == "Zoiko Test Industries Private Limited" and logo.startswith("data:image/png;base64,")
-    other_name, other_logo = P.public_branding(world.db, 2)
-    assert other_name != "Zoiko Test Industries Private Limited" and other_logo is None, "another tenant's branding is its own"
+    assert P.public_branding(world.db, 2) == ("", None), "another tenant's branding is its own"
 
 
 def test_an_uploaded_nda_fills_company_and_recipient_details():

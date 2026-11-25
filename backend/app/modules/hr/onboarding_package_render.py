@@ -80,10 +80,7 @@ class RenderContext:
 
     @property
     def header_text(self) -> str:
-        label = (self.org_label or "").strip()
-        if not label and self.values:
-            label = (self.values.get("employer.legal_name") or self.values.get("company.legal_name") or "").strip()
-        return f"{label} | HR" if label else "COMPANY | HR"
+        return f"{self.org_label} | HR" if self.org_label else "HR"
 
     @property
     def show_placeholders(self) -> bool:
@@ -967,7 +964,14 @@ def doc_meta(category: str, ctx: RenderContext) -> dict:
         "category": category,
         "title": category.replace("_", " ").title(),
         "template_id": category,
+        "doc_type": "",
+        "risk": "",
+        "sensitivity": "",
         "orientation": "portrait",
+        "family_id": "",
+        "initials": False,
+        "pages": "",
+        "signers": 0,
     }
 
 
