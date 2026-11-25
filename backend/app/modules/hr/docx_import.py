@@ -36,10 +36,42 @@ def body_items(body):
             yield from body_items(child)
 
 
-def known_key(key: str) -> bool:
+def known_key(key: str, extra: Optional[set] = None) -> bool:
+    """A platform field, a clause hook, or (with `extra`, the organisation's own `custom.<key>` fields) one of its fields."""
     if key.startswith("clause:"):
         return key.split(":", 1)[1] in C.CLAUSES
-    return key in C.FIELDS
+    return key in C.FIELDS or bool(extra and key in extra)
+
+
+def custom_name_for(key: str, extra: Optional[set]) -> Optional[str]:
+    """`custom.<key>` when a placeholder someone wrote names one of the organisation's own fields ("{{Shift Allowance}}",
+    "{{shift_allowance}}" or "{{custom.shift_allowance}}"), else None."""
+    if not extra or key in C.FIELDS or key.startswith("clause:"):
+        return None
+    from app.modules.hr import onboarding_custom_fields as CF
+    slug = CF.slug_for(key)
+    name = CF.token(slug) if slug else None
+    return name if name in extra else None
+
+
+def normalise_custom(content: list, extra: Optional[set]) -> list:
+    """Placeholders that name the organisation's own fields written as `{{custom.<key>}}` (the form documents print)."""
+    if not extra:
+        return content
+
+    def fix(text: str) -> str:
+        return PLACEHOLDER.sub(lambda m: "{{%s}}" % (custom_name_for(m.group(1).strip(), extra) or m.group(1).strip())
+                               if custom_name_for(m.group(1).strip(), extra) else m.group(0), text)
+
+    def walk(obj):
+        if isinstance(obj, str):
+            return fix(obj)
+        if isinstance(obj, list):
+            return [walk(x) for x in obj]
+        if isinstance(obj, dict):
+            return {k: (v if k in ("type", "id", "locked", "include_when", "key", "items_from") else walk(v)) for k, v in obj.items()}
+        return obj
+    return walk(content)
 
 
 def suggestions(key: str, n: int = 3) -> list[dict]:
@@ -64,14 +96,24 @@ def suggestions(key: str, n: int = 3) -> list[dict]:
     return [{"key": k, "label": pool[k]} for k in out]
 
 
-def check_placeholders(content: list) -> list[dict]:
-    """[{key, known, suggestions}] for every placeholder in the content, in first-use order."""
+def check_placeholders(content: list, extra: Optional[set] = None) -> list[dict]:
+    """[{key, known, suggestions, custom_key, custom_label}] for every placeholder in the content, in first-use order. An
+    unknown one also proposes the organisation field it could become (`custom_key`)."""
     from app.modules.doc_templates.blocks import _package_strings
+    from app.modules.hr import onboarding_custom_fields as CF
     seen: dict = {}
     for text in _package_strings(content):
         for m in PLACEHOLDER.finditer(text):
             seen.setdefault(m.group(1).strip(), None)
-    return [{"key": k, "known": known_key(k), "suggestions": [] if known_key(k) else suggestions(k)} for k in seen]
+    out = []
+    for k in seen:
+        known = known_key(k, extra) or custom_name_for(k, extra) is not None
+        item = {"key": k, "known": known, "suggestions": [] if known else suggestions(k)}
+        if not known and not k.startswith("clause:"):
+            item["custom_key"] = CF.slug_for(k) or None
+            item["custom_label"] = CF.label_for(k) or None
+        out.append(item)
+    return out
 
 
 def apply_mapping(content: list, mapping: dict) -> list:

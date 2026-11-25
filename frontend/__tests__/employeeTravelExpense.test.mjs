@@ -23,6 +23,9 @@ test("each box is checked and the payload is what the server expects", () => {
   assert.equal(formatClaimAmount("4500.5", "INR"), "₹4,500.50");
   assert.equal(serverExpenseErrors({ validation: [{ loc: ["body", "amount"], msg: "Value error, The amount must be more than zero." }] }).fieldErrors.amount, "The amount must be more than zero.");
   assert.match(serverExpenseErrors({ message: "Choose one of your own trips for this claim, or leave the trip empty." }).fieldErrors.tripId, /own trips/);
+  const over = serverExpenseErrors({ message: "The amount is over your organization's expense limit. The expense limit is INR 500.00 per day, so this 3-day trip allows INR 1,500.00. You can claim up to INR 1,500.00." });
+  assert.match(over.fieldErrors.amount, /expense limit/, "bug 25: the limit is explained under the amount, not the trip");
+  assert.equal(over.fieldErrors.tripId, undefined);
 });
 
 async function load(t, { create } = {}) {

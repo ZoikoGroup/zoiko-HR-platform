@@ -17,6 +17,7 @@ import { formatDate, formatDateTime, parseDateOnly } from "../../../utils/dateTi
 import { monthLabel, barPercent, completionParts } from "../../../utils/onboardingDashboard";
 import { Avatar, Card, EmptyState, KpiCard, PersonCell, SecondaryButton, StatusPill, TONES, relativeTime, td, th, useInsights } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
+import SetupStatusCard from "./SetupStatusCard";
 
 const DEPARTMENT_COLORS = [
   "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-[#0A1128]",
@@ -348,6 +349,7 @@ export default function OnboardingDashboard() {
 
   return shell(
     <div className="space-y-6">
+      <SetupStatusCard compact />
       {insights.error && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
           <span className="inline-flex items-center gap-2"><AlertCircle className="h-4 w-4" />Live onboarding metrics could not be loaded: {insights.error}</span>

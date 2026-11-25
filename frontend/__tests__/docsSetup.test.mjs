@@ -78,9 +78,9 @@ test("the package card never lets mandatory documents be switched off", async (t
       documents: [
         { category: "offer_letter", title: "Offer Letter", template_id: "HR-HIR-011", mode: "SIGN", enabled: true, mandatory: true,
           mandatory_reason: "Every new hire needs an offer letter.", source: "platform", can_customise: true, sort_order: 10,
-          template_state: { label: "Using Zoiko default" } },
+          template_state: { label: "Using the standard template" } },
         { category: "velocity_report", title: "Project Velocity Report", template_id: "HR-PRF-102", mode: "INFO", enabled: true,
-          mandatory: false, source: "platform", can_customise: true, sort_order: 20, template_state: { label: "Using Zoiko default" } },
+          mandatory: false, source: "platform", can_customise: true, sort_order: 20, template_state: { label: "Using the standard template" } },
       ],
       modes: [{ value: "SIGN", label: "E-signature" }, { value: "INFO", label: "For information" }], signer_parties: [],
       engagement_profiles: [], addable_templates: [],
@@ -96,7 +96,7 @@ test("the package card never lets mandatory documents be switched off", async (t
   assert.ok(screen.getByText(/Always sent: Every new hire needs an offer letter/));
   const velocity = screen.getByRole("checkbox", { name: "Send Project Velocity Report" });
   assert.equal(velocity.disabled, false);
-  assert.ok(screen.getAllByText("Using Zoiko default").length === 2);
+  assert.ok(screen.getAllByText("Using the standard template").length === 2);
 });
 
 test("the form editor shows core fields as always asked and lets optional ones be hidden", async (t) => {

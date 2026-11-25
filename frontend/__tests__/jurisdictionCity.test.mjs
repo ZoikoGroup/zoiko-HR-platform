@@ -19,6 +19,7 @@ const FIELDS = [
 async function mount(t, profile) {
   t.mock.module("../src/service/hrService.js", { exports: {
     getCompanyProfile: async () => ({ fields: FIELDS, profile, completeness: null }),
+    saveCompanySectors: async () => ({}), addEngagementCategories: async () => ({}), addSuggestedRoles: async () => ({}),
     getOnboardingProfiles: async () => ({ engagement_profiles: [] }),
     prefillCompanyProfile: async () => ({ proposal: {} }),
     saveCompanyProfile: async () => ({ fields: FIELDS, profile }),

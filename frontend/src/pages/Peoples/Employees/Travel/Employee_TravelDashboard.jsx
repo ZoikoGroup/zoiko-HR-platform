@@ -2,31 +2,46 @@ import { useEffect, useMemo, useState } from "react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
 import StatCard from "../../../../components/employee/StatCard";
-import { getTravel } from "../../../../service/employee";
+import { getTravel, getTravelExpenses } from "../../../../service/employee";
+import { getStoredUser } from "../../../../service/api";
+import { formatClaimAmount } from "../../../../utils/travelExpenseForm";
 
-function normalizeStatus(s) {
+// Trips and expense claims share one status vocabulary here (an expense "submitted" is waiting for approval).
+export function normalizeStatus(s) {
   const v = String(s || "").toLowerCase();
+  if (v.includes("reimburs") || v.includes("paid")) return "Reimbursed";
   if (v.includes("approve")) return "Approved";
-  if (v.includes("pending")) return "Pending";
+  if (v.includes("pending") || v.includes("submitted") || v.includes("progress")) return "Pending";
   if (v.includes("reject")) return "Rejected";
+  if (v.includes("cancel")) return "Cancelled";
   if (v.includes("complete")) return "Completed";
-  if (v.includes("expense")) return "Expense";
   return s ? String(s) : "";
 }
 
+const asList = (res) => {
+  const data = res?.data || res?.items || res || [];
+  return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+};
 
-function computeAmount(records) {
-  const total = records.reduce((sum, r) => {
-    const amt = parseFloat(String(r.amount || r.expense_amount || "0").replace(/[^0-9.]/g, ""));
-    return sum + (isNaN(amt) ? 0 : amt);
-  }, 0);
-  return `₹${total.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+/** "Expenses claimed": every claim that is still standing (not rejected or cancelled), summed per currency. */
+export function claimedTotal(claims) {
+  const byCurrency = {};
+  claims.forEach((c) => {
+    if (["Rejected", "Cancelled"].includes(normalizeStatus(c.status))) return;
+    const n = Number(c.amount);
+    if (!Number.isFinite(n)) return;
+    const cur = c.currency || "INR";
+    byCurrency[cur] = (byCurrency[cur] || 0) + n;
+  });
+  const parts = Object.entries(byCurrency).map(([cur, n]) => formatClaimAmount(n, cur));
+  return parts.length ? parts.join(" + ") : formatClaimAmount(0, "INR");
 }
 
 export default function TravelDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [trips, setTrips] = useState([]);
+  const [claims, setClaims] = useState([]);
 
   useEffect(() => {
     let mounted = true;
@@ -34,14 +49,16 @@ export default function TravelDashboard() {
       setLoading(true);
       setError(null);
       try {
-        const res = await getTravel();
-        const data = res?.data || res?.items || res || [];
-        const arr = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
-        if (mounted) setTrips(arr);
+        const me = getStoredUser()?.id;
+        const [tripRes, claimRes] = await Promise.all([getTravel(me), getTravelExpenses(me).catch(() => [])]);
+        if (!mounted) return;
+        setTrips(asList(tripRes));
+        setClaims(asList(claimRes));
       } catch (e) {
         if (!mounted) return;
         setError(e?.message || "Failed to load travel data");
         setTrips([]);
+        setClaims([]);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -52,29 +69,29 @@ export default function TravelDashboard() {
 
   const stats = useMemo(() => {
     const total = trips.length;
-    const pending = trips.filter((t) => normalizeStatus(t.status) === "Pending").length;
-    const expenseRecords = trips.filter((t) => normalizeStatus(t.status) === "Expense" || t.type === "expense" || t.category);
-    const expenses = expenseRecords.length > 0
-      ? computeAmount(expenseRecords)
-      : `₹${trips.reduce((s, t) => {
-          const a = parseFloat(String(t.amount || t.expense_amount || "0").replace(/[^0-9.]/g, ""));
-          return s + (isNaN(a) ? 0 : a);
-        }, 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+    // waiting on someone: travel requests and expense claims alike
+    const pending = [...trips, ...claims].filter((t) => normalizeStatus(t.status) === "Pending").length;
     const upcoming = trips.filter((t) => {
       const st = normalizeStatus(t.status);
       return st === "Approved" || st === "Pending";
     }).length;
-    return { total, pending, expenses, upcoming };
-  }, [trips]);
+    return { total, pending, expenses: claimedTotal(claims), upcoming };
+  }, [trips, claims]);
 
   const recentTrips = useMemo(() => {
     return trips
       .filter((t) => {
         const st = normalizeStatus(t.status);
-        return st === "Approved" || st === "Pending" || st === "Completed";
+        return st === "Approved" || st === "Pending" || st === "Completed" || st === "Rejected";
       })
       .slice(0, 5);
   }, [trips]);
+
+  const tripName = useMemo(() => Object.fromEntries(trips.map((t) => [t.id, t.destination])), [trips]);
+  const recentClaims = useMemo(
+    () => [...claims].sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0)).slice(0, 5),
+    [claims]
+  );
 
   return (
     <EmployeePageShell title="Travel Dashboard" subtitle="Overview of your business travel and reimbursements.">
@@ -116,6 +133,27 @@ export default function TravelDashboard() {
                   </div>
                 );
               })
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-200 dark:border-[#334155] p-6">
+            <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9] mb-4">Recent Expense Claims</h3>
+            {recentClaims.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-[#64748b] text-center py-8">No expense claims yet.</p>
+            ) : (
+              recentClaims.map((c) => (
+                <div key={c.id} className="flex justify-between items-center gap-3 py-3.5 border-t border-gray-100 dark:border-[#334155] first:border-t-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-900 dark:text-[#f1f5f9]">
+                      {c.expense_type || c.category || "Expense"} · {formatClaimAmount(c.amount, c.currency || "INR")}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-[#94a3b8] truncate">
+                      {c.request_id ? tripName[c.request_id] || `Trip #${c.request_id}` : ""}{c.description ? ` — ${c.description}` : ""}
+                    </p>
+                  </div>
+                  <EmployeeStatusBadge status={normalizeStatus(c.status) || "-"} />
+                </div>
+              ))
             )}
           </div>
         </div>

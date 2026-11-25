@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, Loader2, Lock, Pencil, Plus, RotateCcw, Save, Trash
 import {
   getDocsSetupMapping, getDocsSetupMappingOptions, getDocsSetupPreviewPdf, setDocsSetupMapping,
 } from "../../../../service/docsSetupService";
+import { addCustomField } from "../../../../service/onboardingSetupService";
 import { Banner, KIND_LABELS, errorText, inputCls } from "./shared";
 
 const TYPE_LABELS = { heading: "Heading", paragraph: "Paragraph", list: "List", table: "Table", page_break: "Page break" };
@@ -127,6 +128,54 @@ function describe(form, options, file) {
   }
   if (form.action === "new_document") return `Becomes a new package document${form.title ? `: ${form.title}` : ""}`;
   return `Used only as a source of settings${file.detected_kind ? ` (${KIND_LABELS[file.detected_kind] || "document"})` : ""}`;
+}
+
+const FIELD_TYPES = [["text", "Text"], ["money", "Amount of money"], ["number", "Number"], ["date", "Date"], ["long_text", "Paragraph"]];
+
+/** Placeholders written in the file that are not known yet: each can become one of the organisation's own fields. */
+export function UnknownPlaceholders({ items, onCreated }) {
+  const [types, setTypes] = useState({});
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  if (!items?.length) return null;
+  const create = async (p) => {
+    setBusy(p.key);
+    setError("");
+    try {
+      await addCustomField({ key: p.custom_key, label: p.custom_label || p.custom_key, type: types[p.key] || "text", source: "hr", required: true });
+      await onCreated();
+    } catch (e) {
+      setError(errorText(e, "The field could not be created."));
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="region" aria-label="Unknown placeholders">
+      <p className="font-semibold">Placeholders we do not know yet</p>
+      <p className="mt-0.5 text-xs">Until they are fields, they print as plain text. Create each as one of your own fields: HR types its value for every new hire.</p>
+      <ul className="mt-2 space-y-2">
+        {items.map((p) => (
+          <li key={p.key} className="flex flex-col gap-2 rounded-lg bg-white/70 p-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="min-w-0"><span className="font-mono text-xs">{`{{${p.key}}}`}</span> → <span className="font-medium">{p.custom_label}</span>
+              <span className="font-mono text-xs text-amber-800"> ({`{{custom.${p.custom_key}}}`})</span></span>
+            <span className="flex items-center gap-2">
+              <label htmlFor={`uph-${p.custom_key}`} className="sr-only">Type of {p.custom_label}</label>
+              <select id={`uph-${p.custom_key}`} className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs" value={types[p.key] || "text"}
+                onChange={(e) => setTypes((t) => ({ ...t, [p.key]: e.target.value }))}>
+                {FIELD_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <button type="button" onClick={() => create(p)} disabled={!!busy}
+                className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+                {busy === p.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}Create field
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+    </div>
+  );
 }
 
 function FileMapping({ session, file, options }) {
@@ -289,6 +338,8 @@ function FileMapping({ session, file, options }) {
               {fields} {fields === 1 ? "detail fills" : "details fill"} in automatically from the new hire's data and your settings.
             </p>
           )}
+          <UnknownPlaceholders items={preview?.unknown_placeholders}
+            onCreated={() => getDocsSetupMapping(session.id, file.id).then(hydrate)} />
           <div className="flex flex-wrap gap-2">
             {!editing ? (
               <button type="button" onClick={() => setEditing(true)} disabled={busy}

@@ -598,6 +598,12 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
     from app.modules.hr import onboarding_package
     onboarding_package.release_held(db, hire)       # documents not sent yet that were waiting for the address
     onboarding_package.flag_details_changed(db, hire)   # sent but unsigned documents printed the old details: HR reissues
+    try:                                            # documents prepared when the new hire submits (or held for their details)
+        from app.modules.hr import onboarding_doc_automation as AUTO
+        AUTO.dispatch(db, hire, "details_submitted" if submit else AUTO.RETRY)
+    except Exception:
+        db.rollback()
+        logger.exception("automatic onboarding documents failed for new hire %s", hire.id)
     return portal_view(db, hire)
 
 
@@ -656,6 +662,12 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
     except Exception:
         db.rollback()
         logger.exception("manager onboarding checklist failed for new hire %s", hire.id)
+    try:                                       # package documents set to be prepared when the new hire is created
+        from app.modules.hr import onboarding_doc_automation
+        onboarding_doc_automation.dispatch(db, hire, "hire_created")
+    except Exception:
+        db.rollback()
+        logger.exception("automatic onboarding documents failed for new hire %s", hire.id)
 
 
 # ── completion ───────────────────────────────────────────────────────────────────────────────────────────────────────

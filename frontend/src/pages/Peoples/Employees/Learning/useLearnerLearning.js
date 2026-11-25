@@ -49,7 +49,15 @@ export default function useLearnerLearning() {
       ]);
       if (coursesRes.status === "rejected") throw coursesRes.reason;
 
-      const myCourses = forMyDepartment(asList(coursesRes.value), dept);
+      const myEnrollments = (enrollmentsRes.status === "fulfilled" ? asList(enrollmentsRes.value) : [])
+        .filter((e) => me.id == null || e.employee_id === me.id);
+      // my department's courses, plus any course I am enrolled in (HR can enroll me in another department's course,
+      // and its quizzes must then reach me too)
+      const enrolledIds = new Set(myEnrollments.map((e) => e.course_id));
+      const allCourses = asList(coursesRes.value);
+      const deptCourses = forMyDepartment(allCourses, dept);
+      const deptIds = new Set(deptCourses.map((c) => c.id));
+      const myCourses = [...deptCourses, ...allCourses.filter((c) => enrolledIds.has(c.id) && !deptIds.has(c.id))];
       const myPrograms = programsRes.status === "fulfilled" ? forMyDepartment(asList(programsRes.value), dept) : [];
       const courseIds = new Set(myCourses.map((c) => c.id));
       const myAssessments = assessmentsRes.status === "fulfilled"
@@ -63,9 +71,7 @@ export default function useLearnerLearning() {
       setAssessmentsByCourse(groupAssessmentsByCourse(myAssessments));
       setAttemptsByAssessment(attempts);
       const mine = {};
-      (enrollmentsRes.status === "fulfilled" ? asList(enrollmentsRes.value) : [])
-        .filter((e) => me.id == null || e.employee_id === me.id)
-        .forEach((e) => { mine[e.course_id] = e; });
+      myEnrollments.forEach((e) => { mine[e.course_id] = e; });
       setEnrollmentsByCourse(mine);
       if (programsRes.status === "rejected" || assessmentsRes.status === "rejected") {
         setNotice("Some learning details could not be loaded. Refresh to try again.");

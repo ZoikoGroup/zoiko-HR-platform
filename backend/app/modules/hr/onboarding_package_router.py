@@ -213,6 +213,27 @@ def put_role_profile(slug: str, data: dict = Body(...), db: Session = Depends(ge
     return onboarding_profiles.view(db, user.organization_id)
 
 
+@router.put("/profiles/sectors", summary="The sectors the organisation operates in (they suggest role profiles)")
+def put_profile_sectors(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.save_sectors(db, user, data.get("sectors"))
+    return onboarding_profiles.view(db, user.organization_id)
+
+
+@router.post("/profiles/engagement-categories", summary="Add engagement profiles for employment categories (full-time, part-time, Associates, contractors)")
+def post_engagement_categories(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.add_categories(db, user, data.get("categories"))
+    return onboarding_profiles.view(db, user.organization_id)
+
+
+@router.post("/profiles/suggested-roles", summary="Add role profiles for suggested role titles of the organisation's sectors")
+def post_suggested_roles(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.add_suggested_roles(db, user, data.get("titles"))
+    return onboarding_profiles.view(db, user.organization_id)
+
+
 @router.delete("/profiles/role/{slug}", summary="Delete a Role Profile (not while an unsent hire uses it)")
 def delete_role_profile(slug: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
     from app.modules.hr import onboarding_profiles

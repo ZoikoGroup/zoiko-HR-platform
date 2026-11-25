@@ -476,6 +476,14 @@ def save_hire_inputs(db, hire, values: dict, actor=None) -> dict:
         CP.save_profile(db, actor, data)
         values = {k: v for k, v in values.items() if k not in clause_values}
     current = hire_inputs(hire)
+    values = dict(values)
+    from app.modules.hr import onboarding_custom_fields as CF
+    for key in [k for k in values if isinstance(k, str) and CF.is_custom_token(k)]:   # the organisation's own fields
+        stored = CF.check_hire_input(db, hire.organization_id, key, values.pop(key))
+        if stored is None:
+            current.pop(key, None)
+        else:
+            current[key] = stored
     for key, val in values.items():
         if key not in HIRE_INPUT_FIELDS:
             raise HTTPException(422, f"{key} cannot be set here.")
@@ -597,6 +605,9 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     if any((details.get(k) or "").strip() for k in ("house", "building", "street", "landmark", "locality", "district")):
         values["worker.postal_address"] = values.get("worker.address_inline") or values.get("worker.postal_address")
     values.update(_template_blank_values(hire, cfg, offer, values))
+    # the organisation's own fields ({{custom.<key>}}): HR's entry, the hire's portal answer or the fixed value, formatted
+    from app.modules.hr import onboarding_custom_fields as CF
+    values.update(CF.values_for_hire(db, hire, profile, _pay_currency(offer, profile, hire)))
     return values
 
 
@@ -1216,8 +1227,11 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
         values.setdefault("offer.secure_link", None)
         values["offer.secure_link"] = values["offer.secure_link"] or "(your secure onboarding link – added when sent)"
         values["contract.id"] = values["contract.id"] or "(assigned when issued)"
+    from app.modules.hr import onboarding_custom_fields as CF
+    optional_custom = _cached(db, ("custom_optional", hire.organization_id),
+                              lambda: CF.optional_tokens(db, hire.organization_id))
     ctx = R.RenderContext(mode="issue", values=values, clauses=cfg.get("clauses") or {},
-                          optional=set(C.OPTIONAL_BY_DOC.get(category, set())),
+                          optional=set(C.OPTIONAL_BY_DOC.get(category, set())) | set(optional_custom),
                           activities=(hire.profile_details or {}).get("outside_activities"),
                           org_label=header_label(cfg), primary=cfg["brand_primary"],
                           accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
@@ -1423,6 +1437,71 @@ def _settings_path(key: str) -> Optional[str]:
     return base + "offer-package"
 
 
+def _countersign():
+    from app.modules.hr import onboarding_countersign as CS
+    return CS
+
+
+def _automation_view(db, hire, docs: list) -> dict:
+    from app.modules.hr import onboarding_doc_automation as AUTO
+    try:
+        return AUTO.hire_view(db, hire, docs)
+    except Exception:
+        logger.exception("automation view failed for new hire %s", hire.id)
+        return {"mode": None, "queued": [], "held": [], "last_run": None}
+
+
+def with_countersign_gap(db, hire, d: dict, gaps: dict) -> dict:
+    """A document the employer must countersign is held while nobody can sign it for the employer."""
+    CS = _countersign()
+    if not CS.needs_employer(d) or CS.can_countersign(db, hire.organization_id, d):
+        return gaps
+    fields = list(gaps.get("missing_fields") or [])
+    if CS.GAP_KEY not in fields:
+        fields.append(CS.GAP_KEY)
+    return {**gaps, "ready": False, "missing_fields": fields}
+
+
+def _awaiting_employer(db, gen) -> bool:
+    """The new hire has signed; the employer's countersignature is outstanding."""
+    if gen is None or gen.execution_mode != "SIGN_BOTH" or gen.status == "EXECUTED":
+        return False
+    from app.modules.doc_templates import signing as SG
+    done = SG.signed_parties(db, gen)
+    return "employer" not in done and any(p != "employer" for p in done)
+
+
+def _custom_input_fields(db, hire) -> list:
+    """The organisation's own fields HR types for each new hire, with this hire's value."""
+    from app.modules.hr import onboarding_custom_fields as CF
+    out = []
+    for f in CF.fields(db, hire.organization_id):
+        if f.get("source") != "hr":
+            continue
+        k = CF.token(f["key"])
+        out.append({"key": k, "meaning": f["label"], "value": hire_inputs(hire).get(k), "required": bool(f.get("required")),
+                    "custom": True, "input_type": f.get("type") or "text", "options": list(f.get("options") or []),
+                    "help": f.get("help") or ""})
+    return out
+
+
+def _missing_field(db, organization_id: int, k: str) -> dict:
+    """How a missing value is described in the package panel: what it is, who provides it and where."""
+    from app.modules.hr import onboarding_custom_fields as CF
+    if k == _countersign().GAP_KEY:
+        return {"key": k, "meaning": "Someone to countersign for the employer", "source": "Settings › Employer countersignature",
+                "editable": False, "org_wide": True, "candidate_provides": False, "hr_may_enter": False,
+                "settings_path": "/zoiko-hr/onboarding/settings#countersign"}
+    if CF.is_custom_token(k):
+        info = CF.missing_info(db, organization_id, k)
+        return {"key": k, "org_wide": False, "hr_may_enter": False, **info}
+    return {"key": k, "meaning": field_meaning(k), "source": field_source(k),
+            "editable": k in HIRE_INPUT_FIELDS or _clause_token_known(k),
+            "org_wide": k.startswith("clause."),
+            "candidate_provides": k == ADDRESS_INPUT, "hr_may_enter": k == ADDRESS_INPUT,
+            "settings_path": _settings_path(k)}
+
+
 def package_view(db, hire) -> dict:
     with values_cache(db):
         return _package_view(db, hire)
@@ -1437,7 +1516,7 @@ def _package_view(db, hire) -> dict:
     for cat in package_categories(db, hire):
         d = doc_meta(db, hire, cat)
         ctx = render_context(db, hire, cat, cfg=cfg, final=True)
-        gaps = readiness(ctx, cat)
+        gaps = with_countersign_gap(db, hire, d, readiness(ctx, cat))
         row = rows.get(cat)
         gen = _gen(db, row)
         docs.append({
@@ -1449,12 +1528,9 @@ def _package_view(db, hire) -> dict:
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
             "filled_online": d["mode"] == "COMPLETE" and row is not None and FORMS.submitted(db, hire, cat) is not None,
-            "missing_fields": [{"key": k, "meaning": field_meaning(k), "source": field_source(k),
-                                "editable": k in HIRE_INPUT_FIELDS or _clause_token_known(k),
-                                "org_wide": k.startswith("clause."),
-                                "candidate_provides": k == ADDRESS_INPUT, "hr_may_enter": k == ADDRESS_INPUT,
-                                "settings_path": _settings_path(k)}
-                               for k in _reported_missing(gaps["missing_fields"])],
+            "employer_signs": _countersign().needs_employer(d),
+            "awaiting_employer": _awaiting_employer(db, gen),
+            "missing_fields": [_missing_field(db, hire.organization_id, k) for k in _reported_missing(gaps["missing_fields"])],
             "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
         })
     pkg = (hire.profile_details or {}).get("_package") or {}
@@ -1463,11 +1539,13 @@ def _package_view(db, hire) -> dict:
             "sent_at": pkg.get("sent_at"), "inputs": hire_inputs(hire),
             "input_fields": [{"key": k, "meaning": input_meaning(k),
                               "value": values.get(k) if k in C.FIELDS else hire_inputs(hire).get(k),
-                              "required": C.FIELDS[k][2] if k in C.FIELDS else False} for k in HIRE_INPUT_FIELDS],
+                              "required": C.FIELDS[k][2] if k in C.FIELDS else False} for k in HIRE_INPUT_FIELDS]
+                            + _custom_input_fields(db, hire),
             "warnings": consistency_warnings(db, hire, cfg),
             "engagement": _engagement_summary(db, hire),
             "role": _role_summary(db, hire),
             "role_profiles": _role_profile_choices(db, hire.organization_id),
+            "automation": _automation_view(db, hire, docs),
             "printed_values": printed_values(values),
             "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
 
@@ -1596,6 +1674,12 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
     pdf = R.render_pdf(cat, ctx)
     if "{{" in renderer.pdf_text(pdf):              # readiness: never issue a document with an unfilled placeholder
         raise NotReady(cat)
+    from app.modules.hr import onboarding_docx_master as DM
+    word = DM.render_for_issue(db, ctx)             # the organisation's own Word layout, when it can be used in full
+    word_key = None
+    if word is not None:
+        pdf = word["pdf"]
+        word_key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.docx", word["docx"])
     source = dict(ctx.source or {})
     key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.pdf", pdf)
     _store_files(hire, cat, key)
@@ -1616,6 +1700,9 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
             issued_by=getattr(actor, "id", None), issued_at=now, due_by=now + timedelta(days=int(cfg.get("response_days") or 7)),
             expires_at=now + timedelta(days=30), variant_id=source.get("variant_id"),
             variant_version=source.get("variant_version"), variant_checksum=source.get("variant_checksum"))
+        if gen.execution_mode == "SIGN_BOTH":                 # the employer's signatory signs for this entity
+            entity = _countersign().default_entity(db, hire.organization_id)
+            gen.entity_id = entity.id if entity is not None else None
         state._set(gen, "ISSUED")
         db.add(gen)
         db.flush()
@@ -1647,7 +1734,8 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
                            "variant_checksum": source.get("variant_checksum"), "starter_revision": source.get("starter_revision"),
                            "content_checksum": source.get("content_checksum"), "values_checksum": snapshot,
                            "clauses": sorted(k for k, v in (ctx.clauses or {}).items() if (v or {}).get("text")),
-                           "rendered_sha256": hashlib.sha256(pdf).hexdigest(), "worker_checksum": worker_checksum(ctx.values)}
+                           "rendered_sha256": hashlib.sha256(pdf).hexdigest(), "worker_checksum": worker_checksum(ctx.values),
+                           "layout": "word" if word_key else "blocks", "word_key": word_key}
     details["_package_issued"] = issued
     hire.profile_details = details
     return row
@@ -1736,7 +1824,8 @@ def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[
         if cat == "offer_letter" and _link_recruitment_offer(db, hire, row):
             unchanged.append({"category": cat, "title": d["title"], "state": "completed"})
             continue
-        gaps = readiness(render_context(db, hire, cat, cfg=cfg, final=True, secure_link=secure_link, fresh=True), cat)
+        gaps = with_countersign_gap(db, hire, d, readiness(render_context(db, hire, cat, cfg=cfg, final=True,
+                                                                          secure_link=secure_link, fresh=True), cat))
         if not gaps["ready"]:
             held.append({"category": cat, "title": d["title"], **gaps})
             continue
@@ -1792,7 +1881,8 @@ def _notify(db, hire, issued: list[dict], url: str) -> bool:
 def release_held(db, hire) -> dict:
     """Called after the candidate saves portal details: issue documents that were waiting only for that data."""
     pkg = (hire.profile_details or {}).get("_package") or {}
-    if not pkg.get("sent_at") or not pkg.get("held"):
+    # sent by HR earlier, or prepared by automation in "send automatically" mode
+    if not (pkg.get("sent_at") or pkg.get("auto_release")) or not pkg.get("held"):
         return {"issued": []}
     try:
         return send_package(db, hire, None, list(pkg["held"]), notify=False, automatic=True)
@@ -2405,6 +2495,12 @@ def document_docx(db, hire, category: str) -> tuple:
         return (D.render_docx(category, FORMS.filled_context(db, hire, category, sub)),
                 package_filename(hire, category, "docx", "completed"))
     row = _rows(db, hire).get(category)
+    word_key = issued_meta(row).get("word_key") if row is not None else None
+    if word_key:                                         # issued from the organisation's Word layout: that filled file
+        try:
+            return storage.get_store().get(word_key), package_filename(hire, category, "docx", "issued")
+        except Exception:
+            logger.exception("issued Word file %s could not be read", word_key)
     gen = _gen(db, row)
     state = "draft"
     if gen is not None:

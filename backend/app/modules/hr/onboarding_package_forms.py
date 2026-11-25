@@ -31,7 +31,7 @@ logger = logging.getLogger("zoiko.onboarding.forms")
 
 FILLABLE_MODES = ("COMPLETE",)
 TEXT_MAX, CELL_MAX, LINE_MAX = 4000, 300, 300
-_TOKEN = re.compile(r"\{\{\s*([a-z_]+(?::[a-z_]+|\.[a-z_]+)?)\s*\}\}")
+_TOKEN = re.compile(r"\{\{\s*([a-z_]+(?::[a-z_]+|\.[a-z_][a-z0-9_]*)?)\s*\}\}")
 _HR_ONLY = re.compile(r"use only", re.I)
 ANSWERABLE_HOOKS = {"criminal_record_question"}      # clause wording that asks the new hire something
 

@@ -93,7 +93,7 @@ def test_customise_creates_a_draft_that_is_never_used_for_a_hire_until_released(
     h, _ = _hire(world)
     vid = _customise(world)
     rows = {d["category"]: d for d in world.get("a_admin", "/hr/onboarding/package/documents").json()["documents"]}
-    assert "draft" in rows["offer_letter"]["template_state"]["label"] and "Zoiko default" in rows["offer_letter"]["template_state"]["label"]
+    assert "draft" in rows["offer_letter"]["template_state"]["label"] and "standard template" in rows["offer_letter"]["template_state"]["label"]
     assert _edit(world, vid, _set_first_paragraph("**ACME OWN WORDING** for {{worker.full_name}}.")).status_code == 200
     world.db.expire_all()
     _content, source = ORG.resolve(world.db, h, "offer_letter")

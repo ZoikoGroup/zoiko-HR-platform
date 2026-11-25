@@ -20,6 +20,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.modules.hr import onboarding_catalogue as CAT
 from app.modules.hr.models import OnboardingNewHire, OrganizationConfig
 
 logger = logging.getLogger("zoiko.onboarding.profiles")
@@ -33,6 +34,8 @@ STANDARD_SLUG = "standard-employee"
 # key: (kind, option) — text: max length; int/float: (min, max); enum: allowed; list: item max length; days; time; bool
 ENGAGEMENT_FIELDS: dict[str, tuple] = {
     "name": ("text", 120),
+    # the employment category the profile is for (onboarding_catalogue.EMPLOYMENT_CATEGORIES); "" = not set
+    "category": ("enum", ("",) + tuple(CAT.EMPLOYMENT_CATEGORIES)),
     "programme_name": ("text", 200), "programme_short": ("text", 120),
     "party_term": ("text", 60), "engagement_term": ("text", 60),
     "employment_type": ("text", 60),
@@ -88,7 +91,8 @@ def _load(db, organization_id: int) -> dict:
             data = json.loads(row.value) or {}
         except json.JSONDecodeError:
             logger.warning("onboarding profiles for org %s are not valid JSON", organization_id)
-    return {"engagement_profiles": list(data.get("engagement_profiles") or []), "role_profiles": list(data.get("role_profiles") or [])}
+    return {"engagement_profiles": list(data.get("engagement_profiles") or []), "role_profiles": list(data.get("role_profiles") or []),
+            "sectors": [s for s in (data.get("sectors") or []) if s in CAT.SECTORS]}
 
 
 def _write(db, organization_id: int, data: dict) -> None:
@@ -119,9 +123,19 @@ def role_profiles(db, organization_id: int) -> list[dict]:
     return _load(db, organization_id)["role_profiles"]
 
 
+def company_sectors(db, organization_id: int) -> list[str]:
+    return _load(db, organization_id)["sectors"]
+
+
 def view(db, organization_id: int) -> dict:
-    return {"engagement_profiles": engagement_profiles(db, organization_id), "role_profiles": role_profiles(db, organization_id),
-            "engagement_fields": list(ENGAGEMENT_FIELDS), "role_fields": list(ROLE_FIELDS)}
+    chosen = company_sectors(db, organization_id)
+    roles = role_profiles(db, organization_id)
+    have = {_norm_title(r.get("title")) for r in roles}
+    return {"engagement_profiles": engagement_profiles(db, organization_id), "role_profiles": roles,
+            "engagement_fields": list(ENGAGEMENT_FIELDS), "role_fields": list(ROLE_FIELDS),
+            # ready-made choices (sectors -> role titles; employment categories -> engagement profiles)
+            "sectors": chosen, "sector_options": CAT.sectors(), "employment_categories": CAT.categories(),
+            "suggested_roles": [{"title": t, "added": _norm_title(t) in have} for t in CAT.suggested_roles(chosen)]}
 
 
 # ── matching for a hire ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -390,3 +404,72 @@ def delete_role(db, actor, slug: str) -> None:
         raise HTTPException(404, "Role profile not found.")
     _write(db, actor.organization_id, store)
     _audit(db, actor, "role", slug, "deleted", [])
+
+
+# ── sectors and ready-made profiles ──────────────────────────────────────────────────────────────────────────────────
+
+def save_sectors(db, actor, keys) -> None:
+    """The sectors the organisation operates in (one or more, from onboarding_catalogue.SECTORS)."""
+    keys = [str(k).strip() for k in (keys if isinstance(keys, list) else [])]
+    unknown = [k for k in keys if k not in CAT.SECTORS]
+    if unknown:
+        raise HTTPException(422, {"message": "Choose sectors from the list.", "errors": {"sectors": f"Unknown: {', '.join(unknown)}"}})
+    store = _load(db, actor.organization_id)
+    store["sectors"] = [k for k in CAT.SECTORS if k in keys]          # catalogue order, no repeats
+    _write(db, actor.organization_id, store)
+    _audit(db, actor, "sector", "sectors", "saved", store["sectors"])
+
+
+def add_categories(db, actor, keys) -> list[str]:
+    """Create an engagement profile for each chosen employment category the organisation does not have yet (a profile
+    already marked with that category, or using its slug, counts). Returns the slugs created."""
+    keys = [str(k).strip() for k in (keys if isinstance(keys, list) else [])]
+    unknown = [k for k in keys if k not in CAT.EMPLOYMENT_CATEGORIES]
+    if unknown or not keys:
+        raise HTTPException(422, {"message": "Choose one or more employment categories.",
+                                  "errors": {"categories": f"Unknown: {', '.join(unknown)}" if unknown else "Required."}})
+    store = _load(db, actor.organization_id)
+    profiles = store["engagement_profiles"]
+    created = []
+    for key in keys:
+        slug = CAT.CATEGORY_SLUGS[key]
+        if any(p.get("category") == key or p.get("slug") == slug for p in profiles):
+            continue
+        label, terms = CAT.EMPLOYMENT_CATEGORIES[key]
+        base = {k: v for k, v in standard_engagement().items() if k not in ("builtin", "default", "name")}
+        profiles.append({**base, **terms, "working_days": list(terms.get("working_days") or base["working_days"]),
+                         "slug": slug, "name": label, "category": key, "default": False})
+        created.append(slug)
+    if created:
+        store["engagement_profiles"] = profiles
+        _write(db, actor.organization_id, store)
+        _audit(db, actor, "engagement", ",".join(created), "saved", ["category"])
+    return created
+
+
+def add_suggested_roles(db, actor, titles) -> list[str]:
+    """Create a role profile (title only; HR fills in duties and KPIs) for each chosen title that has none yet."""
+    titles = [str(t).strip()[:200] for t in (titles if isinstance(titles, list) else []) if str(t or "").strip()]
+    if not titles:
+        raise HTTPException(422, {"message": "Choose one or more roles.", "errors": {"titles": "Required."}})
+    store = _load(db, actor.organization_id)
+    profiles = store["role_profiles"]
+    have_titles = {_norm_title(p.get("title")) for p in profiles}
+    have_slugs = {p.get("slug") for p in profiles}
+    created = []
+    for title in titles:
+        if _norm_title(title) in have_titles:
+            continue
+        base = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")[:56] or "role"
+        slug, n = base, 2
+        while slug in have_slugs or not SLUG.match(slug):
+            slug, n = f"{base}-{n}"[:60], n + 1
+        profiles.append({"slug": slug, "title": title})
+        have_titles.add(_norm_title(title))
+        have_slugs.add(slug)
+        created.append(slug)
+    if created:
+        store["role_profiles"] = profiles
+        _write(db, actor.organization_id, store)
+        _audit(db, actor, "role", ",".join(created)[:200], "saved", ["title"])
+    return created

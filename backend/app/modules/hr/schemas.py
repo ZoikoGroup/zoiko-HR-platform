@@ -2156,6 +2156,8 @@ class AssessmentResponse(BaseModel):
     id: int
     course_id: int
     course_name: Optional[str] = None
+    course_status: Optional[str] = None
+    course_department: Optional[str] = None
     title: str
     description: Optional[str]
     passing_score: Optional[int]

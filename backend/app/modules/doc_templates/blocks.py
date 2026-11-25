@@ -314,7 +314,12 @@ PACKAGE_COMPUTED_ONLY = {"company.affidavit_notary", "employment.country_is_in"}
 
 def _package_known_field(key: str) -> bool:
     from app.modules.hr import onboarding_package_content as C
-    return key in C.FIELDS or key in PACKAGE_COMPUTED_ONLY
+    if key in C.FIELDS or key in PACKAGE_COMPUTED_ONLY:
+        return True
+    # an organisation's own field ({{custom.<key>}}): whether this organisation defines it is checked when a document is
+    # prepared for a hire (an undefined one holds the document), so any well-formed key is accepted in a template
+    from app.modules.hr import onboarding_custom_fields as CF
+    return CF.is_custom_token(key)
 
 
 def _package_strings(obj):

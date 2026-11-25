@@ -242,6 +242,8 @@ export const getOnboardingDashboard = () => api.get("/hr/onboarding/dashboard");
 // ── ONBOARDING FLOW: settings, pre-onboarding link, document requests, progress ──
 export const getOnboardingSettings = () => api.get("/hr/onboarding/settings");
 export const saveOnboardingSettings = (payload) => api.put("/hr/onboarding/settings", payload);
+// Destructive: clears this organisation's onboarding setup only; hires and issued documents stay.
+export const resetOnboardingSettings = () => api.post("/hr/onboarding/settings/reset", {});
 // the offer-accepted welcome e-mail and portal message as typed (not saved yet): rendered by the server, or sent to yourself
 export const previewWelcomeMessage = (payload) => api.post("/hr/onboarding/settings/welcome-preview", payload);
 export const sendTestWelcomeMessage = (payload) => api.post("/hr/onboarding/settings/welcome-test", payload);
@@ -260,6 +262,9 @@ export const saveEngagementProfile = (slug, payload) => api.put(`/hr/onboarding/
 export const deleteEngagementProfile = (slug) => api.delete(`/hr/onboarding/profiles/engagement/${encodeURIComponent(slug)}`);
 export const saveRoleProfile = (slug, payload) => api.put(`/hr/onboarding/profiles/role/${encodeURIComponent(slug)}`, payload);
 export const deleteRoleProfile = (slug) => api.delete(`/hr/onboarding/profiles/role/${encodeURIComponent(slug)}`);
+export const saveCompanySectors = (sectors) => api.put("/hr/onboarding/profiles/sectors", { sectors });
+export const addEngagementCategories = (categories) => api.post("/hr/onboarding/profiles/engagement-categories", { categories });
+export const addSuggestedRoles = (titles) => api.post("/hr/onboarding/profiles/suggested-roles", { titles });
 export const getOfferPackageSettings = () => api.get("/hr/onboarding/package/settings");
 export const saveOfferPackageSettings = (payload) => api.put("/hr/onboarding/package/settings", payload);
 export const uploadOfferPackageLogo = (file) => {

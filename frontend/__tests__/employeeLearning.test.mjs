@@ -65,12 +65,12 @@ test("learning tabs map from the URL and fall back to the dashboard", () => {
 
 const PROFILE = { id: 7, firstName: "Anne", department: { id: 3, name: "Engineering" } };
 const COURSES = { items: [{ id: 1, course_name: "Fire Safety", department: "Engineering", duration_hours: 2 }, { id: 2, course_name: "Sales Pitch", department: "Sales" }, { id: 3, course_name: "Code of Conduct", department: null }] };
-const ASSESS = [{ id: 10, course_id: 1, title: "Fire quiz", passing_score: 50, max_attempts: 2 }];
+const ASSESS = [{ id: 10, course_id: 1, title: "Fire quiz", passing_score: 50, max_attempts: 2 }, { id: 20, course_id: 2, title: "Pitch quiz", passing_score: 50, max_attempts: 2 }];
 const QUESTIONS = [{ id: 100, question_text: "Colour?", question_type: "multiple_choice", options: ["Red", "Blue"], correct_answer: null }];
 
 // One shared service mock for every test: the Learning module and its QuizModal are evaluated once,
 // so the mock must be registered once (a per-test mock would leave the cached QuizModal on a stale one).
-const state = { calls: { started: [], submitted: [] }, failCourses: false };
+const state = { calls: { started: [], submitted: [] }, failCourses: false, enrollments: [] };
 const svc = {
   getMyProfile: async () => PROFILE,
   getCourses: async () => { if (state.failCourses) throw new Error("Could not load courses"); return COURSES; },
@@ -84,12 +84,12 @@ const svc = {
 mock.module("../src/service/employee.js", { exports: svc });
 // the learner's own enrollments (catalogue "Enroll" button) come from the Learning service
 mock.module("../src/service/hrService.js", { exports: {
-  getEnrollments: async () => ({ items: [], total: 0 }),
+  getEnrollments: async () => ({ items: state.enrollments, total: state.enrollments.length }),
   createEnrollment: async (courseId, employeeId) => ({ id: 1, course_id: courseId, employee_id: employeeId, status: "enrolled" }),
 } });
 mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
 
-beforeEach(() => { state.calls = { started: [], submitted: [] }; state.failCourses = false; });
+beforeEach(() => { state.calls = { started: [], submitted: [] }; state.failCourses = false; state.enrollments = []; });
 
 async function load(path = "/employee/learning") {
   const { default: Page } = await import(`../src/pages/Peoples/Employees/Learning/EmployeeLearningModule.jsx?t=${Math.random()}`);
@@ -139,6 +139,16 @@ test("the assessments tab lists quizzes to take", async () => {
   await load("/employee/learning/assessments");
   assert.match(document.body.textContent, /Fire quiz/);
   assert.match(document.body.textContent, /Take quiz/);
+});
+
+test("bug 24: a quiz on another department's course reaches me once I am enrolled in that course", async () => {
+  await load("/employee/learning/assessments");
+  assert.doesNotMatch(document.body.textContent, /Pitch quiz/, "not enrolled: another department's quiz stays hidden");
+  cleanup();
+  state.enrollments = [{ id: 4, course_id: 2, employee_id: 7, status: "enrolled" }];
+  await load("/employee/learning/assessments");
+  assert.match(document.body.textContent, /Pitch quiz/);
+  assert.match(document.body.textContent, /Fire quiz/);
 });
 
 test("a failed load shows a message instead of crashing", async () => {

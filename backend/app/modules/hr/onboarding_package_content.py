@@ -284,7 +284,7 @@ CLAUSES: dict[str, tuple[str, str, bool]] = {
                                  "Counsel to summarise how applicant data is used, kept and shared, and how to exercise rights.", True),
 }
 
-TOKEN_RE = re.compile(r"\{\{\s*([a-z_]+(?::[a-z_]+|\.[a-z_]+)?)\s*\}\}")
+TOKEN_RE = re.compile(r"\{\{\s*([a-z_]+(?::[a-z_]+|\.[a-z_][a-z0-9_]*)?)\s*\}\}")
 
 
 def clause_key(token: str) -> str | None:

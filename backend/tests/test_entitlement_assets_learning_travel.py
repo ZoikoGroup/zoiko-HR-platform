@@ -2,6 +2,7 @@
 import re
 
 from app.main import app
+from app.modules.billing.entitlement_middleware import _flatten_routes
 from app.modules.billing.route_entitlement_map import lookup_feature_key
 
 EXPECTED = {"assets": "hr.assets.core", "learning": "hr.learning.core", "travel": "hr.travel.core", "travel-expenses": "hr.travel.core"}
@@ -9,7 +10,7 @@ PREFIX = re.compile(r"^/hr/(assets|learning|travel-expenses|travel)(/|$)")
 
 
 def _module_routes():
-    for route in app.routes:
+    for route in _flatten_routes(app.routes):
         match = PREFIX.match(getattr(route, "path", ""))
         if not match:
             continue

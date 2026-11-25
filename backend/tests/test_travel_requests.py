@@ -178,7 +178,7 @@ def test_a_claim_can_belong_to_the_employees_own_trip_only(env):
     mine = _trip(env, env.ann).json()
     theirs = _trip(env, env.nameless).json()
     _as_employee(env)
-    assert _claim(env, request_id=mine["id"]).status_code == 201
+    assert _claim(env, request_id=mine["id"], amount=100).status_code == 201      # within the default daily limit
     r = _claim(env, request_id=theirs["id"])
     assert r.status_code == 400 and "your own trips" in r.text
     assert _claim(env, request_id=99999).status_code == 400

@@ -35,6 +35,9 @@ class OrgPackageDocument(Base):
     excluded_engagement_slugs = Column(JSON, nullable=True)
     signers                   = Column(JSON, nullable=True)                                 # ["employer", "candidate", ...]
     sort_order                = Column(Integer, nullable=False, default=0)
+    conditions                = Column(JSON, nullable=True)                                 # [{field, op, value}] all must hold; null = every hire
+    send_when                 = Column(String(30), nullable=True)                           # manual | hire_created | details_submitted | days_before_start
+    send_days_before          = Column(Integer, nullable=True)                              # days_before_start: days before the start date
     created_by_session_id     = Column(Integer, nullable=True)                              # docs setup session that added it
     updated_by                = Column(Integer, ForeignKey("employees.id"), nullable=True)
     updated_at                = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)

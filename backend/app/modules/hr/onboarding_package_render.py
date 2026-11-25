@@ -149,7 +149,7 @@ class RenderContext:
 
 
 # ── inline markup (shared by PDF and HTML) ───────────────────────────────────────────────────────────────────────────
-_SPLIT = re.compile(r"(\{\{\s*[a-z_]+(?::[a-z_]+|\.[a-z_]+)?\s*\}\}|\*\*|<br/>)")
+_SPLIT = re.compile(r"(\{\{\s*[a-z_]+(?::[a-z_]+|\.[a-z_][a-z0-9_]*)?\s*\}\}|\*\*|<br/>)")
 
 
 def _hook_token(key: str) -> str:

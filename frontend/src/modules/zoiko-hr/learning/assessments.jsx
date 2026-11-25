@@ -471,6 +471,8 @@ export default function ZoikoHRAssessments({ isTab }) {
                             <td className="px-4 py-3">
                               <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${a.is_active ? "bg-green-100 text-green-800 dark:text-green-300" : "bg-gray-100 dark:bg-[#0f172a] text-gray-600 dark:text-[#cbd5e1]"}`}>{a.is_active ? "Active" : "Inactive"}</span>
                               {!a.questions_count && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:text-amber-300" title="Learners cannot see this quiz until it has a question">Needs questions</span>}
+                              {a.course_status && a.course_status !== "active" && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:text-amber-300" title="Employees cannot see this quiz while its course is inactive. Activate the course under Courses.">Course inactive</span>}
+                              {a.course_department && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:text-blue-300" title={`Shown to the ${a.course_department} department and to anyone enrolled in the course`}>{a.course_department} only</span>}
                             </td>
                             <td className="px-4 py-3 text-center text-gray-700 dark:text-[#e2e8f0]">{a.questions_count ?? 0}</td>
                             <td className="px-4 py-3 text-right">

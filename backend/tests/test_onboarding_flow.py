@@ -2,6 +2,7 @@
 the new hire's pre-onboarding page (upload, details) -> HR review (rejection asks again) -> checklists with owners and
 dates from the joining date -> orientation invites and attendance -> completion only when the work is done ->
 employee account (with the offer's employment type and the details the new hire entered) and emails."""
+import json
 from datetime import date, timedelta
 
 import pytest
@@ -252,4 +253,29 @@ def test_an_imported_employee_is_linked_to_their_onboarding_and_not_duplicated(e
     assert env.db.query(Employee).filter(Employee.email == "lee@mail.com").count() == 1      # no second account
     env.db.refresh(imported)
     assert imported.country == "United Kingdom" and float(imported.ctc) == 50000            # the import's values are kept
+
+
+def test_clear_all_details_resets_settings_but_keeps_hires(env):
+    from app.modules.hr import welcome_message as WM
+    from app.modules.hr.models import OnboardingChecklist, OnboardingNewHire, OrganizationConfig
+
+    tpl = _setup_template_and_settings(env)
+    hire = _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "Keep Me", "email": "keep@mail.com", "position": "Dev"}))
+    row = (env.db.query(OrganizationConfig)
+           .filter(OrganizationConfig.organization_id == 1, OrganizationConfig.key == "company_profile.config").first())
+    if row is None:
+        row = OrganizationConfig(organization_id=1, key="company_profile.config", category="company_profile")
+        env.db.add(row)
+    row.value = json.dumps({"legal_name": "Old Co"})
+    env.db.commit()
+
+    out = _ok(env.c.post("/hr/onboarding/settings/reset"))
+    assert out["reset"] is True and out["removed"]["checklist_templates"] == 1
+    settings = _ok(env.c.get("/hr/onboarding/settings"))
+    assert settings["auto_template_ids"] == [] and settings["required_document_categories"] == ["id_proof", "bank_details"]
+    assert settings["welcome_message"] == WM.DEFAULT_WELCOME_MESSAGE
+    assert env.db.get(OnboardingNewHire, hire["id"]) is not None
+    assert env.db.get(OnboardingChecklist, tpl["id"]).is_deleted is True
+    keys = {k for (k,) in env.db.query(OrganizationConfig.key).filter(OrganizationConfig.organization_id == 1).all()}
+    assert "company_profile.config" not in keys and "onboarding_package.starter" in keys
 

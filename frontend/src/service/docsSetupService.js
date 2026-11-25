@@ -92,3 +92,4 @@ export const getRequestCategories = () => api.get("/hr/onboarding/request-catego
 export const addRequestCategory = (payload) => api.post("/hr/onboarding/request-categories", payload);
 export const updateRequestCategory = (id, payload) => api.put(`/hr/onboarding/request-categories/${id}`, payload);
 export const deleteRequestCategory = (id) => api.delete(`/hr/onboarding/request-categories/${id}`);
+

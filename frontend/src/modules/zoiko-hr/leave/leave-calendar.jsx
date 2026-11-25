@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { NavLink } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Plus, Calendar, Flag, Filter } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Calendar, Flag, Filter, AlertCircle, Pencil, X } from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getLeaveCalendar, getLeaveRequests, getHolidays, createHoliday } from "../../../service/hrService";
+import { getLeaveCalendar, getLeaveRequests, getHolidays, createHoliday, updateLeaveRequest } from "../../../service/hrService";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/leave" },
@@ -54,6 +54,12 @@ export default function LeaveCalendar() {
   const [holidaySubmitting, setHolidaySubmitting] = useState(false);
   const [holidayError, setHolidayError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+  // bug 27: move a leave to other dates from the calendar
+  const [editing, setEditing] = useState(null);          // the leave being moved
+  const [editForm, setEditForm] = useState({ start_date: "", end_date: "" });
+  const [editError, setEditError] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [dayList, setDayList] = useState(null);          // { dateStr, leaves } for "+N more"
 
   useEffect(() => {
     let mounted = true;
@@ -96,17 +102,58 @@ export default function LeaveCalendar() {
       setHolidayForm({ name: "", date: "", description: "" });
       setSuccessMsg("Holiday added successfully");
       setTimeout(() => setSuccessMsg(null), 3000);
-      const [data, hols] = await Promise.all([
-        getLeaveCalendar({ year: currentYear, month: currentMonth + 1 }),
-        getHolidays({ year: currentYear }),
-      ]);
-      setRecords(Array.isArray(data) ? data : []);
-      const holData = Array.isArray(hols) ? hols : (hols?.data || hols?.items || []);
-      setHolidays(Array.isArray(holData) ? holData : []);
+      await reloadMonth();
     } catch (err) {
       setHolidayError(err?.message || "Failed to add holiday");
     } finally {
       setHolidaySubmitting(false);
+    }
+  };
+
+  const reloadMonth = async () => {
+    const [data, hols] = await Promise.all([
+      getLeaveCalendar({ year: currentYear, month: currentMonth + 1 }),
+      getHolidays({ year: currentYear }),
+    ]);
+    setRecords(Array.isArray(data) ? data : []);
+    const holData = Array.isArray(hols) ? hols : (hols?.data || hols?.items || []);
+    setHolidays(Array.isArray(holData) ? holData : []);
+  };
+
+  const day10 = (v) => String(v || "").slice(0, 10);
+
+  const openEdit = (leave) => {
+    setDayList(null);
+    setEditing(leave);
+    setEditForm({ start_date: day10(leave.start_date), end_date: day10(leave.end_date) });
+    setEditError(null);
+  };
+  const closeEdit = () => { setEditing(null); setEditError(null); };
+
+  const editDays = editForm.start_date && editForm.end_date && editForm.end_date >= editForm.start_date
+    ? Math.round((new Date(editForm.end_date) - new Date(editForm.start_date)) / 86400000) + 1 : 0;
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editForm.start_date || !editForm.end_date) { setEditError("Choose both the start and the end date."); return; }
+    if (editForm.end_date < editForm.start_date) { setEditError("The end date cannot be before the start date."); return; }
+    if (editForm.start_date === day10(editing.start_date) && editForm.end_date === day10(editing.end_date)) {
+      setEditError("Choose new dates to move this leave."); return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await updateLeaveRequest(editing.id, { start_date: editForm.start_date, end_date: editForm.end_date });
+      const who = editing.employee_name || "the employee";
+      const range = `${editForm.start_date} – ${editForm.end_date}`;
+      closeEdit();
+      setSuccessMsg(`Leave for ${who} moved to ${range}. They have been notified.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+      await reloadMonth();
+    } catch (err) {
+      setEditError(err?.message || "The leave could not be moved.");
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -258,15 +305,18 @@ export default function LeaveCalendar() {
                         </div>
                       ))}
                       {day.leaves.slice(0, 4).map((l) => (
-                        <div key={l.id} title={`${l.employee_name || l.employee} - ${l.leave_type}`}
-                          className={`text-[10px] font-medium leading-tight px-1.5 py-1 rounded text-white truncate shadow-sm ${typeColors[l.leave_type] || "bg-gray-400"}`}>
+                        <button type="button" key={l.id} onClick={() => openEdit(l)}
+                          title={`${l.employee_name || l.employee} - ${typeLabels[l.leave_type] || l.leave_type} (click to change the dates)`}
+                          aria-label={`Edit leave of ${l.employee_name || l.employee || "employee"}`}
+                          className={`block w-full text-left text-[10px] font-medium leading-tight px-1.5 py-1 rounded text-white truncate shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-400 ${typeColors[l.leave_type] || "bg-gray-400"}`}>
                           {(l.employee_name || l.employee || "").split(" ")[0]}
-                        </div>
+                        </button>
                       ))}
                       {day.leaves.length > 4 && (
-                        <div className="text-[10px] text-gray-500 font-semibold px-1.5 bg-gray-100 rounded py-0.5 text-center">
+                        <button type="button" onClick={() => setDayList({ dateStr: day.dateStr, leaves: day.leaves })}
+                          className="block w-full text-[10px] text-gray-600 font-semibold px-1.5 bg-gray-100 hover:bg-gray-200 rounded py-0.5 text-center">
                           +{day.leaves.length - 4} more
-                        </div>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -287,6 +337,73 @@ export default function LeaveCalendar() {
 
         </div>
       </div>
+
+      {/* Day list ("+N more") */}
+      {dayList && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label={`Leaves on ${dayList.dateStr}`}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] px-6 py-4 flex justify-between items-center text-white">
+              <h2 className="text-lg font-bold">Leaves on {dayList.dateStr}</h2>
+              <button type="button" aria-label="Close" onClick={() => setDayList(null)} className="text-blue-100 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <ul className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+              {dayList.leaves.map((l) => (
+                <li key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-gray-100">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{l.employee_name || l.employee}</p>
+                    <p className="text-xs text-gray-500">{typeLabels[l.leave_type] || l.leave_type} · {day10(l.start_date)} – {day10(l.end_date)}</p>
+                  </div>
+                  <button type="button" onClick={() => openEdit(l)} className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900">
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Edit (move) a leave */}
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Change leave dates">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] px-6 py-4 flex justify-between items-center text-white">
+              <h2 className="text-lg font-bold">Change leave dates</h2>
+              <button type="button" aria-label="Close" onClick={closeEdit} className="text-blue-100 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-5" noValidate>
+              {editError && <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-xl flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0" />{editError}</div>}
+              <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3 text-sm">
+                <p className="font-semibold text-gray-900">{editing.employee_name || editing.employee}</p>
+                <p className="text-gray-500 text-xs mt-0.5">
+                  {typeLabels[editing.leave_type] || editing.leave_type} · {String(editing.status || "").toLowerCase()} · now {day10(editing.start_date)} – {day10(editing.end_date)}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="lc-start" className="block text-sm font-bold text-gray-700 mb-1.5">New start date <span className="text-red-500">*</span></label>
+                  <input id="lc-start" type="date" value={editForm.start_date}
+                    onChange={(e) => { setEditForm({ ...editForm, start_date: e.target.value }); setEditError(null); }}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+                </div>
+                <div>
+                  <label htmlFor="lc-end" className="block text-sm font-bold text-gray-700 mb-1.5">New end date <span className="text-red-500">*</span></label>
+                  <input id="lc-end" type="date" value={editForm.end_date} min={editForm.start_date || undefined}
+                    onChange={(e) => { setEditForm({ ...editForm, end_date: e.target.value }); setEditError(null); }}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">{editDays ? `${editDays} day${editDays > 1 ? "s" : ""}. ` : ""}The status stays as it is, and the employee is notified of the new dates.</p>
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={closeEdit} className="px-5 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl">Cancel</button>
+                <button type="submit" disabled={editSaving} className="px-5 py-2.5 text-sm font-semibold bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl shadow-sm">
+                  {editSaving ? "Saving..." : "Save new dates"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Holiday Modal */}
       {showHolidayModal && (
