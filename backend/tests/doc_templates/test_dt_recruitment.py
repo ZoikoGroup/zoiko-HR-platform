@@ -382,3 +382,23 @@ def test_sending_an_offer_without_a_start_date_says_so_and_cancels_nothing(world
     world.db.commit()
     r = world.post("a_hr", f"/hr/recruitment/offers/{o['id']}/letter/send")
     assert r.status_code == 200, r.text
+
+
+def test_a_failed_send_does_not_auto_approve_the_offer(world):
+    """Switching on one-step approval after an offer was saved must not let a rejected send commit the approval."""
+    cand, o = _ready_offer(world, joining_date=None)
+    offer = world.db.get(RecruitmentOffer, o["id"])
+    assert offer.status != OfferStatus.APPROVED and offer.approved_by is None
+    assert world.put("a_admin", "/hr/recruitment/privacy-settings",
+                     json={"offer_letters_without_approval": True}).status_code == 200
+
+    r = world.post("a_hr", f"/hr/recruitment/offers/{o['id']}/letter/send")
+    assert r.status_code == 409, r.text
+    detail = r.json().get("detail", r.json())
+    assert detail["code"] == "OFFER_INFORMATION_MISSING" and "employment.start_date" in detail["missing_fields"]
+
+    from app.modules.hr.models import RecruitmentOfferApproval
+    world.db.expire_all()
+    offer = world.db.get(RecruitmentOffer, o["id"])
+    assert offer.status != OfferStatus.APPROVED and offer.approved_by is None
+    assert world.db.query(RecruitmentOfferApproval).filter_by(offer_id=offer.id).count() == 0
