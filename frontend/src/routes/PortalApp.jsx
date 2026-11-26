@@ -174,6 +174,7 @@ const ZoikoHRReports = lazyRoute(() => import("../pages/Peoples/Employees/Employ
 
 const OrgAdminDashboardPage = lazyRoute(() => import("../modules/organization-admin/DashboardPage"));
 const OrgAdminOrganizationPage = lazyRoute(() => import("../modules/organization-admin/OrganizationPage"));
+const OrgAdminAuditLogPage = lazyRoute(() => import("../modules/organization-admin/AuditLogPage"));
 const OrgAdminAssetRequestsPage = lazyRoute(() => import("../modules/organization-admin/AssetRequestsPage"));
 const OrgAdminAssetsPage = lazyRoute(() => import("../modules/organization-admin/AssetsPage"));
 const OrgAdminUserManagementPage = lazyRoute(() => import("../modules/organization-admin/UserManagementPage"));
@@ -424,6 +425,7 @@ const routeOverrides = {
   // Organization Admin
   "/organization-admin/dashboard": <OrgAdminDashboardPage />,
   "/organization-admin/organization": <OrgAdminOrganizationPage />,
+  "/organization-admin/audit-log": <OrgAdminAuditLogPage />,
   "/organization-admin/assets": <OrgAdminAssetsPage />,
   "/organization-admin/assets/requests": <OrgAdminAssetRequestsPage />,
   "/organization-admin/users": <OrgAdminUserManagementPage />,

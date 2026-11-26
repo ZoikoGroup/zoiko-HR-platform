@@ -1,6 +1,7 @@
 /*
- * Onboarding › Settings. One page of cards: new-hire automation, then the company profile (legal & policy defaults) and the
- * rest of the onboarding-document setup. The header's "Save changes" / "Discard changes" act on the automation settings
+ * Onboarding › Settings. One page of cards in two numbered parts: first the onboarding documents (the "Set up docs for
+ * your organisation" hero, the setup score, the company profile and the rest of the document setup), then new-hire
+ * automation. The header's "Save changes" / "Discard changes" act on the automation settings
  * and on every section that registers with SettingsSaveContext (the company profile); the engagement / role profiles,
  * offer package and finance viewers keep their own Save buttons because they save item by item.
  */
@@ -17,6 +18,7 @@ import CustomFieldsSettings from "./CustomFieldsSettings";
 import CountersignSettings from "./CountersignSettings";
 import TestPackageCard from "./TestPackageCard";
 import SetupStatusCard from "./SetupStatusCard";
+import MissingDetailsCard from "./MissingDetailsCard";
 import PortalFormsSettings from "./PortalFormsSettings";
 import RequestCategoriesSettings from "./RequestCategoriesSettings";
 import { humanizeValidationError } from "../../../utils/validationMessage";
@@ -27,6 +29,7 @@ import OnboardingProfilesSettings from "./OnboardingProfilesSettings";
 import { PrimaryButton, SecondaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 import { SettingsCard, SettingsSaveContext } from "./settingsUi";
+import { DocsSetupHero, QuickJump, SectionHeader, useScrollSpy } from "./settingsDecor";
 import WelcomeMessageEditor, { DEFAULT_PLACEHOLDERS, SIGNATURE_MAX, WELCOME_MAX, unknownPlaceholders } from "./WelcomeMessageEditor";
 
 // Uploads requested automatically: the organisation's own upload categories (Settings › Documents requested from new hires).
@@ -98,27 +101,11 @@ function Toggle({ id, checked, onChange, label }) {
   );
 }
 
-/** A divider heading between the two halves of the page. */
-function PartHeading({ id, title, help }) {
-  return (
-    <div id={id} className="scroll-mt-24 pt-2">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-      <p className="mt-0.5 text-sm text-gray-500">{help}</p>
-    </div>
-  );
-}
-
 // "On this page" navigation: the anchors are the section ids rendered below (and in the section components).
 const PAGE_NAV = [
-  { href: "#automation", label: "New-hire automation", children: [
-    { href: "#os-step-1", label: "Checklists" },
-    { href: "#os-step-2", label: "Documents requested" },
-    { href: "#os-step-3", label: "Pre-onboarding link" },
-    { href: "#os-step-4", label: "Reminders" },
-    { href: "#os-step-5", label: "Completion rules" },
-  ] },
   { href: "#documents", label: "Onboarding documents", children: [
     { href: "#docs-setup", label: "Set up docs for your organisation" },
+    { href: "#missing-details", label: "Missing details" },
     { href: "#company-profile", label: "Company profile" },
     { href: "#company-profile-legal", label: "Legal & policy defaults" },
     { href: "#onboarding-profiles", label: "Engagement & role profiles" },
@@ -130,6 +117,22 @@ const PAGE_NAV = [
     { href: "#portal-forms", label: "Forms new hires fill in" },
     { href: "#finance-viewers", label: "Finance viewers" },
   ] },
+  { href: "#automation", label: "New-hire automation", children: [
+    { href: "#os-step-1", label: "Checklists" },
+    { href: "#os-step-2", label: "Documents requested" },
+    { href: "#os-step-3", label: "Pre-onboarding link" },
+    { href: "#os-step-4", label: "Reminders" },
+    { href: "#os-step-5", label: "Completion rules" },
+  ] },
+];
+const SPY_IDS = PAGE_NAV.flatMap((part) => [part.href, ...part.children.map((c) => c.href)]).map((h) => h.slice(1));
+// the chips shown above the cards on screens without the sidebar
+const QUICK_JUMP = [
+  { href: "#docs-setup", label: "Set up docs" }, { href: "#missing-details", label: "Missing details" },
+  { href: "#company-profile", label: "Company profile" },
+  { href: "#onboarding-profiles", label: "Profiles" }, { href: "#custom-fields", label: "Your fields" },
+  { href: "#package-documents", label: "Package" }, { href: "#test-package", label: "Test package" },
+  { href: "#offer-package", label: "Clauses" }, { href: "#automation", label: "Automation" },
 ];
 
 /** A labelled on/off row: the text on the left, the switch on the right. */
@@ -222,6 +225,8 @@ export default function OnboardingSettings() {
   const [setupStatus, setSetupStatus] = useState(null);
   const [profileComplete, setProfileComplete] = useState(true);
   const [welcomeDefaults, setWelcomeDefaults] = useState({ message: "", signature: "", placeholders: DEFAULT_PLACEHOLDERS });
+  const activeSection = useScrollSpy(SPY_IDS);
+  const [valuesKey, setValuesKey] = useState(0);        // bumped after Missing details saves: the cards it changed reload
 
   useEffect(() => {
     let live = true;
@@ -453,7 +458,29 @@ export default function OnboardingSettings() {
             </div>
           )}
 
-          <PartHeading id="automation" title="New-hire automation" help="What happens automatically when a new hire is created." />
+          <QuickJump items={QUICK_JUMP} active={activeSection} />
+
+          <SectionHeader id="documents" step={1} icon={FileText} title="Onboarding documents"
+            help="What the offer-package documents print. Work top to bottom: company details and legal defaults, then the engagement and role profiles, then the clause wording." />
+
+          {setupStatus?.enabled && (
+            <DocsSetupHero setupStatus={setupStatus} profileComplete={profileComplete} path={DOCS_SETUP_PATH} />
+          )}
+
+          <SetupStatusCard key={`status-${valuesKey}`} />
+          <MissingDetailsCard onSaved={() => setValuesKey((k) => k + 1)} />
+          <CompanyProfileSettings key={`profile-${valuesKey}`} />
+          <OnboardingProfilesSettings />
+          <CustomFieldsSettings />
+          <PackageDocumentsSettings />
+          <CountersignSettings />
+          <TestPackageCard />
+          <OfferPackageSettings key={`package-${valuesKey}`} />
+          <PortalFormsSettings />
+          <FinanceViewersSetting />
+
+          <SectionHeader id="automation" step={2} icon={Settings2} title="New-hire automation"
+            help="What happens automatically when a new hire is created: checklists, document requests, the pre-onboarding link, reminders and completion rules." />
 
           <SettingsCard id="os-step-1" icon={ClipboardCheck} title="Checklists assigned automatically" help="Every new hire gets a copy of these templates as soon as they are created.">
             {templates.length === 0 ? (
@@ -541,49 +568,6 @@ export default function OnboardingSettings() {
             <FieldError msg={errors._form} />
           </SettingsCard>
 
-          <PartHeading id="documents" title="Onboarding documents"
-            help="What the offer-package documents print. Work top to bottom: company details and legal defaults, then the engagement and role profiles, then the clause wording." />
-
-          {setupStatus?.enabled && (
-            <section id="docs-setup" aria-labelledby="docs-setup-title"
-              className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm ${profileComplete ? "border-blue-100 bg-blue-50/50" : "border-amber-200 bg-amber-50/60"}`}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-blue-600" aria-hidden="true"><UploadCloud className="h-5 w-5" /></span>
-                  <div className="min-w-0">
-                    <h2 id="docs-setup-title" className="text-base font-semibold text-gray-900">Set up docs for your organisation</h2>
-                    <p className="mt-0.5 text-sm text-gray-600">
-                      {profileComplete
-                        ? "Upload your own offer letter, contract, NDA, handbook and forms. We suggest settings and draft templates from them; you review every suggestion and decide what is used."
-                        : "Your Company Profile is not complete yet. Upload your existing documents and we will suggest the missing details for you to review."}
-                    </p>
-                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500">
-                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />Suggestions may use AI where your plan allows it. You decide what is applied; nothing is sent to new hires.
-                    </p>
-                    {setupStatus.last_session && setupStatus.last_session.status !== "cancelled" && (
-                      <p className="mt-1 text-xs text-gray-600">Last setup: {setupStatus.last_session.status === "applied" ? "applied" : `in progress (step ${setupStatus.last_session.step} of 6)`}</p>
-                    )}
-                  </div>
-                </div>
-                <Link to={DOCS_SETUP_PATH}
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
-                  <UploadCloud className="h-4 w-4" aria-hidden="true" />
-                  {setupStatus.last_session && ["uploading", "analysing", "review"].includes(setupStatus.last_session.status) ? "Continue setting up docs" : "Set up docs for your organisation"}
-                </Link>
-              </div>
-            </section>
-          )}
-
-          <SetupStatusCard />
-          <CompanyProfileSettings />
-          <OnboardingProfilesSettings />
-          <CustomFieldsSettings />
-          <PackageDocumentsSettings />
-          <CountersignSettings />
-          <TestPackageCard />
-          <OfferPackageSettings />
-          <PortalFormsSettings />
-          <FinanceViewersSetting />
 
           {anyDirty && (
             <div className="sticky bottom-0 z-10 rounded-2xl border border-gray-200/80 bg-white/95 px-4 py-3 shadow-[0_-6px_20px_rgba(15,23,42,0.08)] backdrop-blur">
@@ -602,9 +586,13 @@ export default function OnboardingSettings() {
           <div className="relative overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/60 p-5 text-sm text-gray-600">
             <p className="mb-2 inline-flex items-center gap-2 text-base font-semibold text-gray-900"><Info className="h-5 w-5 text-blue-600" />About these settings</p>
             <p>
-              When a candidate accepts an offer or a new hire is created, the checklist items are assigned, the required
-              documents are requested, and (if turned on) the new hire is emailed a pre-onboarding link. Reminders go out for
-              any missing items, and the completion rules decide when onboarding can be marked complete.
+              <span className="font-medium text-gray-800">1. Onboarding documents</span> – your company details, profiles, fields and
+              package decide what the offer letter, contract and the other documents print. Start by uploading your own documents.
+            </p>
+            <p className="mt-2">
+              <span className="font-medium text-gray-800">2. New-hire automation</span> – when a new hire is created, checklists are
+              assigned, documents are requested and (if turned on) the pre-onboarding link is emailed. Reminders and completion
+              rules follow.
             </p>
             <div aria-hidden="true" className="pointer-events-none absolute -bottom-10 -right-10 h-28 w-28 rounded-full bg-blue-100/70" />
           </div>
@@ -630,11 +618,19 @@ export default function OnboardingSettings() {
             <ul className="mt-3 space-y-3 text-sm">
               {PAGE_NAV.map((part) => (
                 <li key={part.href}>
-                  <a href={part.href} className="font-medium text-gray-800 hover:text-blue-700">{part.label}</a>
-                  <ul className="mt-1 space-y-1 border-l border-gray-100 pl-3">
-                    {part.children.map((c) => (
-                      <li key={c.href}><a href={c.href} className="text-gray-500 hover:text-blue-700">{c.label}</a></li>
-                    ))}
+                  <a href={part.href} className={`font-medium hover:text-blue-700 ${activeSection === part.href.slice(1) ? "text-blue-700" : "text-gray-800"}`}>{part.label}</a>
+                  <ul className="mt-1 space-y-0.5 border-l border-gray-100 pl-1">
+                    {part.children.map((c) => {
+                      const on = activeSection === c.href.slice(1);
+                      return (
+                        <li key={c.href}>
+                          <a href={c.href} aria-current={on ? "location" : undefined}
+                            className={`-ml-px block border-l-2 py-0.5 pl-3 transition-colors ${on ? "border-blue-600 font-medium text-blue-700" : "border-transparent text-gray-500 hover:text-blue-700"}`}>
+                            {c.label}
+                          </a>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </li>
               ))}

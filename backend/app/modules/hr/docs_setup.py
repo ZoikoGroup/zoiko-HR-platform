@@ -1355,7 +1355,7 @@ def _fill_template_placeholders(db, s: DocsSetupSession) -> None:
         text = "\n".join(c["text"] for c in chunks)
         blanks = blank_placeholders(chunks)
         if m.get("action") == "new_document" and (m.get("mode") or "ACKNOWLEDGE") != "SIGN":
-            blanks = [b for b in blanks if b["key"] in ALWAYS_KNOWN]
+            blanks = [b for b in blanks if b["key"] in ALWAYS_KNOWN or b["key"] in FORM_OPTIONAL]
         phs = [{**x, "confirmed": True} for x in sample_values(chunks)] + blanks
         seen = {x["text"] for x in phs}
         for key, values in company.items():
@@ -1575,7 +1575,7 @@ _BLANK_RULES = [
     (r"institution|university|college", r"^(name|details?|value)$", "worker.institution"),
     # where the new hire signs
     (r"", r"^place( of signing)?$|^city$|^town$", "worker.place"),
-    (r"", r"(candidate|employee|new hire|applicant)('s)? (full )?name|full name|name of (the )?(candidate|employee)|^candidate name$|^employee name$", "worker.full_name"),
+    (r"", r"(candidate|employee|new hire|applicant)('s)? (full )?(legal )?name|full (legal )?name|name of (the )?(candidate|employee)|^candidate name$|^employee name$", "worker.full_name"),
     (r"^dear|acceptance|accepted by|employee name|candidate name|full (legal )?name|^name\s*:?$|^to\s*:?$",
      r"name|candidate|employee", "worker.full_name"),
     (r"", r"(candidate|employee)('s)? address|residential address|postal address", "worker.address_inline"),
@@ -1605,11 +1605,24 @@ _BLANK_RULES = [
     (r"leave entitlement|annual leave|paid leave|leave", r"number|days", "employment.leave_entitlement"),
     (r"", r"^leave( entitlement)?|annual leave$", "employment.leave_entitlement"),
     (r"employment type|type of employment|engagement", r".*", "employment.employment_type"),
+    # the date an agreement is made ("entered into on [Date]", "made on [Date]", "dated [Date]")
+    (r"entered into on|made on|executed on|dated|agreement date|effective (as of|on)", r"date", "document.issue_date"),
+    # the date the candidate must answer by ("returning a copy by [Acceptance Deadline]")
+    (r"", r"acceptance deadline|response deadline|accept(ance)? by|respond by|reply by|^deadline$", "offer.response_deadline"),
+    (r"(return(ing)?|sign(ing)?|accept(ance)?|respond|reply).{0,40}\bby$", r"date|deadline", "offer.response_deadline"),
+    # the notice period written as a pointer ("Notice Period | [See approved employment terms]"): the notice wording
+    (r"notice period|period of notice|^notice\s*\|?\s*$", r".*", "employment.notice_text"),
+    # a bare "[Date]" nothing more specific claims (the date at the top of a letter): the document's date
+    (r"", r"^date$", "document.issue_date"),
 ]
-_BRACKET = re.compile(r"(?:\[([A-Za-z][^\]\n]{0,40})\]|<([A-Za-z][^>\n]{0,40})>)")
+# ("<br/>" is a line break the Word converter writes, never a blank)
+_BRACKET = re.compile(r"(?:\[([A-Za-z][^\]\n]{0,40})\]|<(?![Bb][Rr]\s*/?>)([A-Za-z][^>\n]{0,40})>)")
 # a longer bracketed instruction left in a template ("[Role-specific focus areas, e.g. test execution, …]"): a blank too
 _LONG_BRACKET = re.compile(r"\[([A-Za-z][^\]\n]{41,400})\]")
 _NUMBER_BRACKET = re.compile(r"\[(\d{1,4})\]")
+# words that make a slashed blank a field to fill ("[Department / Manager]", "[New / good / notes]"), not a list of choices
+_FIELD_NOUN = re.compile(r"(?i)\b(name|manager|department|number|id|date|address|e-?mail|status|owner|notes?|serial|model|"
+                         r"level|role|title|details?|amount|reason|signature)\b")
 _NOT_THE_HIRE = re.compile(r"emergency|contact (name|number|person)|relationship|verified|verification|coordinator|reviewer|"
                            r"witness|bank|account|branch|ifsc|routing|nominee|father|mother|spouse|guardian|reference|referee|"
                            r"previous employer|other\s*:")
@@ -1617,6 +1630,10 @@ _NOT_THE_HIRE = re.compile(r"emergency|contact (name|number|person)|relationship
 # checklists and acknowledgements; their other blanks are for the person completing them
 ALWAYS_KNOWN = {"worker.full_name", "worker.email", "employment.position_title", "employment.start_date_long",
                 "document.issue_date"}
+# details HR usually knows: pre-filled on forms and acknowledgements too, but printed as a line to write on when a hire has
+# none (onboarding_package.render_context), so such a document is never held for them
+FORM_OPTIONAL = {"employment.reports_to", "employment.department", "employment.work_location", "employment.employment_type",
+                 "worker.employee_id", "worker.phone", "worker.address_inline"}
 
 
 def blank_placeholders(chunks: list[dict]) -> list[dict]:
@@ -1660,8 +1677,13 @@ def blank_placeholders(chunks: list[dict]) -> list[dict]:
                         break
                 if key == "worker.place" and (last_key or "").startswith("employer."):
                     key = None                                      # the company's place of signing is not the hire's
+                if (last_key or "").startswith("worker.") and key in ("company.onboarding_return_email", "company.phone"):
+                    key = "worker.email" if key == "company.onboarding_return_email" else "worker.phone"   # address block
                 ph = {"text": m.group(0), "before": label, "key": key} if key else None
             last_end, last_key = m.end(), (ph or {}).get("key")
+            if ph and ph["key"] == "employment.probation_months" and not ph.get("before", "") == "" \
+                    and not re.match(r"\s*months?\b", text[m.end():], re.I):
+                ph = {**ph, "key": "employment.probation_period"}    # "Probation | [3 months]": printed with its unit
             if not ph or ph["key"] not in C.FIELDS:
                 continue
             sig = (ph["before"], ph["text"])
@@ -1923,8 +1945,9 @@ def _blanks_as_lines(blocks: list) -> list:
     def fix(text: str) -> str:
         def one(mm):
             inner = (mm.group(1) or mm.group(2) or "").strip()    # [blank] or <blank>; {{placeholders}} never match
-            if "/" in inner and len(inner.split("/")) <= 4:
-                return " / ".join(o.strip() for o in inner.split("/"))
+            options = [o.strip() for o in inner.split("/")]
+            if "/" in inner and len(options) <= 4 and all(o and len(o.split()) <= 3 and not _FIELD_NOUN.search(o) for o in options):
+                return " / ".join(options)                       # a choice ("Yes / No", "Office / Hybrid / Remote")
             return "____________________"
         text = _LONG_BRACKET.sub("____________________", _BRACKET.sub(one, text))
         return _NUMBER_BRACKET.sub(r"\1", text)        # a suggested number ("for [3] years") is printed as the number
@@ -2010,6 +2033,7 @@ def editable_blocks(db, f: DocsSetupFile) -> list:
         blocks = json.loads(json.dumps(m["edited_blocks"]))
     else:
         blocks, _w = _file_blocks(db, f)
+        blocks = strip_template_instructions(blocks)
         blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
         blocks = _party_line_blanks(blocks, signed=_signed(m))
     blocks = _unknown_placeholders_cleared(blocks, _org_tokens(db, f.organization_id))
@@ -2026,6 +2050,30 @@ def _signed(m: dict) -> bool:
     return (m.get("mode") or "ACKNOWLEDGE") == "SIGN"
 
 
+# notes a template carries for whoever fills it in, never printed in a generated document
+_INSTRUCTION_LINE = re.compile(r"(?i)^\s*template\s*[0-9a-z.-]{0,8}\s*\||\bplaceholders?\b.{0,40}\bbefore (issuing|use|sending)\b|"
+                               r"^\s*(instructions?|drafting note|note to (hr|the drafter|users?))\s*:")
+_INSTRUCTION_SENTENCE = re.compile(r"(?i)(?<![^\s.])[^.<>]*\b(should be reviewed by (hr|legal|counsel|the legal team)|"
+                                   r"delete (this|these) (note|instruction|guidance)s?|replace (the|all|these) placeholders|"
+                                   r"remove this (note|text|guidance) before)\b[^.<>]*\.\s*")
+
+
+def strip_template_instructions(blocks: list) -> list:
+    """Drop the template's notes to its user ("Template 01 | Complete the placeholders before issuing", "This offer should
+    be reviewed by HR and legal counsel …"): they are guidance for the drafter, not wording for the new hire."""
+    out = []
+    for b in blocks:
+        if isinstance(b, dict) and b.get("type") in ("paragraph", "heading") and isinstance(b.get("text"), str):
+            if _INSTRUCTION_LINE.search(b["text"]):
+                continue
+            text = _INSTRUCTION_SENTENCE.sub("", b["text"]).strip()
+            if not text:
+                continue
+            b = {**b, "text": text}
+        out.append(b)
+    return out
+
+
 def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
     """The draft template content a mapped file becomes (and the fidelity warnings)."""
     from app.modules.doc_templates import package_templates as PT
@@ -2035,6 +2083,7 @@ def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
         blocks, warnings = editable_blocks(db, f), ["You edited this document's wording here; your edited version is used."]
     else:
         blocks, warnings = _file_blocks(db, f)
+        blocks = strip_template_instructions(blocks)
         blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
         blocks = _party_line_blanks(blocks, signed=_signed(m))
         blocks = _unknown_placeholders_cleared(blocks, _org_tokens(db, f.organization_id))

@@ -99,6 +99,18 @@ def setup_status(fresh: bool = Query(False), db: Session = Depends(get_db), user
     return SC.setup_status(db, user.organization_id, fresh=fresh)
 
 
+@router.get("/settings-gaps", summary="Every value the organisation's documents still need, with the inputs that fill it")
+def get_settings_gaps(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_settings_gaps as G
+    return G.gaps(db, user.organization_id)
+
+
+@router.put("/settings-gaps", summary="Save the missing details typed in Settings (validated like each Settings card)")
+def put_settings_gaps(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_settings_gaps as G
+    return G.save(db, user, data)
+
+
 @router.get("/package/starter-sets", summary="Starter sets of platform documents, and the one in use")
 def starter_sets(db: Session = Depends(get_db), user=Depends(get_current_admin)):
     from app.modules.hr import onboarding_starter_sets as SS

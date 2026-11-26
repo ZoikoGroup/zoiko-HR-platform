@@ -175,7 +175,9 @@ def _to_package_one(b: dict) -> dict:
     if t == "paragraph":
         if body.get("style") == "note":
             return {"t": "note", "text": body["text"]}
-        return {"t": "p", "text": body["text"], "style": body.get("style") or "body"}
+        # "normal" is the editors' name for the renderer's "body" style (a new paragraph block starts as "normal")
+        style = body.get("style")
+        return {"t": "p", "text": body["text"], "style": "body" if style in (None, "", "normal") else style}
     if t == "list":
         if body.get("items_from"):
             return {"t": "list", "src": "{{%s}}" % body["items_from"], "numbered": body.get("style") == "number"}

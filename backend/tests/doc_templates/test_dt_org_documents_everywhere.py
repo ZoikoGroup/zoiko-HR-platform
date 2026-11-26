@@ -362,7 +362,7 @@ def test_setup_status_scores_the_organisations_readiness(world):
     keys = [x["key"] for x in s["steps"]]
     assert keys[:4] == ["company", "profiles", "documents", "wording"] and "countersign" in keys and "automation" in keys
     wording = {x["key"]: x for x in s["steps"]}["wording"]
-    assert not wording["done"] and wording["path"].endswith("#test-package")
+    assert not wording["done"] and wording["path"].endswith("#missing-details")
     _ready(world)
     s2 = world.get("a_admin", "/hr/onboarding/setup-status?fresh=true").json()
     assert s2["done"] >= s["done"]
@@ -478,3 +478,24 @@ def test_placeholder_names_may_contain_digits():
     assert CF.is_custom_token("custom.allowance_2") and not CF.is_custom_token("custom.2x")
     from app.modules.doc_templates import blocks as B
     assert B.validate_package_content([{"type": "paragraph", "text": "{{custom.allowance_2}}", "style": "normal"}]) == []
+
+
+def test_the_document_editor_offers_and_fills_the_organisations_own_fields(world):
+    """Edit / Fill missing gaps: a custom field can be inserted in the wording and its value typed in the gap panel."""
+    _ready(world)
+    _fields(world, [SHIFT])
+    h, _ = _hire(world)
+    path = f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/edit"
+    view = world.get("a_admin", path).json()
+    assert any(f["key"] == "custom.shift_allowance" and f["group"] == "your fields" for f in view["placeholders"]["fields"])
+    content = view["content"] + [{"type": "paragraph", "text": "Your shift allowance is {{custom.shift_allowance}}.", "style": "normal"}]
+    r = world.post("a_admin", path + "/preview.pdf", json={"content": content, "values": {"custom.shift_allowance": "300"}})
+    assert r.status_code == 200, r.text
+    r = world.put("a_admin", path, json={"content": content, "values": {"custom.shift_allowance": "300"}})
+    assert r.status_code == 200, r.text
+    kpi = {d["category"]: d for d in r.json()["documents"]}["daily_kpi"]
+    assert kpi["edited"] and "custom.shift_allowance" not in {f["key"] for f in kpi["missing_fields"]}
+    pdf = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/preview.pdf").content
+    assert "Your shift allowance is £300.00." in _text(pdf)
+    bad = world.put("a_admin", path, json={"content": content, "values": {"custom.shift_allowance": "lots"}})
+    assert bad.status_code == 422, "the gap panel uses the same validation as the panel"

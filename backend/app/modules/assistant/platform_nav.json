@@ -21,7 +21,7 @@
    "roles": [
     "admin"
    ],
-   "about": "A live record of your organization's identity, plan, and workforce. · View audit log · Core identity information · Plan, status and account limits · Where this organization is registered — details given while registering · Update your organization details · IBM Plex Mono · Across your organization · Seats Over Limit · Remove the logo? · Powered by Zoiko HR · Upload the logo as a PNG, JPG or WebP image. · Logo saved. Emails and new documents show it from now on. · Logo removed. Emails show your organisation's name on its own."
+   "about": "A live record of your organization's identity, plan, and workforce. · View audit log · Core identity information · Plan, status and account limits · Where this organization is registered — details given while registering · Update your organization details · IBM Plex Mono · Seats over limit · Across your organization · Seats Over Limit · Remove the logo? · Powered by Zoiko HR · Upload the logo as a PNG, JPG or WebP image. · Logo saved. Emails and new documents show it from now on. · Logo removed. Emails show your organisation's name on its own."
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -44,7 +44,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Thank you, we have your request · Your reference is · A confirmation is on its way to · We saved your request but could not send the confirmation email right now. Our team will still contact you. · I agree that Zoiko HR may contact me about this request. · Your plan, payments and subscription in one place. · View-only for your role · Your payment went through at Stripe, but we have not been able to confirm it on your plan yet. · Check payment again · Choose your plan · Pick a plan and billing cycle. Payment is taken on the secure Stripe checkout. · Payments are processed by Stripe. Card details never reach our servers. · Changes require an organization billing authority."
+   "about": "Thank you, we have your request · Your reference is · Where you'll hear from us · I agree that Zoiko HR may contact me about this request. · Your plan, payments and subscription in one place. · View-only for your role · Your payment went through at Stripe, but we have not been able to confirm it on your plan yet. · Check payment again · Choose your plan · Pick a plan and billing cycle. Payment is taken on the secure Stripe checkout. · Payments are processed by Stripe. Card details never reach our servers. · Changes require an organization billing authority. · Nothing to manage until you have an active subscription. · What each plan includes · Technical entitlement status (for support)"
   },
   {
    "section": "ORGANIZATION ADMIN",
@@ -741,7 +741,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Configure legal, policy, and operational defaults for a consistent and automated onboarding experience. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Clear all onboarding details? · This cannot be undone. · New hires, issued documents, submitted forms and audit history are kept. · Link valid for · Remind new hires about missing documents every · Set up docs for your organisation · You have unsaved changes. · About these settings · On this page · Legal & policy defaults · Engagement & role profiles"
+   "about": "Configure legal, policy, and operational defaults for a consistent and automated onboarding experience. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Clear all onboarding details? · This cannot be undone. · New hires, issued documents, submitted forms and audit history are kept. · Link valid for · Remind new hires about missing documents every · You have unsaved changes. · About these settings · 1. Onboarding documents · 2. New-hire automation · On this page · Set up docs for your organisation"
   },
   {
    "section": "PRODUCTS",

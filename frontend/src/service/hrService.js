@@ -297,6 +297,16 @@ export const getBulkPackageJob = (jobId) => api.get(`/hr/onboarding/package/jobs
 export const downloadBulkPackageZip = (jobId) => fetchDocumentFile(`/hr/onboarding/package/jobs/${jobId}/download.zip`, "onboarding-packages.zip");
 export const getHirePackagePreview = (newHireId, category) =>
   fetchDocumentFile(`/hr/onboarding/new-hires/${newHireId}/package/${category}/preview.pdf`, `${category}-preview.pdf`);
+// Per-hire document editing (the "Edit / Fill missing gaps" button in the package panel).
+const editPath = (newHireId, category) =>
+  `/hr/onboarding/new-hires/${newHireId}/package/${encodeURIComponent(category)}/edit`;
+export const getHirePackageDocumentEdit = (newHireId, category) => api.get(editPath(newHireId, category));
+export const saveHirePackageDocumentEdit = (newHireId, category, content, values) =>
+  api.put(editPath(newHireId, category), { content, values });
+export const resetHirePackageDocumentEdit = (newHireId, category) => api.delete(editPath(newHireId, category));
+export const previewHirePackageDocumentEdit = (newHireId, category, content, values) =>
+  fetchDocumentFile(`${editPath(newHireId, category)}/preview.pdf`, `${category}-edit-preview.pdf`,
+    { method: "POST", body: { content, values } });
 export const requestOnboardingDocuments = (newHireId, categories) => api.post(`/hr/onboarding/new-hires/${newHireId}/document-requests`, { categories });
 export const getOnboardingProgress = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/progress`);
 
@@ -843,10 +853,15 @@ export const getDocuments = (params = {}) => {
 export const getDocumentById = (documentId) =>
   api.get(`/hr/documents/${documentId}`).then(data => ({ data }));
 
-async function fetchDocumentFile(path, fallbackName) {
+async function fetchDocumentFile(path, fallbackName, { method = "GET", body } = {}) {
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
     // Prefer the API's `detail` so the user is told *why* the preview failed.
@@ -856,7 +871,7 @@ async function fetchDocumentFile(path, fallbackName) {
     let body = null;
     try {
       body = await res.clone().json();
-      detail = typeof body?.detail === "string" ? body.detail : null;
+      detail = typeof body?.detail === "string" ? body.detail : (body?.detail?.message || body?.message || null);
     } catch {
       detail = null;
     }

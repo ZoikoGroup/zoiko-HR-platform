@@ -214,12 +214,15 @@ function ClearanceTab({ c, onChanged }) {
                 <div className="min-w-[220px] flex-1">
                   <p className={`text-sm font-medium ${t.status === "done" ? "text-gray-500 line-through" : "text-gray-900"}`}>
                     {t.title}{t.mandatory && <span className="ml-1 text-xs font-normal text-rose-600">required</span>}
+                    {t.auto_key && <span className="ml-1.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">automatic</span>}
                   </p>
-                  {t.description && <p className="text-xs text-gray-500">{t.description}</p>}
+                  {t.auto_key ? <p className="text-xs text-blue-800">{t.auto_hint}</p>
+                    : t.description && <p className="text-xs text-gray-500">{t.description}</p>}
                   <p className="mt-1 text-xs text-gray-500">
                     {t.assignee ? `Assigned to ${t.assignee.name}` : <span className="font-medium text-amber-700">Not assigned</span>}
                     {" · "}<span className={t.overdue ? "font-semibold text-rose-600" : ""}>Due {shortDate(t.due_date)}{t.overdue ? " (overdue)" : ""}</span>
                     {t.completed_by && t.status === "done" && ` · Done by ${t.completed_by.name}`}
+                    {!t.completed_by && t.status === "done" && t.auto_key && " · Done automatically"}
                   </p>
                   {t.note && <p className="mt-1 text-xs text-gray-600">Note: {t.note}</p>}
                   {t.exception_reason && <p className="mt-1 text-xs text-gray-600">Not needed: {t.exception_reason}</p>}

@@ -2,8 +2,6 @@
 templates/ and docs/ sub-folders). The organisation starts with empty onboarding settings, uploads its templates and other
 documents, applies, approves and releases as its one admin, and a new hire is sent exactly those documents, filled in."""
 import os
-import re
-
 import pytest
 
 from app.modules.doc_templates import renderer, storage
@@ -66,38 +64,15 @@ def test_real_templates_and_documents_to_a_new_hire(world):
 
     docs_settings = world.get("a_admin", "/hr/onboarding/package/documents").json()["documents"]
     print("SETTINGS DOCS", [(d["title"], d["enabled"], d.get("source"), d.get("template_state", {}).get("label")) for d in docs_settings])
+    # Settings › Missing details: everything the setup could not find is asked for once, for the whole organisation
+    from tests.doc_templates.test_dt_setup_with_ai_end_to_end import assert_all_issued_clean, fill_hire_values, fill_missing_details
+    before = world.get("a_admin", "/hr/onboarding/settings-gaps").json()
+    print("GAPS ASKED", [(i["key"], [x["key"] for x in i["inputs"]]) for i in before["fields"]], "CLAUSES", [c["key"] for c in before["clauses"]],
+          "DEFAULTS", [d["key"] for d in before["hire_defaults"]], "LINKS", [l["key"] for l in before["links"]])
+    gaps = fill_missing_details(world)
+    assert gaps["complete"], gaps
     hire, _token = _new_hire(world, email="ivy.new@example.com")
-    pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{hire.id}/package").json()
-    print("HIRE PACKAGE", [(d["category"], d.get("title"), d.get("state"), d.get("missing")) for d in pkg["documents"]])
-    held = [d for d in pkg["documents"] if d.get("missing")]
-    # what HR is asked for when something is missing: the signatory, which these documents do not name
-    r = world.put("a_admin", "/hr/onboarding/company-profile", json={"signatory_name": "Avery Admin", "signatory_title": "Director",
-                                                                     "notice_period_value": 30, "notice_period_unit": "calendar_days"})
-    assert r.status_code == 200, r.text
-    # what HR types in the Send panel for this hire
-    r = world.put("a_admin", f"/hr/onboarding/new-hires/{hire.id}/package/inputs", json={"values": {
-        "worker.postal_address": "12 Lake View Road, Indiranagar, Bengaluru 560038", "employment.base_pay": "INR 6,00,000 per year",
-        "employment.pay_frequency": "monthly", "employment.working_hours": "9:30 AM to 6:30 PM, Monday to Friday",
-        "employment.leave_entitlement": "24", "employment.probation_months": "6", "employment.department": "Engineering", "employment.reports_to": "Morgan Manager"}})
-    assert r.status_code == 200, r.text
-    pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{hire.id}/package").json()
-    print("AFTER INPUTS", [(d["category"], d.get("missing")) for d in pkg["documents"]])
-    sent = world.post("a_admin", f"/hr/onboarding/new-hires/{hire.id}/send-package").json()
-    print("SENT", [i["category"] for i in sent.get("issued", [])], "HELD", sent.get("held"))
-    assert len(sent.get("issued", [])) == len(templates), sent
-    world.db.expire_all()
-    for row in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=hire.id).all():
-        if not row.document_id:
-            print("NODOC", row.category, row.status, getattr(row, "file_path", None))
-            continue
-        gen = world.db.get(GeneratedDocument, row.document_id)
-        text = " ".join(renderer.pdf_text(storage.get_store().get(gen.pdf_path)).split())
-        print("DOC", row.category, "|", text)
-        assert "{{" not in text and "}}" not in text, (row.category, re.findall(r".{0,40}\{\{.{0,40}", text))
-        assert not re.search(r"\[[A-Za-z][^\]]{0,40}\]", text), (row.category, re.findall(r".{0,30}\[[A-Za-z][^\]]{0,40}\]", text))
-    from app.modules.hr import onboarding_package as P
-    for d in world.get("a_admin", f"/hr/onboarding/new-hires/{hire.id}/package").json()["documents"]:
-        pdf = P.preview_pdf(world.db, hire, d["category"])
-        text = " ".join(renderer.pdf_text(pdf).split())
-        print("PREVIEW", d["category"], d.get("state"), "|", text[:2200])
-        assert "{{" not in text and not re.search(r"\[[A-Za-z][^\]]{0,40}\]", text), (d["category"], text)
+    fill_hire_values(world, hire)                      # what HR types for this person in the documents panel
+    texts = assert_all_issued_clean(world, hire, expected=len(templates))
+    for cat, text in texts:
+        print("DOC", cat, "|", text[:1500])

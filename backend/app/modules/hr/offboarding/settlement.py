@@ -227,6 +227,8 @@ def set_status(db: Session, actor: Employee, case_id: int, status: str, body: di
     else:
         raise BadRequestException("Unknown settlement status.")
     db.commit()
+    from app.modules.hr.offboarding.service import after_change
+    after_change(db, case)
     return st
 
 

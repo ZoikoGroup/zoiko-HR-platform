@@ -88,6 +88,9 @@ class OffboardingTask(Base):
     completed_by    = Column(Integer, ForeignKey("employees.id"), nullable=True)
     completed_at    = Column(DateTime, nullable=True)
     reminded_at     = Column(DateTime, nullable=True)
+    # set when the item only mirrors another record of the case (assets | settlement | interview | relieving_letter):
+    # it is ticked automatically when that record is done (service.sync_auto_tasks)
+    auto_key        = Column(String(30), nullable=True)
     sort_order      = Column(Integer, nullable=False, default=0, server_default="0")
     created_at      = Column(DateTime, nullable=False, server_default=func.now())
 

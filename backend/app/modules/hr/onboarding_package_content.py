@@ -66,7 +66,8 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "employment.pay_range": ("Pay range for the role, where pay-transparency law requires it", PAYROLL, False,
                              "Available from HR on request"),
     "employment.leave_entitlement": ("Annual leave entitlement", ZHR, True, None),
-    "employment.probation_months": ("Probation (months)", ZHR, True, None),     # blanks in an organisation's own templates
+    "employment.probation_months": ("Probation (months)", ZHR, True, None),
+    "employment.probation_period": ("Probation period with its unit (e.g. 6 months)", ZHR, True, None),   # computed     # blanks in an organisation's own templates
     "employment.country": ("Country of employment", ZHR, True, None),
     "offer.response_deadline": ("Date by which the candidate must respond to the offer", ZHR, True, None),
     "offer.secure_link": ("Secure onboarding portal link for the candidate", ZHR, True, None),

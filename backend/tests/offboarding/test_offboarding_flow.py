@@ -271,9 +271,11 @@ def test_a_case_closes_only_when_clearance_assets_and_settlement_are_done(api, _
     ret = api.db.query(OffboardingAssetReturn).filter(OffboardingAssetReturn.case_id == cid).one()
     assert api.put(f"/hr/offboarding/assets/{ret.id}", json={"status": "returned", "condition": "good"}).status_code == 200
     assert api.post(f"/hr/offboarding/cases/{cid}/settlement/not_applicable", json={}).status_code == 200
+    api.db.expire_all()
+    assert api.db.get(OffboardingCase, cid).status == "closed", "the last step done: the case closes by itself"
     r = api.post(f"/hr/offboarding/cases/{cid}/close")
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "closed"
+    assert r.json()["status"] == "closed", "closing a closed case is harmless"
 
 
 # ── clearance tasks ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -533,3 +535,119 @@ def test_the_notice_preview_names_the_person_and_settings_name_the_task_owners(a
     assert s["task_assignee_names"] == {"it": "It User"}
     api.as_("mgr")
     assert any(c["key"] == "better_opportunity" for c in api.get("/hr/me/offboarding/assigned-tasks").json()["reason_categories"])
+
+
+# ── the standard procedure in real time: every person does only their own step, nothing is ticked twice ───────────
+
+def _task_by_auto(api, cid, key):
+    return api.db.query(OffboardingTask).filter(OffboardingTask.case_id == cid, OffboardingTask.auto_key == key).one()
+
+
+def test_standard_procedure_end_to_end_with_automatic_steps(api, _clock):
+    api.as_("hr")
+    assert api.put("/hr/offboarding/settings", json={"task_assignees": {"it": api.people["it"].id, "admin": api.people["hr"].id,
+                                                                        "finance": api.people["admin"].id,
+                                                                        "hr": api.people["hr"].id}}).status_code == 200
+    _asset(api)
+    # 1. the employee resigns; 2. their manager accepts it
+    cid = _resign(api).json()["case"]["id"]
+    api.as_("mgr")
+    assert api.post(f"/hr/offboarding/cases/{cid}/approve", json={}).status_code == 200
+    api.db.expire_all()
+    assert api.db.get(OffboardingCase, cid).status == "approved"
+    keys = {t.auto_key for t in api.db.query(OffboardingTask).filter(OffboardingTask.case_id == cid) if t.auto_key}
+    assert keys == {"assets", "settlement", "interview", "relieving_letter"}
+    api.as_("hr")
+    tasks = api.get(f"/hr/offboarding/cases/{cid}/tasks").json()["items"]
+    assert all(t["auto_hint"] for t in tasks if t["auto_key"]), "the screen says which items tick themselves"
+
+    # 3. the leaver: own clearance items and the exit interview (the interview item ticks itself)
+    api.as_("emp")
+    for t in api.get("/hr/me/offboarding/tasks").json()["items"]:
+        assert api.put(f"/hr/me/offboarding/tasks/{t['id']}", json={"done": True}).status_code == 200
+    answers = {"q_reason": "compensation", "q_role": 4, "q_manager": 5, "q_growth": 3, "q_recommend": 8}
+    assert api.put("/hr/me/offboarding/interview", json={"answers": answers, "submit": True}).status_code == 200
+    api.db.expire_all()
+    iv_task = _task_by_auto(api, cid, "interview")
+    assert iv_task.status == "done" and iv_task.completed_by is None and iv_task.note.startswith("Completed automatically")
+
+    # 4. manager, IT, Finance and HR: each their own items (the automatic ones are left alone)
+    for who in ("mgr", "it", "admin", "hr"):
+        api.as_(who)
+        for t in api.get("/hr/me/offboarding/assigned-tasks").json()["items"]:
+            if not t.get("auto_key"):
+                assert api.put(f"/hr/me/offboarding/assigned-tasks/{t['id']}", json={"done": True}).status_code == 200
+
+    # 5. the laptop comes back: the property item ticks itself
+    api.as_("hr")
+    ret = api.db.query(OffboardingAssetReturn).filter(OffboardingAssetReturn.case_id == cid).one()
+    assert api.put(f"/hr/offboarding/assets/{ret.id}", json={"status": "returned", "condition": "good"}).status_code == 200
+    api.db.expire_all()
+    assert _task_by_auto(api, cid, "assets").status == "done"
+
+    # 6. the relieving letter: the letter item ticks itself
+    assert api.post(f"/hr/offboarding/cases/{cid}/documents", json={"kind": "relieving_letter"}).status_code == 201
+    api.db.expire_all()
+    assert _task_by_auto(api, cid, "relieving_letter").status == "done"
+
+    # 7. the last working day passes: the account closes
+    _pass_last_day(api, cid, _clock)
+    api.db.expire_all()
+    assert api.db.get(OffboardingCase, cid).status == "exited"
+    emp = api.db.get(Employee, api.people["emp"].id)
+    assert emp.is_active is False and emp.status == EmployeeStatus.RESIGNED
+
+    # 8. Finance pays the settlement: the settlement item ticks itself and the finished case closes by itself
+    api.as_("hr")
+    left = [t for t in api.db.query(OffboardingTask).filter(OffboardingTask.case_id == cid, OffboardingTask.status == "open",
+                                                            OffboardingTask.mandatory.is_(True))]
+    assert [t.auto_key for t in left] == ["settlement"], [t.title for t in left]   # only the settlement is left
+    assert api.post(f"/hr/offboarding/cases/{cid}/settlement/approved", json={}).status_code == 200
+    api.as_("admin")
+    assert api.post(f"/hr/offboarding/cases/{cid}/settlement/paid", json={"payment_reference": "BANK-77"}).status_code == 200
+    api.db.expire_all()
+    assert _task_by_auto(api, cid, "settlement").status == "done"
+    case = api.db.get(OffboardingCase, cid)
+    assert case.status == "closed" and case.closed_by is None, "the finished case closed by itself"
+
+
+def test_an_automatic_item_reopens_when_its_record_is_undone_and_a_manual_tick_is_kept(api, _clock):
+    cid = _approved_case(api)
+    api.as_("hr")
+    assert api.post(f"/hr/offboarding/cases/{cid}/settlement/approved", json={}).status_code == 200
+    assert api.post(f"/hr/offboarding/cases/{cid}/settlement/paid", json={}).status_code == 200
+    api.db.expire_all()
+    assert _task_by_auto(api, cid, "settlement").status == "done"
+    assert api.post(f"/hr/offboarding/cases/{cid}/settlement/draft", json={"confirm_reopen_paid": True}).status_code == 200
+    api.db.expire_all()
+    assert _task_by_auto(api, cid, "settlement").status == "open", "the settlement was reopened: so is its item"
+    # a person may still tick an automatic item (ID card collected though no asset was tracked); it stays ticked
+    t = _task_by_auto(api, cid, "assets")
+    assert api.put(f"/hr/offboarding/tasks/{t.id}", json={"done": True}).status_code == 200
+    from app.modules.hr.offboarding.service import after_change
+    after_change(api.db, api.db.get(OffboardingCase, cid))
+    api.db.expire_all()
+    assert _task_by_auto(api, cid, "assets").status == "done"
+
+
+def test_with_automatic_closing_off_hr_closes_the_case(api, _clock):
+    api.as_("hr")
+    assert api.put("/hr/offboarding/settings", json={"auto_close": False}).json()["settings"]["auto_close"] is False
+    cid = _approved_case(api)
+    _pass_last_day(api, cid, _clock)
+    for t in api.db.query(OffboardingTask).filter(OffboardingTask.case_id == cid, OffboardingTask.status == "open"):
+        api.put(f"/hr/offboarding/tasks/{t.id}", json={"done": True})
+    assert api.post(f"/hr/offboarding/cases/{cid}/settlement/not_applicable", json={}).status_code == 200
+    api.db.expire_all()
+    assert api.db.get(OffboardingCase, cid).status == "exited", "HR closes it"
+    r = api.post(f"/hr/offboarding/cases/{cid}/close")
+    assert r.status_code == 200 and r.json()["status"] == "closed"
+
+
+def test_checklists_saved_before_automatic_items_get_them_by_title():
+    from app.modules.hr.offboarding import settings as S
+    assert S.auto_key_of({"title": "Prepare final settlement"}) == "settlement"
+    assert S.auto_key_of({"title": "Conduct exit interview"}) == "interview"
+    assert S.auto_key_of({"title": "Collect laptop, ID card and other company property"}) == "assets"
+    assert S.auto_key_of({"title": "Something else"}) is None
+    assert {i.get("auto") for i in S.DEFAULT_CHECKLIST if i.get("auto")} == set(S.AUTO_KEYS)

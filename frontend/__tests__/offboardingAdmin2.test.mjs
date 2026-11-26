@@ -179,3 +179,21 @@ test("settlements list approves a draft and interviews show the HR-only note and
   assert.ok(screen.getByText(/visible to HR only/));
   assert.ok(within(screen.getByRole("list", { name: "Reasons for leaving" })).getByText("Compensation"));
 });
+
+
+test("an automatic clearance item says it ticks itself, and the setting to close cases automatically is saved", async (t) => {
+  const auto = { ...TASKS[1], auto_key: "settlement", auto_hint: "Ticks itself when the final settlement is marked paid or not applicable." };
+  const calls = mockServices(t, { getClearanceBoard: async () => ({ items: [structuredClone(TASKS[0]), auto], total: 2, overdue: 1 }) });
+  await renderPage("clearance.jsx");
+  const finance = screen.getByRole("region", { name: "Finance tasks" });
+  assert.ok(within(finance).getByText("Ticks itself when the final settlement is marked paid or not applicable."));
+  cleanup();
+  await renderPage("settings.jsx");
+  const toggle = screen.getByRole("checkbox", { name: /Close a case automatically/ });
+  assert.equal(toggle.checked, true, "on by default");
+  fireEvent.click(toggle);
+  const save = screen.getAllByRole("button", { name: /Save/ })[0];
+  fireEvent.click(save);
+  await settle();
+  assert.equal(calls.settings.at(-1).auto_close, false);
+});

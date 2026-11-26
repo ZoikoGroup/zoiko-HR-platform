@@ -1,11 +1,11 @@
 import { organizationIdOf } from "../../service/api";
 import React, { useState, useEffect, useCallback } from "react";
 import { BillingSkeleton } from "../../components/OrgAdminSkeleton";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { billingService } from "../../service/billingService";
 import {
-  ArrowLeft, CreditCard, ShieldCheck, ShieldX, Package, Users,
+  CreditCard, ShieldCheck, ShieldX, Package,
   Loader2, CheckCircle2, XCircle, AlertTriangle, Clock, RotateCcw,
   BadgeCheck, Ban, Info, Zap, ExternalLink, Check, X,
 } from "lucide-react";
@@ -84,6 +84,32 @@ function ActionButton({ Icon, label, color, bg, onClick, disabled, busy, title }
 
 // For now the organization admin is offered three plans only, always in this order.
 const OFFERED_PLAN_CODES = ["core", "advanced", "enterprise"];
+/**
+ * The third summary card (QA bug 35): on the free evaluation, when it ends and how many days are left; on a paid plan,
+ * the next renewal date; otherwise say that nothing is scheduled instead of showing "—".
+ */
+export function renewalCard(sub, now = new Date()) {
+  const s = sub || {};
+  const onEvaluation = String(s.status || "").toLowerCase() === "evaluation";
+  const ended = String(s.status || "").toLowerCase() === "evaluation_ended";
+  const ends = s.evaluation_ends_at ? new Date(s.evaluation_ends_at) : null;
+  if ((onEvaluation || ended) && ends && !Number.isNaN(ends.getTime())) {
+    const msLeft = ends.getTime() - now.getTime();
+    const days = Math.ceil(msLeft / 86400000);
+    if (ended || msLeft <= 0) {
+      return { label: "Free evaluation ended", value: fmtDate(ends), sub: "Pick a plan below to continue using Zoiko HR." };
+    }
+    return { label: "Free evaluation ends", value: fmtDate(ends),
+      sub: days <= 1 ? "Ends today · pick a plan below to keep everything running."
+        : `${days} days left · pick a plan below to keep everything running.` };
+  }
+  if (onEvaluation) {
+    return { label: "Free evaluation", value: "14 days", sub: "No card needed. Pick a plan below before it ends." };
+  }
+  if (s.renewal_anchor_date) return { label: "Renews on", value: fmtDate(s.renewal_anchor_date), sub: "Next renewal date" };
+  return { label: "Renews on", value: "Not scheduled", sub: "A renewal date is set when you subscribe to a plan." };
+}
+
 export function offeredPlans(list) {
   const byCode = new Map();
   (Array.isArray(list) ? list : []).forEach((p) => { const c = String(p?.code || "").toLowerCase(); if (!byCode.has(c)) byCode.set(c, p); });
@@ -150,7 +176,8 @@ function ContactSalesDialog({ user, planName, onClose, notify }) {
     setSending(true);
     try {
       const res = await requestPricing(buildPricingPayload({ ...form, planInterest: "enterprise" }));
-      setDone({ reference: res.reference, emailed: res.confirmation_email_sent, email: form.workEmail.trim().toLowerCase() });
+      setDone({ reference: res.reference, emailed: res.confirmation_email_sent, email: form.workEmail.trim().toLowerCase(),
+        phone: String(form.phone || "").trim() });
       notify("Your sales request was sent. Our team will reply within one business day.", "success");
     } catch (err) {
       const fields = serverFieldErrors(err?.validation);
@@ -176,9 +203,21 @@ function ContactSalesDialog({ user, planName, onClose, notify }) {
             <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto"><CheckCircle2 className="w-8 h-8" /></div>
             <h3 className="mt-4 text-[15px] font-bold" style={{ color: INK }}>Thank you, we have your request</h3>
             <p className="mt-1.5 text-[13px]" style={{ color: INK_SOFT }}>Your reference is <span className="font-mono font-bold" style={{ color: INK }}>{done.reference}</span>. Our team will reply within one business day.</p>
-            <p className="mt-2 text-[12px]" style={{ color: INK_SOFT }}>
-              {done.emailed ? <>A confirmation is on its way to <b>{done.email}</b>.</> : <>We saved your request but could not send the confirmation email right now. Our team will still contact you.</>}
-            </p>
+            {/* QA bug 37: say exactly where the answer arrives and where to look for it */}
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left text-[12.5px]" style={{ color: INK_SOFT }}>
+              <p className="mb-2 text-[12px] font-bold uppercase tracking-wide" style={{ color: INK }}>Where you'll hear from us</p>
+              <ul className="space-y-2">
+                <li><b style={{ color: INK }}>Email</b> – {done.emailed
+                  ? <>a confirmation is on its way to <b>{done.email}</b> with the subject “We received your pricing request ({done.reference}) | Zoiko HR”. </>
+                  : <>we saved your request but could not send the confirmation email right now. </>}
+                  Our sales team replies to <b>{done.email}</b> too. If you don't see it, check your spam or promotions folder.</li>
+                <li><b style={{ color: INK }}>Phone</b> – {done.phone
+                  ? <>our sales team may also call you on <b>{done.phone}</b>.</>
+                  : <>you didn't give a number, so we'll reply by email only.</>}</li>
+                <li><b style={{ color: INK }}>SMS</b> – no text messages are sent.</li>
+              </ul>
+              <p className="mt-2">Quote <span className="font-mono font-bold" style={{ color: INK }}>{done.reference}</span> if you reply or call us.</p>
+            </div>
             <button type="button" onClick={onClose} className="mt-5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold">Done</button>
           </div>
         ) : (
@@ -218,6 +257,9 @@ function ContactSalesDialog({ user, planName, onClose, notify }) {
               </label>
               {errors.consent ? <p role="alert" className="text-xs text-red-600 mt-1">{errors.consent}</p> : null}
             </div>
+            <p className="text-[12px]" style={{ color: INK_SOFT }}>
+              We reply by email to your work email; we call only if you add a phone number. No SMS is sent.
+            </p>
             <div className="flex justify-end gap-3 pt-1">
               <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-[13px] font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
               <button type="submit" disabled={sending} className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-[13px] font-bold flex items-center gap-2">
@@ -233,7 +275,6 @@ function ContactSalesDialog({ user, planName, onClose, notify }) {
 
 export default function OrgAdminBillingPlanPage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [sub, setSub] = useState(null);
@@ -550,9 +591,6 @@ export default function OrgAdminBillingPlanPage() {
       {/* Header banner */}
       <header className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0A192F] via-[#0F2942] to-[#1E3A8A] text-white p-6 sm:p-8 shadow-sm min-h-[140px] flex flex-col justify-center">
         <div className="relative z-10">
-          <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-200 hover:text-white">
-            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} /> Back to Dashboard
-          </button>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
               <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0">
@@ -587,11 +625,11 @@ export default function OrgAdminBillingPlanPage() {
         ) : null}
 
         {/* Summary */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* QA bug 34: the Seats tile is gone (it showed "—" on an evaluation); seat use is on Organization › Plan Limit */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatTile icon={CreditCard} color={BLUE} bg={BLUE_100} label="Status" value={status.split("_").join(" ")} />
           <StatTile icon={Package} color={EMERALD} bg={EMERALD_100} label="Current Plan" value={planName} sub={onEvaluation ? "14 days, no card needed. Pick a plan below to continue." : undefined} />
-          <StatTile icon={Users} color={AMBER} bg={AMBER_100} label="Seats" value={sub.quantity ?? "—"} sub="active people on your plan" />
-          <StatTile icon={Clock} color={BLUE} bg={BLUE_100} label="Renews on" value={fmtDate(sub.renewal_anchor_date)} sub="next renewal date" />
+          {(() => { const r = renewalCard(sub); return <StatTile icon={Clock} color={BLUE} bg={BLUE_100} label={r.label} value={r.value} sub={r.sub} />; })()}
         </div>
 
         {/* Plans */}

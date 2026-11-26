@@ -98,6 +98,11 @@ FIELDS: dict[str, tuple] = {
     "stipend_gross_label": ("legal", "Print \"(gross)\" after pay", "bool", None),
     "time_tracking_tool_name": ("legal", "Time-tracking tool", "choice", (120, TIME_TRACKING_TOOLS)),
     "task_system_name": ("legal", "Task / project system", "text", 200),
+    # printed when a new hire's offer names no work location (an offer's own location always wins)
+    "default_work_location": ("legal", "Default work location", "text", 200),
+    # printed when neither the offer, HR's entry for the hire nor the engagement profile names the employment type
+    "default_employment_type": ("legal", "Default employment type", "choice",
+                                (60, ("Full-time", "Part-time", "Contract", "Fixed-term", "Internship", "Temporary"))),
     "compliance_documents": ("legal", "Documents to submit before starting", "list", 120),
     "affidavit_submission_hours": ("legal", "Affidavit due within (hours)", "int", (1, 720)),
     "affidavit_requires_notary": ("legal", "Affidavit needs a notary", "bool", None),

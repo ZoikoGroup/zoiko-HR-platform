@@ -253,6 +253,8 @@ def content_for_source(db, category: str, source: Optional[dict]) -> Optional[li
     if source.get("kind") == "variant" and source.get("variant_id"):
         v = db.get(TemplateVariant, source["variant_id"])
         return PB.to_package(v.content) if v is not None else None
+    if source.get("kind") == "hire_edit" and isinstance(source.get("content"), list):
+        return PB.to_package(source["content"])
     if source.get("kind") == "starter":
         if source.get("starter_checksum") == PT.starter_checksum(category):
             return C.blocks_for(category)

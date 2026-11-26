@@ -198,7 +198,7 @@ def _setup_status(db, organization_id: int) -> dict:
     steps.append({"key": "company", "title": "Company profile", "done": comp["complete"], "required": True,
                   "detail": "Complete" if comp["complete"] else f"{len(comp['missing'])} required detail(s) missing: "
                   + ", ".join(m["label"] for m in comp["missing"][:4]) + ("…" if len(comp["missing"]) > 4 else ""),
-                  "path": base + "company-profile"})
+                  "path": base + ("company-profile" if comp["complete"] else "missing-details")})
 
     roles = [p for p in PR.role_profiles(db, organization_id) if p.get("slug")]
     engs = [p for p in PR.engagement_profiles(db, organization_id) if p.get("slug")]
@@ -222,7 +222,7 @@ def _setup_status(db, organization_id: int) -> dict:
                   f"{len(blocking)} of {tp['total']} document(s) need settings or clause wording: "
                   + ", ".join(x["title"] for x in blocking[:3]) + ("…" if len(blocking) > 3 else ""))
         steps.append({"key": "wording", "title": "Values & clause wording", "done": not blocking, "required": True,
-                      "detail": detail, "path": base + "test-package"})
+                      "detail": detail, "path": base + ("test-package" if not blocking else "missing-details")})
     except Exception:
         logger.exception("test package failed for organisation %s", organization_id)
         steps.append({"key": "wording", "title": "Values & clause wording", "done": False, "required": True,

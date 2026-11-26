@@ -1,5 +1,6 @@
 """Offer package (10 onboarding documents): content standards, readiness, issuing, candidate actions, completion gate."""
 import io
+import json
 from datetime import date, timedelta
 
 import pytest
@@ -1048,3 +1049,109 @@ def test_clause_details_can_be_filled_from_the_panel_and_settings_gaps_say_where
     assert company_profile.get_profile(world.db, 1)["clause_employee_privacy_notice_url"] == "https://tenant-a.example.com/privacy"
     assert world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs",
                      json={"values": {"clause.made_up": "x"}}).status_code == 422
+
+
+# ── "Edit / Fill missing gaps": a whole-document wording fix for one unsent document ───────────────────────────────
+
+SENTINEL = "EDIT-SENTINEL-7731"
+UNSAVED = "UNSAVED-PREVIEW-7731"
+DECLINED_EDIT = "DECLINED-EDIT-7731"
+
+
+def test_per_hire_edit_validates_saves_previews_and_freezes_when_issued(world):
+    h, _token = _new_hire(world)
+    path = f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/edit"
+    view = world.get("a_admin", path)
+    assert view.status_code == 200, view.text
+    view = view.json()
+    assert view["editable"] is True and view["edited"] is False and view["content"]
+    assert view["placeholders"]["fields"] and "paragraph" in {b["type"] for b in view["content"]}
+    assert world.get("b_admin", path).status_code == 404, "another organisation cannot open this hire's document"
+
+    content = view["content"] + [{"type": "paragraph", "text": f"{SENTINEL} {{{{worker.full_name}}}}"}]
+    assert world.put("b_admin", path, json={"content": content}).status_code == 404
+    assert world.delete("b_admin", path).status_code == 404
+    assert world.post("b_admin", path + "/preview.pdf", json={"content": content}).status_code == 404
+
+    bad = world.put("a_admin", path, json={"content": [{"type": "paragraph", "text": "x", "style": "huge"}]})
+    assert bad.status_code == 422 and "style" in bad.text
+    assert world.get("a_admin", path).json()["edited"] is False, "an invalid edit is never saved"
+
+    saved = world.put("a_admin", path, json={"content": content, "values": {"employment.base_pay": "GBP 51,000 per year"}})
+    assert saved.status_code == 200, saved.text
+    kpi = next(d for d in saved.json()["documents"] if d["category"] == "daily_kpi")
+    assert kpi["edited"] is True
+    assert saved.json()["inputs"]["employment.base_pay"] == "GBP 51,000 per year", "gaps and wording save together"
+
+    preview = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/preview.pdf")
+    assert preview.status_code == 200 and SENTINEL in _text(preview.content)
+    download = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/download?format=pdf")
+    assert download.status_code == 200 and SENTINEL in _text(download.content)
+
+    # an unsaved preview shows the typed wording and values without changing the saved document
+    draft = world.post("a_admin", path + "/preview.pdf", json={
+        "content": view["content"] + [{"type": "paragraph", "text": UNSAVED}],
+        "values": {"employment.base_pay": "GBP 99,000 per year"}})
+    assert draft.status_code == 200, draft.text
+    assert UNSAVED in _text(draft.content)
+    assert SENTINEL not in _text(draft.content)
+    assert SENTINEL in _text(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/preview.pdf").content)
+
+    sent = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package", json={"categories": ["daily_kpi"]})
+    assert sent.status_code == 200, sent.text
+    assert [x["category"] for x in sent.json()["issued"]] == ["daily_kpi"]
+    row = world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=h.id, category="daily_kpi").one()
+    source = P.issued_meta(row)["source"]
+    assert source["kind"] == "hire_edit" and SENTINEL in json.dumps(source["content"]), \
+        "the issued copy freezes the exact wording, so later edits cannot rewrite it"
+    issued_pdf = storage.get_store().get(row.file_path)
+    assert SENTINEL in _text(issued_pdf)
+
+    locked = world.get("a_admin", path).json()
+    assert locked["editable"] is False and SENTINEL in json.dumps(locked["content"]), "the editor shows the sent wording read-only"
+    assert world.put("a_admin", path, json={"content": content}).status_code == 409
+    assert world.delete("a_admin", path).status_code == 409
+    assert world.post("a_admin", path + "/preview.pdf", json={"content": content}).status_code == 409
+
+
+def test_per_hire_edit_can_be_reset_to_the_standard_wording(world):
+    h, _token = _new_hire(world)
+    path = f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/edit"
+    view = world.get("a_admin", path).json()
+    content = view["content"] + [{"type": "paragraph", "text": SENTINEL}]
+    assert world.put("a_admin", path, json={"content": content}).status_code == 200
+    assert SENTINEL in _text(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/preview.pdf").content)
+    reset = world.delete("a_admin", path)
+    assert reset.status_code == 200, reset.text
+    assert next(d for d in reset.json()["documents"] if d["category"] == "daily_kpi")["edited"] is False
+    assert SENTINEL not in _text(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/daily_kpi/preview.pdf").content)
+    assert world.get("a_admin", path).json()["content"] == view["content"]
+
+
+def test_a_declined_document_previews_the_replacement_draft_and_freezes_it_on_resend(world):
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    assert world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package", json={"categories": ["nda"]}).status_code == 200
+    world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                                                                  "postal_code": "YO1 1AA", "country": "United Kingdom"})
+    nda = next(d for d in world.client.get(f"/public/onboarding/{token}").json()["documents"] if d["category"] == "nda")
+    tok = nda["sign_url"].rsplit("/", 1)[1]
+    assert world.client.post(f"/public/documents/sign/{tok}/decline", json={"reason": "Wrong address"}).status_code == 200
+
+    path = f"/hr/onboarding/new-hires/{h.id}/package/nda/edit"
+    view = world.get("a_admin", path).json()
+    assert view["state"] == "declined" and view["editable"] is True
+    assert world.put("a_admin", path, json={"content": view["content"] + [{"type": "paragraph", "text": DECLINED_EDIT}]}).status_code == 200
+    # the refused copy is no longer what HR previews or downloads: the replacement draft is
+    assert DECLINED_EDIT in _text(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/nda/preview.pdf").content)
+    assert DECLINED_EDIT in _text(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/nda/download?format=pdf").content)
+    assert DECLINED_EDIT in json.dumps(world.get("a_admin", path).json()["content"])
+
+    sent = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package", json={"categories": ["nda"]})
+    assert sent.status_code == 200 and [x["category"] for x in sent.json()["issued"]] == ["nda"], sent.text
+    row = world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=h.id, category="nda").one()
+    source = P.issued_meta(row)["source"]
+    assert source["kind"] == "hire_edit" and DECLINED_EDIT in json.dumps(source["content"])
+    assert DECLINED_EDIT in _text(storage.get_store().get(row.file_path))
+    assert world.put("a_admin", path, json={"content": view["content"]}).status_code == 409, "the replacement is now sent and frozen"

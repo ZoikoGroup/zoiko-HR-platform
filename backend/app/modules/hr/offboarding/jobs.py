@@ -22,6 +22,10 @@ def run_org(db, org: int, now: datetime) -> int:
                                                   OffboardingCase.last_working_day < t).all()):
         svc.finalize_exit(db, case, None)
         n += 1
+    # cases past the last day: tick automatic items and close the finished ones (e.g. after "close automatically" is on)
+    for case in (db.query(OffboardingCase).filter(OffboardingCase.organization_id == org,
+                                                  OffboardingCase.status == "exited").all()):
+        svc.after_change(db, case)
     cfg = S.get_settings(db, org)
     every = timedelta(days=int(cfg["reminder_every_days"]))
     overdue = (db.query(OffboardingTask).join(OffboardingCase, OffboardingCase.id == OffboardingTask.case_id)

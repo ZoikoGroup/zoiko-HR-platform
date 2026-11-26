@@ -207,6 +207,8 @@ test("the documents panel offers the prepared documents and typed inputs for the
     getHirePackage: async () => pkg, getHirePackagePreview: async () => ({}), downloadHirePackageDocument: async () => ({}),
     downloadHirePackageZip: async () => ({}), sendOnboardingPackage: async () => ({}), sendOnboardingPortalInvite: async () => ({}),
     saveHirePackageInputs: async (_id, values) => { savedInputs.push(values); return pkg; },
+    getHirePackageDocumentEdit: async () => ({}), saveHirePackageDocumentEdit: async () => pkg,
+    resetHirePackageDocumentEdit: async () => pkg, previewHirePackageDocumentEdit: async () => ({ blob: new Blob() }),
   } });
   t.mock.module("../src/service/onboardingSetupService.js", { exports: {
     sendPreparedDocuments: async (id) => { sent.push(id); return { issued: [{ category: "daily_kpi", title: "Daily KPIs" }], held: [],
@@ -231,4 +233,72 @@ test("the documents panel offers the prepared documents and typed inputs for the
   await settle();
   assert.deepEqual(sent, [5]);
   assert.equal(screen.queryByText(/prepared automatically and is ready/), null);
+});
+
+const GAPS = {
+  complete: false, documents_total: 5, documents_ready: 2,
+  fields: [
+    { key: "employer.signatory_name", meaning: "Signatory", documents: ["Offer Letter", "Employment Contract"],
+      inputs: [{ target: "profile", key: "signatory_name", label: "Signatory name", kind: "text", value: "" }] },
+    { key: "employment.notice_text", meaning: "Notice", documents: ["Offer Letter"],
+      inputs: [{ target: "profile", key: "notice_period_value", label: "Notice period (employee)", kind: "int", value: null },
+        { target: "profile", key: "notice_period_unit", label: "Notice period unit (employee)", kind: "enum", options: ["calendar_days", "weeks"], value: null }] },
+    { key: "clause.speak_up_channel", meaning: "Speak-up channel", documents: ["NDA"],
+      inputs: [{ target: "clause_token", key: "speak_up_channel", label: "Speak-up channel", kind: "text", value: "" }] },
+  ],
+  clauses: [{ key: "remedies", title: "Remedies", documents: ["NDA"], drafting_note: "What happens on a breach." }],
+  hire_defaults: [{ key: "employment.work_location", meaning: "Work location", documents: ["Employment Contract"],
+    inputs: [{ target: "profile", key: "default_work_location", label: "Default work location", kind: "text", value: "" }] }],
+  links: [{ key: "employer.countersigner", meaning: "Someone to countersign for the employer", source: "Settings › Employer countersignature",
+    settings_path: "/zoiko-hr/onboarding/settings#countersign", documents: ["Employment Contract"] }],
+};
+
+test("Missing details asks for every gap in Settings and saves them in one go", async (t) => {
+  routerMock(t);
+  const saved = [];
+  t.mock.module("../src/service/onboardingSetupService.js", { exports: {
+    getSettingsGaps: async () => GAPS,
+    saveSettingsGaps: async (p) => { saved.push(p); return { ...GAPS, complete: true, documents_ready: 5, fields: [], clauses: [], hire_defaults: [], links: [] }; },
+  } });
+  let refreshed = 0;
+  const { default: Card } = await import(`../src/modules/zoiko-hr/onboarding/MissingDetailsCard.jsx?t=${Math.random()}`);
+  render(React.createElement(Card, { onSaved: () => { refreshed += 1; } }));
+  await settle();
+  assert.ok(screen.getByText(/3 of 5 documents are held until these are filled/));
+  assert.ok(screen.getByText("Needed by: Offer Letter, Employment Contract"));
+  assert.equal(screen.getByRole("link", { name: /Someone to countersign for the employer/ }).getAttribute("href"), "/zoiko-hr/onboarding/settings#countersign");
+  const save = screen.getByRole("button", { name: "Save missing details" });
+  assert.equal(save.disabled, true, "nothing typed yet");
+  fireEvent.change(screen.getByLabelText("Signatory name"), { target: { value: "Avery Admin" } });
+  fireEvent.change(screen.getByLabelText("Notice period (employee)"), { target: { value: "30" } });
+  fireEvent.change(screen.getByLabelText("Notice period unit (employee)"), { target: { value: "calendar_days" } });
+  fireEvent.change(screen.getByLabelText("Speak-up channel"), { target: { value: "ethics@acme.example" } });
+  fireEvent.change(screen.getByLabelText("Default work location"), { target: { value: "Leeds office" } });
+  fireEvent.change(screen.getByLabelText("Remedies"), { target: { value: "Our counsel's remedies wording." } });
+  assert.equal(save.disabled, true, "clause wording needs the confirmation");
+  fireEvent.click(screen.getByRole("checkbox", { name: /approved for use/ }));
+  fireEvent.click(save);
+  await settle();
+  assert.deepEqual(saved[0], {
+    profile: { signatory_name: "Avery Admin", notice_period_value: 30, notice_period_unit: "calendar_days", default_work_location: "Leeds office" },
+    package: {}, clause_tokens: { speak_up_channel: "ethics@acme.example" }, clauses: { remedies: "Our counsel's remedies wording." },
+  });
+  assert.equal(refreshed, 1);
+  assert.ok(screen.getByText("Nothing missing"));
+});
+
+test("Missing details shows the server's reason next to the field", async (t) => {
+  routerMock(t);
+  t.mock.module("../src/service/onboardingSetupService.js", { exports: {
+    getSettingsGaps: async () => ({ ...GAPS, clauses: [] }),
+    saveSettingsGaps: async () => { const e = new Error("Some company details need correcting."); e.detail = { errors: { signatory_name: "Too long." } }; throw e; },
+  } });
+  const { default: Card } = await import(`../src/modules/zoiko-hr/onboarding/MissingDetailsCard.jsx?t=${Math.random()}`);
+  render(React.createElement(Card));
+  await settle();
+  fireEvent.change(screen.getByLabelText("Signatory name"), { target: { value: "x".repeat(300) } });
+  fireEvent.click(screen.getByRole("button", { name: "Save missing details" }));
+  await settle();
+  assert.ok(screen.getByText("Too long."));
+  assert.ok(screen.getByText("Some company details need correcting."));
 });

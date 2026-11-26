@@ -48,6 +48,8 @@ SIGNABLE_CATEGORIES = {s["category"] for s in ONBOARDING_PACKAGE_SPEC if s["mode
 NO_ACTION_STATUS = "available"        # VOLUNTARY / INFO documents: issued, nothing to approve, never block completion
 ACK_TEXT_VERSION = "ONB-ACK-1.0"
 ACK_TEXT = "I confirm that I have received and read this document. This is an acknowledgement of receipt only."
+DOCUMENT_EDITS_KEY = "_package_document_edits"    # per-hire wording fixes, keyed by category, on the hire's profile_details
+EDITABLE_STATES = ("not_sent", "declined")        # a sent document is frozen; edit the draft only
 
 
 def issued_meta(row) -> dict:
@@ -381,7 +383,8 @@ V2_HIRE_INPUTS = {"engagement_profile_slug": "Engagement profile", "role_profile
                   "offer.candidate_fit_summary": C.FIELDS["offer.candidate_fit_summary"][0],
                   "document.issue_date": "Issue date (YYYY-MM-DD; default today)"}
 HIRE_INPUT_FIELDS = [k for k in C.FIELDS if k.split(".")[0] in ("employment", "job", "kpi", "worker")
-                     and k not in ("worker.full_name", "worker.email", "worker.outside_activities", "employment.pay_terms")
+                     and k not in ("worker.full_name", "worker.email", "worker.outside_activities", "employment.pay_terms",
+                                   "employment.probation_period")
                      and k not in V2_COMPUTED] + list(V2_HIRE_INPUTS)
 
 
@@ -515,6 +518,165 @@ def save_hire_inputs(db, hire, values: dict, actor=None) -> dict:
     return current
 
 
+# ── per-hire document edits ("Edit / Fill missing gaps") ────────────────────────────────────────────────────────────
+# A wording fix is stored on the hire (not the organisation's template): it applies to this person's unsent document only.
+# The blocks are the template engine's block grammar, the same one the template editor and the starter JSON use.
+def _edits(hire) -> dict:
+    return dict(((hire.profile_details or {}).get(DOCUMENT_EDITS_KEY) or {}))
+
+
+def _edit_for(hire, category: str) -> Optional[dict]:
+    edit = _edits(hire).get(category)
+    return dict(edit) if isinstance(edit, dict) else None
+
+
+def _edit_content(hire, category: str) -> Optional[list]:
+    edit = _edit_for(hire, category)
+    content = edit.get("content") if edit else None
+    return content if isinstance(content, list) else None
+
+
+def _content_checksum(content: list) -> str:
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+def _invalidate_cache(db) -> None:
+    db.info.pop(_CACHE_KEY, None)
+
+
+def _base_template_content(db, hire, category: str) -> list:
+    """The wording this hire's document would use without an edit, in the template editor's block grammar.
+    The same resolution as a send: released org variant, else the platform starter."""
+    from app.modules.doc_templates import package_blocks as PB
+    from app.modules.hr import onboarding_package_org as ORG
+    blocks, _source = ORG.resolve(db, hire, category)
+    return PB.to_template(blocks or [])
+
+
+def _editable_row(db, hire, category: str):
+    """An edit is allowed while the document is a draft; the bytes already sent are never rewritten."""
+    _known(db, hire, category)
+    row = _rows(db, hire).get(category)
+    if _row_state(db, row) not in EDITABLE_STATES:
+        raise HTTPException(409, "This document has been sent. Sent copies cannot be edited; preview shows what was sent.")
+    return row
+
+
+def _has_draft_edit(db, hire, category: str) -> bool:
+    """A declined document with a new wording fix is a replacement draft, not the copy the candidate refused."""
+    return _row_state(db, _rows(db, hire).get(category)) in EDITABLE_STATES and _edit_content(hire, category) is not None
+
+
+def _clean_edit_content(content) -> list:
+    from app.modules.doc_templates import blocks as B
+    if not isinstance(content, list):
+        raise HTTPException(422, {"code": "INVALID_DOCUMENT", "message": "content must be a list of blocks.",
+                                 "problems": ["content must be a non-empty list of blocks"]})
+    problems = B.validate_package_content(content)
+    if problems:
+        raise HTTPException(422, {"code": "INVALID_DOCUMENT", "message": "The edited document is not valid: " + problems[0],
+                                 "problems": problems})
+    return json.loads(json.dumps(content, default=str))
+
+
+def _write_edit(db, hire, category: str, content: list, actor) -> None:
+    details = dict(hire.profile_details or {})
+    edits = dict(details.get(DOCUMENT_EDITS_KEY) or {})
+    edits[category] = {"content": content, "checksum": _content_checksum(content),
+                       "updated_at": datetime.utcnow().isoformat(), "updated_by": getattr(actor, "id", None)}
+    details[DOCUMENT_EDITS_KEY] = edits
+    hire.profile_details = details
+    db.commit()
+    _invalidate_cache(db)
+
+
+def document_edit_view(db, hire, category: str) -> dict:
+    """Everything the per-hire block editor needs: current wording, the standard wording, gaps and field/clause keys."""
+    _known(db, hire, category)
+    from app.modules.doc_templates import blocks as B
+    from app.modules.doc_templates import package_blocks as PB
+    with values_cache(db):
+        cfg = _config_for(db, hire.organization_id)
+        ctx = render_context(db, hire, category, cfg=cfg, final=True)
+        d = doc_meta(db, hire, category)
+        gaps = with_countersign_gap(db, hire, d, readiness(ctx, category))
+        edit = _edit_for(hire, category)
+        state = _row_state(db, _rows(db, hire).get(category))
+        # Live documents show their frozen issued wording; a declined document with a new edit shows the replacement draft.
+        renderer_blocks, _source = _content_for(db, hire, category, fresh=False)
+        content = PB.to_template(renderer_blocks or [])
+        try:
+            standard = _base_template_content(db, hire, category)
+        except HTTPException:
+            standard = content          # an own document whose template is no longer released: show the issued wording
+        return {
+            "category": category, "title": d["title"], "template_id": d["template_id"],
+            "state": state, "editable": state in EDITABLE_STATES,
+            "edited": edit is not None, "edited_at": edit.get("updated_at") if edit else None,
+            "content": json.loads(json.dumps(content)),
+            "standard_content": json.loads(json.dumps(standard)),
+            "missing_fields": [_missing_field(db, hire.organization_id, k) for k in _reported_missing(gaps["missing_fields"])],
+            "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
+            "values": {k: v for k, v in ctx.values.items() if v is not None},
+            "placeholders": {"fields": [{"key": k, "label": v[0], "source": v[1], "group": k.split(".")[0]}
+                                        for k, v in C.FIELDS.items()] + _custom_placeholder_fields(db, hire.organization_id),
+                             "clauses": [{"key": k, "title": v[0], "required": v[2]} for k, v in C.CLAUSES.items()],
+                             "list_sources": list(B.PACKAGE_LIST_SOURCES)},
+        }
+
+
+def _custom_placeholder_fields(db, organization_id: int) -> list:
+    """The organisation's own fields ({{custom.<key>}}) for the editor's "Insert field" list."""
+    from app.modules.hr import onboarding_custom_fields as CF
+    return [{"key": CF.token(f["key"]), "label": f["label"], "source": CF.SOURCES.get(f.get("source"), ""), "group": "your fields"}
+            for f in CF.fields(db, organization_id)]
+
+
+def save_document_edit(db, hire, category: str, content, actor, values: Optional[dict] = None) -> dict:
+    """Save the wording and the gap values typed in the editor together, for this hire's draft only."""
+    _editable_row(db, hire, category)
+    content = _clean_edit_content(content)                # validate before any value is written
+    if isinstance(values, dict) and values:
+        save_hire_inputs(db, hire, values, actor)          # HR inputs and clause details use the panel's own validation
+    _write_edit(db, hire, category, content, actor)
+    with values_cache(db):
+        return package_view(db, hire)
+
+
+def reset_document_edit(db, hire, category: str) -> dict:
+    _editable_row(db, hire, category)
+    details = dict(hire.profile_details or {})
+    edits = dict(details.get(DOCUMENT_EDITS_KEY) or {})
+    edits.pop(category, None)
+    details[DOCUMENT_EDITS_KEY] = edits
+    hire.profile_details = details
+    db.commit()
+    _invalidate_cache(db)
+    with values_cache(db):
+        return package_view(db, hire)
+
+
+def preview_document_edit(db, hire, category: str, content, values: Optional[dict] = None) -> bytes:
+    """Render unsaved edits and unsaved gap values with this hire's other data. Nothing is sent or stored."""
+    _editable_row(db, hire, category)
+    content = _clean_edit_content(content)
+    overrides = {}
+    cfg = dict(_config_for(db, hire.organization_id))
+    clauses = {k: (dict(v) if isinstance(v, dict) else {}) for k, v in (cfg.get("clauses") or {}).items()}
+    if isinstance(values, dict):
+        from app.modules.hr import onboarding_custom_fields as CF
+        for k, v in values.items():
+            if k in HIRE_INPUT_FIELDS or CF.is_custom_token(k):
+                overrides[k] = str(v or "").strip()
+            elif isinstance(k, str) and k.startswith("clause."):
+                token = k.split(".", 1)[1]
+                clauses[token] = {**clauses.get(token, {}), "text": str(v or "").strip(), "not_applicable": False}
+    cfg["clauses"] = clauses
+    with values_cache(db):
+        ctx = render_context(db, hire, category, cfg=cfg, edit_content=content, value_overrides=overrides)
+        return R.render_pdf(category, ctx)
+
+
 def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optional[str] = None,
                  contract_id: Optional[str] = None) -> dict:
     org = _org(db, hire.organization_id)
@@ -590,6 +752,9 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     # probation in an organisation's own template: HR's entry for this hire, else the engagement profile's
     values["employment.probation_months"] = (hire_inputs(hire).get("employment.probation_months")
                                              or values.get("engagement.assessment_months") or None)
+    months = str(values["employment.probation_months"] or "").strip()
+    values["employment.probation_period"] = (f"{months} month{'' if months == '1' else 's'}" if months.isdigit() and int(months)
+                                             else None)
     typed_base = values.pop("_typed_base_pay", None)
     if typed_base:                                                # HR typed a bare amount: print it formatted everywhere
         values["employment.base_pay"] = typed_base
@@ -600,6 +765,14 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     from app.modules.hr import onboarding_clause_tokens as T
     profile = _profile_for(db, hire.organization_id)
     eng, _role = hire_profiles(db, hire)
+    # organisation defaults HR sets in Settings, used only when the offer and HR's entries for this hire say nothing:
+    # the work location (Company Profile › Default work location) and the employment type of the engagement profile
+    if not values.get("employment.work_location") and profile.get("default_work_location"):
+        values["employment.work_location"] = profile["default_work_location"]
+    if not values.get("employment.employment_type"):
+        kind = (eng or {}).get("employment_type") or profile.get("default_employment_type")
+        if kind:
+            values["employment.employment_type"] = _pretty(kind)
     values.update(T.resolve_all(profile, values, eng, CP.notice_for(profile, (eng or {}).get("slug")),
                                 getattr(offer, "hours_per_week", None) if offer else None))
     if any((details.get(k) or "").strip() for k in ("house", "building", "street", "landmark", "locality", "district")):
@@ -1205,24 +1378,37 @@ def package_categories(db, hire) -> list[str]:
 
 def _content_for(db, hire, category: str, fresh: bool) -> tuple:
     """(renderer blocks, source). A document already issued uses the version it was issued from (version safety);
-    `fresh` (sending) resolves the version that applies now."""
+    `fresh` (sending) resolves the version that applies now. A per-hire edit wins for a draft, never for a sent copy."""
+    from app.modules.doc_templates import package_blocks as PB
     from app.modules.hr import onboarding_package_org as ORG
     if not fresh:
         row = _rows(db, hire).get(category)
         src = issued_meta(row).get("source") if row is not None else None
         if src:
             content = ORG.content_for_source(db, category, src)
-            if content is not None:
+            if content is not None and (not _has_draft_edit(db, hire, category)):
                 return content, src
+    edit = _edit_for(hire, category)
+    content = _edit_content(hire, category)
+    if content is not None:
+        return PB.to_package(content), {"kind": "hire_edit", "edited_at": edit.get("updated_at"),
+                                        "content_checksum": edit.get("checksum") or _content_checksum(content)}
     return ORG.resolve(db, hire, category)
 
 
 def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final: bool = False, esign: bool = False,
-                   secure_link: Optional[str] = None, contract_id: Optional[str] = None, fresh: bool = False) -> R.RenderContext:
+                   secure_link: Optional[str] = None, contract_id: Optional[str] = None, fresh: bool = False,
+                   edit_content: Optional[list] = None, value_overrides: Optional[dict] = None) -> R.RenderContext:
     cfg = cfg or _config_for(db, hire.organization_id)
     meta = doc_meta(db, hire, category)
-    content, source = _content_for(db, hire, category, fresh)
+    if edit_content is not None:
+        from app.modules.doc_templates import package_blocks as PB
+        content, source = PB.to_package(edit_content), {"kind": "hire_edit", "content_checksum": _content_checksum(edit_content)}
+    else:
+        content, source = _content_for(db, hire, category, fresh)
     values = _values_for(db, hire, cfg, secure_link=secure_link, contract_id=contract_id)
+    for key, val in (value_overrides or {}).items():   # unsaved values typed in the editor's gap panel
+        values[key] = val
     if not final:   # previews: show where the generated values will go
         values.setdefault("offer.secure_link", None)
         values["offer.secure_link"] = values["offer.secure_link"] or "(your secure onboarding link – added when sent)"
@@ -1240,8 +1426,17 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
                           signature_png=_cached(db, ("signature", hire.organization_id),
                                                 lambda: signature_bytes(db, hire.organization_id, cfg)),
                           content=content, source=source, meta=meta)
+    if meta.get("source") == "org_template" and meta.get("mode") != "SIGN":
+        # forms and acknowledgements of the organisation's own: a detail HR usually knows but this hire lacks is printed as a
+        # line to write on, never a reason to hold the form (docs_setup.FORM_OPTIONAL)
+        from app.modules.hr import docs_setup as DS
+        for tok in C.tokens_in(category, content):
+            if tok in DS.FORM_OPTIONAL and values.get(tok) in (None, ""):
+                values[tok] = "____________________"
     if source.get("kind") == "variant":
         ctx.version = f"{C.PACKAGE_VERSION} (organisation v{source.get('variant_version')})"
+    elif source.get("kind") == "hire_edit":
+        ctx.version = f"{C.PACKAGE_VERSION} (edited for this hire)"
     gaps = readiness(ctx, category)
     ctx.draft = not (final and gaps["ready"])
     ctx.status_text = (f"ISSUED – {values['generated_at']}" if not ctx.draft else None)
@@ -1315,7 +1510,7 @@ def preview_pdf(db, hire, category: str) -> bytes:
     if filled is not None:                               # a form the new hire filled in online: their completed copy
         return filled
     row = _rows(db, hire).get(category)
-    if row is not None and row.document_id:
+    if row is not None and row.document_id and not _has_draft_edit(db, hire, category):
         stored = stored_document_pdf(db, row.document_id, hire.organization_id)
         if stored is not None:
             return stored[0]
@@ -1391,6 +1586,7 @@ _ADDRESS_FORMS = {"worker.address_block", "worker.address_inline"}
 
 # computed values with a gap are reported as the input HR types for this hire (so the panel offers a box to fill)
 _COMPUTED_FROM_INPUT = {"employment.pay_statement": "employment.base_pay", "employment.pay_amount": "employment.base_pay",
+                        "employment.probation_period": "employment.probation_months",
                         "employment.start_date_long": "employment.start_date"}
 
 
@@ -1519,10 +1715,12 @@ def _package_view(db, hire) -> dict:
         gaps = with_countersign_gap(db, hire, d, readiness(ctx, cat))
         row = rows.get(cat)
         gen = _gen(db, row)
+        state = _row_state(db, row)
         docs.append({
             "category": cat, "title": d["title"], "template_id": d["template_id"], "mode": d["mode"],
             "mode_label": C.MODE_LABELS[d["mode"]], "doc_type": d["doc_type"], "risk": d["risk"], "sensitivity": d["sensitivity"],
-            "orientation": d["orientation"], "signers": d["signers"], "state": _row_state(db, row),
+            "orientation": d["orientation"], "signers": d["signers"], "state": state,
+            "editable": state in EDITABLE_STATES, "edited": _edit_for(hire, cat) is not None,
             "source": d.get("source", "platform"), "in_package": cat in in_package,
             "template_version": (ctx.source or {}).get("variant_version"),
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
@@ -1681,6 +1879,11 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
         pdf = word["pdf"]
         word_key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.docx", word["docx"])
     source = dict(ctx.source or {})
+    if source.get("kind") == "hire_edit":
+        # Freeze the exact wording used for this issued copy: later edits or a reset never rewrite a sent document.
+        edit = _edit_for(hire, cat)
+        if edit is not None and isinstance(edit.get("content"), list):
+            source["content"] = json.loads(json.dumps(edit["content"]))
     key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.pdf", pdf)
     _store_files(hire, cat, key)
     gen_id = None
@@ -2449,13 +2652,13 @@ def document_file(db, hire, category: str) -> tuple:
     if filled is not None:                               # a form the new hire filled in online: the completed copy
         return filled, package_filename(hire, category, "pdf", "completed"), "completed"
     row = _rows(db, hire).get(category)
-    if row is not None and row.document_id:
+    if row is not None and row.document_id and not _has_draft_edit(db, hire, category):
         gen = _gen(db, row)
         stored = stored_document_pdf(db, row.document_id, hire.organization_id)
         if stored is not None:
             state = "signed" if gen is not None and gen.status == "EXECUTED" and gen.executed_pdf_path else "issued"
             return stored[0], package_filename(hire, category, "pdf", state), state
-    key = package_file_key(hire, category) if row is not None else None
+    key = package_file_key(hire, category) if row is not None and not _has_draft_edit(db, hire, category) else None
     if key:                                              # acknowledge / complete / info documents: the issued file
         try:
             return storage.get_store().get(key), package_filename(hire, category, "pdf", "issued"), "issued"
@@ -2495,7 +2698,7 @@ def document_docx(db, hire, category: str) -> tuple:
         return (D.render_docx(category, FORMS.filled_context(db, hire, category, sub)),
                 package_filename(hire, category, "docx", "completed"))
     row = _rows(db, hire).get(category)
-    word_key = issued_meta(row).get("word_key") if row is not None else None
+    word_key = issued_meta(row).get("word_key") if row is not None and not _has_draft_edit(db, hire, category) else None
     if word_key:                                         # issued from the organisation's Word layout: that filled file
         try:
             return storage.get_store().get(word_key), package_filename(hire, category, "docx", "issued")
@@ -2503,9 +2706,10 @@ def document_docx(db, hire, category: str) -> tuple:
             logger.exception("issued Word file %s could not be read", word_key)
     gen = _gen(db, row)
     state = "draft"
-    if gen is not None:
+    draft_edit = _has_draft_edit(db, hire, category)
+    if gen is not None and not draft_edit:
         state = "signed" if gen.status == "EXECUTED" and gen.executed_pdf_path else "issued"
-    elif row is not None and package_file_key(hire, category):
+    elif row is not None and package_file_key(hire, category) and not draft_edit:
         state = "issued"
     ctx = render_context(db, hire, category, final=state != "draft")
     return D.render_docx(category, ctx), package_filename(hire, category, "docx", state)

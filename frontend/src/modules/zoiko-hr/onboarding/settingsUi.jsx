@@ -28,11 +28,13 @@ export function useSettingsSection(id, { dirty, save, discard }) {
 export function SettingsCard({ id, icon: Icon, title, help, action, children, className = "" }) {
   const titleId = id ? `${id}-title` : undefined;
   return (
-    <section id={id} aria-labelledby={titleId} className={`scroll-mt-24 rounded-2xl border border-gray-200/80 bg-white shadow-sm ${className}`}>
+    <section id={id} aria-labelledby={titleId}
+      className={`relative scroll-mt-24 overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md ${className}`}>
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-blue-500/70 via-sky-400/50 to-transparent" />
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
         <div className="flex min-w-0 items-start gap-3">
           {Icon && (
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-hidden="true">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-50 to-sky-50 text-blue-600 ring-1 ring-blue-100" aria-hidden="true">
               <Icon className="h-5 w-5" />
             </span>
           )}
