@@ -12,7 +12,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 
 from app.config import settings
 from app.core.privacy.context import SERVICE

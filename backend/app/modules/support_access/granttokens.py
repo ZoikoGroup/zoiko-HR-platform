@@ -22,7 +22,8 @@ import hashlib
 import time
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 
 from app.config import settings
 
@@ -47,6 +48,14 @@ def _algorithm(key: str) -> str:
     return ALG_RS if "BEGIN" in key and "PRIVATE KEY" in key else ALG_HS
 
 
+def _verification_key(key: str):
+    """HS256: the shared secret. RS256: the public half of the configured private key (PyJWT verifies only with a public key)."""
+    if _algorithm(key) != ALG_RS:
+        return key
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    return load_pem_private_key(key.encode(), password=None).public_key()
+
+
 def issue(*, grant_id: str, grantee_account_id: int, person_id: int, tenant_id: int, scope_hash: str,
           revocation_version: int, session_id: str, device_fingerprint: str, policy_version: str,
           ttl_seconds: int, jti: str, now: Optional[float] = None) -> str:
@@ -68,8 +77,8 @@ def verify(token: str, *, now: Optional[float] = None) -> dict:
     key = _signing_key()
     try:
         claims = jwt.decode(
-            token, key, algorithms=[_algorithm(key)], audience=AUDIENCE,
-            options={"verify_aud": True, "require_exp": True, "require_iat": True},
+            token, _verification_key(key), algorithms=[_algorithm(key)], audience=AUDIENCE,
+            options={"verify_aud": True, "require": ["exp", "iat"]},
         )
     except JWTError as exc:                                   # bad signature, wrong audience, expired, malformed
         raise GrantTokenError(str(exc))
