@@ -496,6 +496,11 @@ def save_profile(db, actor, data: dict, *, partial_keys: Optional[set] = None) -
         raise HTTPException(422, {"message": "Some company details need correcting.", "errors": errors})
     _write(db, organization_id, profile)
     _audit(db, actor, organization_id, before, profile)
+    # Service callers (docs-setup apply, offer-package settings, tests) can save the profile without going through an
+    # HTTP write, so the response cache middleware never sees it. Drop HR's cached onboarding reads here as well, or
+    # Settings › Missing details keeps reporting values that were just cleared (CI runs Redis; local runs do not).
+    from app.core.cache_middleware import invalidate_org_reads
+    invalidate_org_reads(organization_id, "/hr/onboarding")
     return profile
 
 
