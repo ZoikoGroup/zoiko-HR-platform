@@ -1142,7 +1142,7 @@ export default function DepartmentList() {
                   />
                   {!formData.head_person && formData.head && !formData.head_touched && (
                     <p className="mt-1 text-xs text-amber-700">
-                      Currently “{formData.head}” (typed text). Pick an employee to link directly.
+                      Currently “{formData.head}” (typed, not linked to a person). Pick an employee to link directly.
                     </p>
                   )}
                 </div>
@@ -1193,7 +1193,7 @@ export default function DepartmentList() {
                     type="number"
                     min="0"
                     required
-                    placeholder="e.g., 120000"
+                    placeholder="e.g., 250000"
                     value={formData.spent_budget}
                     onChange={(e) =>
                       setFormData({ ...formData, spent_budget: e.target.value })
@@ -1203,7 +1203,7 @@ export default function DepartmentList() {
                   {Number(formData.budget) > 0 &&
                     Number(formData.spent_budget) > Number(formData.budget) && (
                       <p role="status" className="mt-1 text-xs text-red-600 font-semibold">
-                        Over budget by{" "}
+                        Spent is more than the budget by{" "}
                         {formatNumber(
                           Number(formData.spent_budget) - Number(formData.budget)
                         )}
@@ -1298,7 +1298,7 @@ export default function DepartmentList() {
                 >
                   {isSaving && <Loader2 size={14} className="animate-spin" />}
                   <span>
-                    {editingDept ? "Save Department" : "Create Department"}
+                    {editingDept ? "Save Changes" : "Create Department"}
                   </span>
                 </button>
               </div>

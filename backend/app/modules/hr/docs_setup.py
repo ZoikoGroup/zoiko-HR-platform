@@ -1606,7 +1606,7 @@ _BLANK_RULES = [
     (r"", r"^leave( entitlement)?|annual leave$", "employment.leave_entitlement"),
     (r"employment type|type of employment|engagement", r".*", "employment.employment_type"),
 ]
-_BRACKET = re.compile(r"(?:\[([A-Za-z][^\]\n]{0,40})\]|\{\{([A-Za-z][^\}\n]{0,40})\}\}|<([A-Za-z][^>\n]{0,40})>)")
+_BRACKET = re.compile(r"(?:\[([A-Za-z][^\]\n]{0,40})\]|<([A-Za-z][^>\n]{0,40})>)")
 # a longer bracketed instruction left in a template ("[Role-specific focus areas, e.g. test execution, …]"): a blank too
 _LONG_BRACKET = re.compile(r"\[([A-Za-z][^\]\n]{41,400})\]")
 _NUMBER_BRACKET = re.compile(r"\[(\d{1,4})\]")
@@ -1922,7 +1922,9 @@ def _blanks_as_lines(blocks: list) -> list:
     "[Office / Remote / Hybrid]") prints as its options. Tick boxes ("[ ]") stay."""
     def fix(text: str) -> str:
         def one(mm):
-            inner = mm.group(1).strip()
+            inner = (mm.group(1) or mm.group(2) or mm.group(3) or "").strip()
+            if mm.group(0).startswith("{{"):
+                return mm.group(0)                      # a filled {{placeholder}} stays as it is
             if "/" in inner and len(inner.split("/")) <= 4:
                 return " / ".join(o.strip() for o in inner.split("/"))
             return "____________________"
@@ -2260,7 +2262,6 @@ def apply(db, actor, s: DocsSetupSession, idempotency_key: Optional[str]) -> dic
             _apply_settings(db, actor, s, created)
             _apply_templates(db, actor, s, created)
             _apply_package_forms_categories(db, actor, s, created)
-            _auto_release_templates(db, actor, s, created)
             s.status, s.applied_at, s.applied_by = "applied", datetime.utcnow(), actor.id
             s.applied_summary = {**summary(db, s), "created": created}
             for f in _files(db, s):
@@ -2420,8 +2421,6 @@ def _auto_release_templates(db, actor, s: DocsSetupSession, created: dict) -> No
             continue
         try:
             if v.status in ("ACTIVE", "LIVE"):
-                item.update(ok=True, status=v.status)
-                results.append(item)
                 continue
             pack = db.get(JurisdictionPack, v.pack_id)
             if pack is not None and pack.status == "DRAFT":
@@ -2553,8 +2552,6 @@ def approve_and_release(db, actor, s: DocsSetupSession, body: dict, *, ip: Optio
         item = {"variant_id": v.id, "canonical_id": v.canonical_id, "title": getattr(d, "title", None) or v.canonical_id}
         try:
             if v.status in ("ACTIVE", "LIVE"):
-                item.update(ok=True, status=v.status)
-                results.append(item)
                 continue
             pack = db.get(JurisdictionPack, v.pack_id)
             if pack is not None and pack.status == "DRAFT":
