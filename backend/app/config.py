@@ -154,6 +154,8 @@ class Settings(BaseSettings):
     # ── Assistant / LLM (app/modules/assistant) ─────────────────────────────
     # Groq is the chat-completion provider (llm_client.py); embeddings are a
     # separate local model (embeddings.py) since Groq has no embeddings API.
+    # The provider gateway (llm_providers.py) picks the provider; "groq" is the only one so far.
+    LLM_PROVIDER: str = Field(default="groq", validation_alias="HR_LLM_PROVIDER")
     GROQ_API_KEY: str = Field(default="", validation_alias="HR_GROQ_API_KEY")
     # llama-3.3-70b-versatile was retired from Groq's catalog; gpt-oss-120b
     # is the current flagship general-purpose chat model with reliable JSON

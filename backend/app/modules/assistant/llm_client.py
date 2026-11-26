@@ -1,10 +1,10 @@
 """
 modules/assistant/llm_client.py
 ---------------------------------
-Thin, provider-neutral wrapper around Groq's chat-completions API — the
-"model gateway" referenced by the architecture spec. Swapping providers later
-means changing this file only; nothing else in the assistant module talks to
-Groq directly.
+Thin, provider-neutral wrapper around an OpenAI-compatible chat-completions API — the
+"model gateway" referenced by the architecture spec. The provider itself (Groq by
+default, HR_LLM_PROVIDER) comes from llm_providers.py, the only module that imports
+a provider SDK; nothing else in the assistant talks to a provider directly.
 """
 
 import json
@@ -12,37 +12,31 @@ import logging
 import re
 import time
 
-from groq import Groq
-
 from app.config import settings
 from app.core.privacy.redact import scrub_messages
+from app.modules.assistant import llm_providers
 
 logger = logging.getLogger("zoiko.assistant")
 
-_client = None
+def _get_client():
+    """The configured provider's OpenAI-compatible client (llm_providers)."""
+    return llm_providers.get_provider().client()
 
 
-def _get_client() -> Groq:
-    global _client
-    if _client is None:
-        if not settings.GROQ_API_KEY:
-            raise RuntimeError("HR_GROQ_API_KEY is not configured.")
-        # Without this, a stalled connection to Groq can hang indefinitely.
-        # public_service's ThreadPoolExecutor wrapper stops *waiting* on a
-        # hung call after its own timeout, but doesn't kill the underlying
-        # thread — this bounds the actual HTTP call so that thread can exit.
-        _client = Groq(api_key=settings.GROQ_API_KEY, timeout=45.0)
-    return _client
+def provider_name() -> str:
+    """The provider recorded on each model run (ChatModelRun.provider)."""
+    return llm_providers.provider_name()
 
 
 class ModelRunResult:
     def __init__(self, text: str, prompt_tokens: int | None, completion_tokens: int | None, latency_ms: int,
-                 model: str | None = None):
+                 model: str | None = None, provider: str | None = None):
         self.text = text
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.latency_ms = latency_ms
         self.model = model or settings.GROQ_MODEL
+        self.provider = provider or provider_name()
 
 
 def _model_kwargs(model: str, reasoning_effort: str | None = None) -> dict:
