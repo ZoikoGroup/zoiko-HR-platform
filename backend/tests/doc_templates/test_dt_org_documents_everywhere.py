@@ -143,6 +143,9 @@ def test_candidate_fields_come_from_the_portal(world):
     details["custom_fields"] = {"custom_badge_name": "Nora N."}
     h.profile_details = details
     world.db.commit()
+    # written straight to the database here; the portal saves through /public/onboarding, which drops HR's cached reads
+    from app.core.cache_middleware import invalidate_org_reads
+    invalidate_org_reads(h.organization_id, "/hr/onboarding")
     assert _docs(world, h)[cat]["ready"]
 
 

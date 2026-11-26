@@ -105,6 +105,8 @@ def mark_new_organisation(db, organization_id: int, country: Optional[str]) -> N
     _write_marker(db, organization_id, {"set": set_for_country(code), "country": code, "send_when": DEFAULT_TRIGGER,
                                         "marked_at": datetime.utcnow().isoformat(), "reason": "new_organisation"})
     db.commit()
+    from app.core.cache_middleware import invalidate_org_reads
+    invalidate_org_reads(organization_id, "/hr/onboarding")
 
 
 def options(db, organization_id: int) -> dict:

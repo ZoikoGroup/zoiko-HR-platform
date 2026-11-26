@@ -93,10 +93,23 @@ def _scope(state):
     if mode() == "log":
         logger.debug("tenant scope (log mode): would restrict %s to tenant %s", getattr(state.statement, "__visit_name__", "?"), c.tenant_id)
         return
-    tid = c.tenant_id
-    # a plain expression, not a lambda: SQLAlchemy caches lambda criteria by their code, which would pin the FIRST tenant's id
-    options = [with_loader_criteria(M, M.organization_id == tid, include_aliases=True) for M in tenant_models()]
-    state.statement = state.statement.options(*options)
+    state.statement = state.statement.options(*_options_for(c.tenant_id))
+
+
+_options_cache: dict = {}
+
+
+def _options_for(tid) -> tuple:
+    """The loader criteria for one tenant, built once and reused: building ~100 of them on EVERY query was a measurable part
+    of each request. Each holds a plain expression with that tenant's own id (not a lambda: SQLAlchemy caches lambda criteria
+    by their code, which would pin the FIRST tenant's id), so reusing them for the same tenant is exact."""
+    opts = _options_cache.get(tid)
+    if opts is None:
+        opts = tuple(with_loader_criteria(M, M.organization_id == tid, include_aliases=True) for M in tenant_models())
+        if len(_options_cache) >= 4096:       # bounded: one entry per active tenant
+            _options_cache.clear()
+        _options_cache[tid] = opts
+    return opts
 
 
 def _check_new_rows(session: Session, _flush_context, _instances):

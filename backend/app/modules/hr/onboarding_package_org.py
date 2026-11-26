@@ -213,23 +213,8 @@ def resolve_org_variant(db, row: OrgPackageDocument, country: Optional[str] = No
         if v is not None and v.owner_organization_id == row.organization_id and _live(v) and _pack_ok(db, v):
             return v
         if row.source == "org_template":
-            rv = released_variant(db, row.organization_id, row.canonical_id, country)
-            if rv is not None:
-                return rv
-            if v is not None and v.owner_organization_id == row.organization_id:
-                return v
-            return None
-    rv = released_variant(db, row.organization_id, row.canonical_id, country)
-    if rv is not None:
-        return rv
-    if row.source == "org_template" and row.canonical_id:
-        v = (db.query(TemplateVariant)
-             .filter(TemplateVariant.canonical_id == row.canonical_id,
-                     TemplateVariant.owner_organization_id == row.organization_id)
-             .order_by(TemplateVariant.version.desc()).first())
-        if v is not None:
-            return v
-    return None
+            return None    # a pinned own document that is not released (draft, suspended, retired): never sent
+    return released_variant(db, row.organization_id, row.canonical_id, country)
 
 
 def _hire_country(db, hire) -> Optional[str]:

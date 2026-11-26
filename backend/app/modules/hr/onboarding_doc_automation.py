@@ -193,6 +193,9 @@ def run(db, hire, trigger: str, *, today: Optional[date] = None) -> dict:
         pkg["automation"] = history[-HISTORY:]
         _save_pkg(hire, pkg)
         db.commit()
+        # the morning job and the background thread change the package outside any HTTP write: drop HR's cached reads
+        from app.core.cache_middleware import invalidate_org_reads
+        invalidate_org_reads(hire.organization_id, "/hr/onboarding")
         titles = {d["category"]: d["title"] for d in docs}
         _log(db, hire, result, titles)
         if cfg.get("notify_hr"):

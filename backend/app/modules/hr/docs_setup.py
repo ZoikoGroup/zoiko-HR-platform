@@ -1922,9 +1922,7 @@ def _blanks_as_lines(blocks: list) -> list:
     "[Office / Remote / Hybrid]") prints as its options. Tick boxes ("[ ]") stay."""
     def fix(text: str) -> str:
         def one(mm):
-            inner = (mm.group(1) or mm.group(2) or mm.group(3) or "").strip()
-            if mm.group(0).startswith("{{"):
-                return mm.group(0)                      # a filled {{placeholder}} stays as it is
+            inner = (mm.group(1) or mm.group(2) or "").strip()    # [blank] or <blank>; {{placeholders}} never match
             if "/" in inner and len(inner.split("/")) <= 4:
                 return " / ".join(o.strip() for o in inner.split("/"))
             return "____________________"
@@ -2552,6 +2550,9 @@ def approve_and_release(db, actor, s: DocsSetupSession, body: dict, *, ip: Optio
         item = {"variant_id": v.id, "canonical_id": v.canonical_id, "title": getattr(d, "title", None) or v.canonical_id}
         try:
             if v.status in ("ACTIVE", "LIVE"):
+                # already live (an earlier Approve): reported as released, so a second click never reads "0 of 0"
+                item.update(ok=True, status=v.status)
+                results.append(item)
                 continue
             pack = db.get(JurisdictionPack, v.pack_id)
             if pack is not None and pack.status == "DRAFT":
