@@ -37,7 +37,8 @@ const DASH = {
 };
 
 async function load(t, over = {}) {
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
+  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
+    Link: ({ children }) => React.createElement("a", null, children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getOnboardingDashboard: async () => { if (over.fail) throw new Error("Network down"); return { ...DASH, ...over.data }; },

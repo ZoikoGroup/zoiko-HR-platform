@@ -2033,6 +2033,12 @@ def save_onboarding_settings(data: OnboardingSettingsUpdate, db: Session = Depen
     return onboarding_flow.update_settings(db, current_user.organization_id, data.model_dump(exclude_unset=True))
 
 
+@hr_router.post("/onboarding/settings/reset", summary="Clear all onboarding settings and start from fresh defaults")
+def reset_onboarding_settings(db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_reset
+    return onboarding_reset.reset(db, current_user.organization_id)
+
+
 def _welcome_preview(db: Session, current_user, data) -> tuple[str, dict]:
     """The offer-accepted e-mail as a new hire would get it, from the message typed in Settings (sample hire values,
     this organisation's own name and HR contact)."""

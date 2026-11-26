@@ -224,3 +224,51 @@ def test_qa_r1_5_package_lists_every_role_profile_and_says_which_one_matches(wor
     b_hire = _hire(world, "Cara Diaz", ROLE["title"], 9000, date(2026, 8, 1), {}, org=2)
     b_pkg = _ok(world.get("b_admin", f"/hr/onboarding/new-hires/{b_hire.id}/package"))
     assert b_pkg["role_profiles"] == [] and b_pkg["role"]["source"] == "generated", "tenant B never sees tenant A's roles"
+
+
+# ── Settings: sectors suggest roles, employment categories become engagement profiles (Lennox, 25 Nov 2026) ──
+
+def test_sectors_are_chosen_from_the_list_and_suggest_their_roles(world):
+    view = _ok(world.get("a_admin", "/hr/onboarding/profiles"))
+    assert view["sectors"] == [] and {s["key"] for s in view["sector_options"]} >= {"it_software", "telecommunications"}
+    assert "HR Manager" in [r["title"] for r in view["suggested_roles"]], "roles every organisation hires are always offered"
+    bad = world.put("a_admin", "/hr/onboarding/profiles/sectors", json={"sectors": ["it_software", "space_mining"]})
+    assert bad.status_code == 422
+    view = _ok(world.put("a_admin", "/hr/onboarding/profiles/sectors", json={"sectors": ["telecommunications", "it_software"]}))
+    assert view["sectors"] == ["it_software", "telecommunications"]
+    titles = [r["title"] for r in view["suggested_roles"]]
+    assert titles.index("Software Engineer") < titles.index("Network Engineer") < titles.index("HR Manager")
+    # saving a profile keeps the sectors; tenant B has none of them
+    _ok(world.put("a_admin", "/hr/onboarding/profiles/role/ai-web-associate", json=ROLE))
+    assert _ok(world.get("a_admin", "/hr/onboarding/profiles"))["sectors"] == ["it_software", "telecommunications"]
+    assert _ok(world.get("b_admin", "/hr/onboarding/profiles"))["sectors"] == []
+
+
+def test_suggested_roles_become_role_profiles_once(world):
+    _ok(world.put("a_admin", "/hr/onboarding/profiles/sectors", json={"sectors": ["it_software"]}))
+    view = _ok(world.post("a_admin", "/hr/onboarding/profiles/suggested-roles", json={"titles": ["Software Engineer", "QA / Test Engineer"]}))
+    roles = {r["title"]: r["slug"] for r in view["role_profiles"]}
+    assert roles == {"Software Engineer": "software-engineer", "QA / Test Engineer": "qa-test-engineer"}
+    assert {r["title"] for r in view["suggested_roles"] if r["added"]} == {"Software Engineer", "QA / Test Engineer"}
+    again = _ok(world.post("a_admin", "/hr/onboarding/profiles/suggested-roles", json={"titles": ["software engineer"]}))
+    assert len(again["role_profiles"]) == 2, "a title that already has a profile is not added twice"
+
+
+def test_employment_categories_become_engagement_profiles_for_notice_rules_and_offers(world):
+    view = _ok(world.post("a_admin", "/hr/onboarding/profiles/engagement-categories",
+                          json={"categories": ["full_time_permanent", "part_time_permanent", "full_time_associate",
+                                               "part_time_associate", "contractor"]}))
+    by_slug = {p["slug"]: p for p in view["engagement_profiles"]}
+    assert {"full-time-permanent", "part-time-permanent", "full-time-associate", "part-time-associate", "contractor"} <= set(by_slug)
+    assert by_slug["full-time-associate"]["remuneration_type"] == "stipend" and by_slug["contractor"]["party_term"] == "Contractor"
+    # each category is matched to the offer employment type it stands for
+    kinds = {s: PR.offer_employment_type(by_slug[s]) for s in by_slug if s != PR.STANDARD_SLUG}
+    assert kinds == {"full-time-permanent": "full_time", "part-time-permanent": "part_time", "full-time-associate": "internship",
+                     "part-time-associate": "internship", "contractor": "contract"}
+    assert by_slug[PR.STANDARD_SLUG]["default"], "adding categories does not change the default profile"
+    again = _ok(world.post("a_admin", "/hr/onboarding/profiles/engagement-categories", json={"categories": ["contractor"]}))
+    assert len(again["engagement_profiles"]) == len(view["engagement_profiles"]), "a category is added once"
+    assert world.post("a_admin", "/hr/onboarding/profiles/engagement-categories", json={"categories": ["astronaut"]}).status_code == 422
+    # the category can be set on any profile from the dropdown
+    _ok(world.put("a_admin", "/hr/onboarding/profiles/engagement/programme-associate", json={**ENGAGEMENT, "category": "full_time_associate"}))
+    assert world.put("a_admin", "/hr/onboarding/profiles/engagement/programme-associate", json={"category": "pilot"}).status_code == 422

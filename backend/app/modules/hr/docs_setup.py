@@ -685,6 +685,13 @@ def _detect(chunks: list[dict], kind: str, out: _Collector, org_defaults: dict) 
             addr = m.group(0)
             if re.match(r"(?i)(hr|people|careers|onboarding|talent|recruit)", addr):
                 out.add("company_profile", "hr_contact_email", addr.lower(), ch, addr, 0.75, "HR contact e-mail")
+        for m in re.finditer(r"(?i)\b(?:https?://|www\.)[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/[^\s]*)?\b", t):
+            web = m.group(0)
+            if not web.startswith("http"):
+                web = f"https://{web}"
+            out.add("company_profile", "website", web, ch, m.group(0), 0.75, "Website")
+        for m in re.finditer(r"(?i)(?:phone|tel|mobile|contact)(?: no\.?| number)?[:\s]+(\+?\d[\d\s\-()]{7,18}\d)\b", t):
+            out.add("company_profile", "phone", m.group(1).strip(), ch, m.group(0), 0.7, "Phone")
         # notice periods
         for m in NOTICE_RE.finditer(t):
             n, unit = _num(m.group(1)), _UNIT.get(m.group(2).lower(), "calendar_days")
@@ -1285,27 +1292,64 @@ def _auto_map(db, f: DocsSetupFile, organization_id: int) -> None:
 
 
 # company values found in the documents that a template should print from the settings instead of as fixed text
-_COMPANY_PLACEHOLDERS = {"legal_name": "company.legal_name", "cin": "company.cin", "gstin": "company.gstin",
-                         "signatory_name": "employer.signatory_name", "signatory_title": "employer.signatory_title",
-                         "address_line1": "company.address_inline", "hr_contact_email": "company.onboarding_return_email"}
+_COMPANY_PLACEHOLDERS = {
+    "legal_name": "company.legal_name",
+    "cin": "company.cin",
+    "gstin": "company.gstin",
+    "pan": "company.pan",
+    "signatory_name": "employer.signatory_name",
+    "signatory_title": "employer.signatory_title",
+    "address_line1": "company.address_inline",
+    "registered_address": "employer.registered_address",
+    "hr_contact_email": "company.onboarding_return_email",
+    "general_email": "company.onboarding_return_email",
+    "hr_contact_name": "employer.hr_contact",
+    "phone": "company.phone",
+    "website": "company.website",
+    "city": "company.jurisdiction_city",
+    "jurisdiction_city": "company.jurisdiction_city",
+    "governing_law_text": "company.governing_law",
+}
 
 
 def _fill_template_placeholders(db, s: DocsSetupSession) -> None:
     """Every template is filled automatically: sample personal values (a candidate's name, salary, dates) and the company's
     own details become placeholders, so the template prints the hire's data and the organisation's settings. The admin can
     change any of them in Map documents."""
-    company = {}
-    for p in _proposals(db, s, "company_profile"):
-        key = _COMPANY_PLACEHOLDERS.get(p.target_key)
-        value = p.final_value if p.decision in ("accepted", "edited") else None
-        if key and key in C.FIELDS and isinstance(value, str) and len(value.strip()) >= 3:
-            company.setdefault(key, set()).add(value.strip())
-        for src in p.sources or []:                              # the text as written in the file, too
-            if key and key in C.FIELDS and p.decision in ("accepted", "edited") and isinstance(p.proposed_value, str):
-                company.setdefault(key, set()).add(p.proposed_value.strip())
+    company: dict[str, set[str]] = {}
+    from app.modules.hr import company_profile as CP
+    prof = CP.get_profile(db, s.organization_id)
+    for prof_key, ph_key in _COMPANY_PLACEHOLDERS.items():
+        v = prof.get(prof_key)
+        if ph_key in C.FIELDS and isinstance(v, str) and len(v.strip()) >= 3:
+            company.setdefault(ph_key, set()).add(v.strip())
+
+    for p in _proposals(db, s):
+        if p.target == "company_profile":
+            key = _COMPANY_PLACEHOLDERS.get(p.target_key)
+            val = p.final_value if p.decision in ("accepted", "edited") else p.proposed_value
+            if key and key in C.FIELDS and isinstance(val, str) and len(val.strip()) >= 3:
+                company.setdefault(key, set()).add(val.strip())
+            for src in p.sources or []:
+                if key and key in C.FIELDS and isinstance(p.proposed_value, str) and len(p.proposed_value.strip()) >= 3:
+                    company.setdefault(key, set()).add(p.proposed_value.strip())
+        elif p.target == "role_profile" and p.target_key.endswith(".title"):
+            val = p.final_value or p.proposed_value
+            if isinstance(val, str) and len(val.strip()) >= 3:
+                company.setdefault("employment.position_title", set()).add(val.strip())
+        elif p.target == "engagement_profile":
+            val = p.final_value or p.proposed_value
+            if isinstance(val, str) and len(val.strip()) >= 3:
+                if p.target_key.endswith(".work_schedule"):
+                    company.setdefault("engagement.work_schedule", set()).add(val.strip())
+                elif p.target_key.endswith(".leave_rule"):
+                    company.setdefault("engagement.leave_rule", set()).add(val.strip())
+                elif p.target_key.endswith(".party_term"):
+                    company.setdefault("engagement.party_term", set()).add(val.strip())
+
     for f in _files(db, s):
         m = dict(f.mapping or {})
-        if m.get("action") not in ("variant_of", "new_document") or not m.get("auto"):
+        if m.get("action") not in ("variant_of", "new_document"):
             continue
         chunks = chunks_of(f)
         text = "\n".join(c["text"] for c in chunks)
@@ -1445,6 +1489,7 @@ def decide(db, actor, s: DocsSetupSession, proposal_id: int, decision: str, fina
         for other in _proposals(db, s):              # choosing one value of a conflict rejects the others
             if other.conflict_group == p.conflict_group and other.id != p.id:
                 other.decision, other.final_value, other.decided_by, other.decided_at = "rejected", None, actor.id, datetime.utcnow()
+    _fill_template_placeholders(db, s)
     db.commit()
     return ser_proposal(p, {f.id: f.filename for f in _files(db, s)})
 
@@ -1503,10 +1548,15 @@ _BLANK_RULES = [
     (r"", r"authori[sz]ed signatory|signatory( name)?|hr manager name|issuer", "employer.signatory_name"),
     (r"designation of signatory|signatory title", r".*", "employer.signatory_title"),
     # the company's own details left blank in a template ("[Registered Office Address]", "[Website]", "[Company Name]")
-    (r"", r"registered (office )?address|office address|company('s)? address|employer('s)? address", "company.address_inline"),
+    (r"", r"registered (office )?address|office address|company('s)? address|employer('s)? address|^company address$", "company.address_inline"),
     (r"registered office|office (is )?at|principal place of business", r"address", "company.address_inline"),
     (r"", r"^(company )?(web ?site|url|web address)$", "company.website"),
-    (r"", r"^(company|employer)('s)?( legal)? name$|^legal name$", "company.legal_name"),
+    (r"", r"^(company|employer)('s)?( legal)? name$|^legal name$|^company name$|^organization name$|^company$", "company.legal_name"),
+    (r"", r"^(company )?(cin|cin no|corporate identification number)$", "company.cin"),
+    (r"", r"^(company )?(pan|pan no)$", "company.pan"),
+    (r"", r"^(company )?(gstin|gst|gst no)$", "company.gstin"),
+    (r"", r"^(company )?(email|e-mail|email address)$", "company.onboarding_return_email"),
+    (r"", r"^(company )?(phone|mobile|telephone|contact no|contact number)$", "company.phone"),
     # dates written as their format ("[DD Month YYYY]"): the start date where the words say so, else the document's date
     (r"start|commenc|join|first day|effective from", r"^(dd|d)[ ./-]*(mm|mmm|month)[ ./-]*(yyyy|yy)$", "employment.start_date_long"),
     (r"", r"^(dd|d)[ ./-]*(mm|mmm|month)[ ./-]*(yyyy|yy)$", "document.issue_date"),
@@ -1525,7 +1575,7 @@ _BLANK_RULES = [
     (r"institution|university|college", r"^(name|details?|value)$", "worker.institution"),
     # where the new hire signs
     (r"", r"^place( of signing)?$|^city$|^town$", "worker.place"),
-    (r"", r"(candidate|employee|new hire|applicant)('s)? (full )?name|full name|name of (the )?(candidate|employee)", "worker.full_name"),
+    (r"", r"(candidate|employee|new hire|applicant)('s)? (full )?name|full name|name of (the )?(candidate|employee)|^candidate name$|^employee name$", "worker.full_name"),
     (r"^dear|acceptance|accepted by|employee name|candidate name|full (legal )?name|^name\s*:?$|^to\s*:?$",
      r"name|candidate|employee", "worker.full_name"),
     (r"", r"(candidate|employee)('s)? address|residential address|postal address", "worker.address_inline"),
@@ -1534,26 +1584,29 @@ _BLANK_RULES = [
     (r"", r"(candidate|employee)('s)? (phone|mobile)|phone|mobile( number)?", "worker.phone"),
     (r"", r"employee (id|code|number)", "worker.employee_id"),
     (r"commencement|start(ing)? date|joining|date of joining|first day|effective from", r"date", "employment.start_date_long"),
-    (r"", r"(start|joining|commencement) date", "employment.start_date_long"),
+    (r"", r"(start|joining|commencement|doj) date$|^date of joining$|^joining$|^doj$", "employment.start_date_long"),
     (r"^\s*date\s*:?\s*$|dated|letter date|issue date", r"date", "document.issue_date"),
     (r"job title|position|designation|role|offer of employment|subject", r"title|position|designation|role", "employment.position_title"),
-    (r"", r"job title|position( title)?|designation|^(job )?role( title| name)?$", "employment.position_title"),
+    (r"", r"job title|position( title)?|designation|^(job )?role( title| name)?$|^post$", "employment.position_title"),
     (r"department|team|function", r".*", "employment.department"),
     (r"", r"department", "employment.department"),
     (r"report(ing|s)? (manager|to)|line manager|manager|supervisor", r".*", "employment.reports_to"),
     (r"", r"(reporting )?manager|supervisor", "employment.reports_to"),
     (r"location|place of work|work(ing)? from|based (at|in)", r".*", "employment.work_location"),
+    (r"", r"^(work )?location|place of work|place of posting|work place$", "employment.work_location"),
     (r"compensation|salary|ctc|cost to company|remuneration|pay|stipend|annual|gross", r"amount|currency|salary|ctc|figure|number|value|inr|rs",
      "employment.pay_statement"),
-    (r"", r"(currency and )?amount|salary|ctc|compensation", "employment.pay_statement"),
+    (r"", r"(currency and )?amount|salary|ctc|annual ctc|fixed ctc|gross salary|compensation|stipend|remuneration|pay", "employment.pay_statement"),
     (r"pay(ment)? frequency|salary frequency|paid (monthly|weekly)", r".*", "employment.pay_frequency"),
     (r"benefit", r".*", "employment.benefits_reference"),
     (r"probation", r"number|months?|period|duration", "employment.probation_months"),
+    (r"", r"^probation( period| duration| months)?$", "employment.probation_months"),
     (r"working hours|hours of work|work(ing)? schedule|shift|timings", r".*", "employment.work_pattern"),
     (r"leave entitlement|annual leave|paid leave|leave", r"number|days", "employment.leave_entitlement"),
+    (r"", r"^leave( entitlement)?|annual leave$", "employment.leave_entitlement"),
     (r"employment type|type of employment|engagement", r".*", "employment.employment_type"),
 ]
-_BRACKET = re.compile(r"\[([A-Za-z][^\]\n]{0,40})\]")
+_BRACKET = re.compile(r"(?:\[([A-Za-z][^\]\n]{0,40})\]|<([A-Za-z][^>\n]{0,40})>)")
 # a longer bracketed instruction left in a template ("[Role-specific focus areas, e.g. test execution, …]"): a blank too
 _LONG_BRACKET = re.compile(r"\[([A-Za-z][^\]\n]{41,400})\]")
 _NUMBER_BRACKET = re.compile(r"\[(\d{1,4})\]")
@@ -1574,15 +1627,19 @@ def blank_placeholders(chunks: list[dict]) -> list[dict]:
         text = ch["text"]
         last_end, last_key = 0, None
         for m in _BRACKET.finditer(text):
-            inner = m.group(1).strip()
+            inner = (m.group(1) or m.group(2) or m.group(3) or "").strip()
             seg = text[last_end:m.start()]
-            label = re.split(r"[\n\]]", seg)[-1]
+            label = re.split(r"[\n\]\}>]", seg)[-1]
             label = re.sub(r"^[\s.,;]+", "", label)[-40:]
             low_label, low_inner = label.lower().strip(), inner.lower()
             key = None
             if _NOT_THE_HIRE.search(low_label) and not re.search(r"for the company|signatory", low_label):
                 last_end, last_key = m.end(), None
                 continue
+            if low_inner in C.FIELDS:
+                key = low_inner
+            elif inner in C.FIELDS:
+                key = inner
             if re.search(r"leave", low_label) and re.match(r"(number|no\.?|x+|n)$", low_inner) and \
                     re.match(r"\s*(working |calendar )?days?", text[m.end():]):
                 after = re.match(r"\s*(working |calendar )?days?", text[m.end():]).group(0)
@@ -1680,7 +1737,7 @@ def set_mapping(db, actor, s: DocsSetupSession, file_id: int, data: dict) -> dic
                 if not isinstance(ph, dict) or not ph.get("text"):
                     continue
                 key = str(ph.get("key") or "")
-                if key and key not in C.FIELDS:
+                if key and key not in C.FIELDS and key not in _org_tokens(db, actor.organization_id):
                     raise HTTPException(422, f"Unknown placeholder {{{{{key}}}}}.")
                 samples[(ph["text"], ph.get("key") or "")] = {**ph, "text": ph["text"], "key": key,
                                                                "label": C.FIELDS.get(key, (key,))[0]}
@@ -1774,6 +1831,25 @@ def _apply_placeholders(blocks: list, placeholders: list) -> list:
 _KEEP_KEYS = ("type", "id", "locked", "include_when", "key", "items_from", "style", "level")
 
 
+def _org_tokens(db, organization_id: int) -> set:
+    """`custom.<key>` of the organisation's own document fields."""
+    from app.modules.hr import onboarding_custom_fields as CF
+    return CF.tokens(db, organization_id)
+
+
+def unknown_placeholders(db, f: DocsSetupFile) -> list[dict]:
+    """`{{…}}` placeholders written in the uploaded document that are neither platform fields, clause hooks nor the
+    organisation's own fields, each with the field it could become (Map documents offers "Create field")."""
+    from app.modules.hr import docx_import
+    try:
+        blocks, _w = _file_blocks(db, f)
+    except Exception:
+        logger.exception("placeholders of docs setup file %s could not be read", f.id)
+        return []
+    return [p for p in docx_import.check_placeholders(blocks, _org_tokens(db, f.organization_id))
+            if not p["known"] and p.get("custom_key")]
+
+
 def _plain_label(text: str) -> str:
     """Text as the analysis read it: no bold marks or line-break tags, spaces collapsed."""
     return re.sub(r"\s+", " ", (text or "").replace("**", "").replace("<br/>", " ")).strip()
@@ -1846,7 +1922,7 @@ def _blanks_as_lines(blocks: list) -> list:
     "[Office / Remote / Hybrid]") prints as its options. Tick boxes ("[ ]") stay."""
     def fix(text: str) -> str:
         def one(mm):
-            inner = mm.group(1).strip()
+            inner = (mm.group(1) or mm.group(2) or "").strip()    # [blank] or <blank>; {{placeholders}} never match
             if "/" in inner and len(inner.split("/")) <= 4:
                 return " / ".join(o.strip() for o in inner.split("/"))
             return "____________________"
@@ -1865,12 +1941,14 @@ def _blanks_as_lines(blocks: list) -> list:
     return walk(blocks)
 
 
-def _unknown_placeholders_cleared(blocks: list) -> list:
-    """Placeholders the document already had: known ones stay, unknown ones are printed as plain text (never a token)."""
+def _unknown_placeholders_cleared(blocks: list, extra: Optional[set] = None) -> list:
+    """Placeholders the document already had: known ones stay (the organisation's own fields, `extra`, become
+    `{{custom.<key>}}`), unknown ones are printed as plain text (never a token)."""
     from app.modules.hr import docx_import
+    blocks = docx_import.normalise_custom(blocks, extra)
 
     def fix(text: str) -> str:
-        return docx_import.PLACEHOLDER.sub(lambda m: m.group(0) if docx_import.known_key(m.group(1).strip())
+        return docx_import.PLACEHOLDER.sub(lambda m: m.group(0) if docx_import.known_key(m.group(1).strip(), extra)
                                            else m.group(0).replace("{{", "{ {").replace("}}", "} }"), text)
 
     def walk(o):
@@ -1934,7 +2012,7 @@ def editable_blocks(db, f: DocsSetupFile) -> list:
         blocks, _w = _file_blocks(db, f)
         blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
         blocks = _party_line_blanks(blocks, signed=_signed(m))
-    blocks = _unknown_placeholders_cleared(blocks)
+    blocks = _unknown_placeholders_cleared(blocks, _org_tokens(db, f.organization_id))
     blocks = _blanks_as_lines(blocks)
     for b in blocks:
         b.pop("locked", None)
@@ -1959,7 +2037,7 @@ def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
         blocks, warnings = _file_blocks(db, f)
         blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
         blocks = _party_line_blanks(blocks, signed=_signed(m))
-        blocks = _unknown_placeholders_cleared(blocks)
+        blocks = _unknown_placeholders_cleared(blocks, _org_tokens(db, f.organization_id))
         blocks = _blanks_as_lines(blocks)
         for b in blocks:
             b.pop("locked", None)
@@ -1998,6 +2076,8 @@ def mapping_preview(db, s: DocsSetupSession, f: DocsSetupFile) -> dict:
         out["blocks"] = editable_blocks(db, f)
         out["edited"] = bool(m.get("edited_blocks"))
         out["fields"] = sorted({ph["key"] for ph in m.get("placeholders") or [] if ph.get("key")})
+        out["unknown_placeholders"] = unknown_placeholders(db, f)
+        out["custom_fields"] = sorted(_org_tokens(db, f.organization_id))
         out["block_count"] = len(blocks)
         out["locked_count"] = sum(1 for b in blocks if b.get("locked"))
         if m.get("action") == "variant_of":
@@ -2261,6 +2341,18 @@ def _apply_settings(db, actor, s, created) -> None:
         P._write_config(db, s.organization_id, cfg)
 
 
+def _attach_word_master(db, f: DocsSetupFile, v, m: dict) -> None:
+    """An uploaded Word file whose wording was not edited here stays the master of its template: documents issued from it
+    keep the file's own layout (see onboarding_docx_master)."""
+    if not f.media_type.endswith("wordprocessingml.document") or m.get("edited_blocks"):
+        return
+    try:
+        from app.modules.hr import onboarding_docx_master as DM
+        DM.attach(db, v, storage.get_store().get(f.storage_key), replacements=m.get("placeholders") or [], filename=f.filename)
+    except Exception:
+        logger.exception("Word master could not be kept for docs setup file %s", f.id)
+
+
 def _apply_templates(db, actor, s, created) -> None:
     from app.modules.doc_templates import content as CT
     from app.modules.doc_templates import package_templates as PT
@@ -2289,6 +2381,7 @@ def _apply_templates(db, actor, s, created) -> None:
             from app.modules.hr import docx_import
             title = m.get("title") or docx_import.title_from(blocks, f.filename)
             v = ORG.create_org_template(db, actor, title=title, content=blocks, change_reason=reason)
+            _attach_word_master(db, f, v, m)
             created["variants"].append(v.id)
             created["definitions"].append(v.canonical_id)
             ORG.add_org_document(db, actor, {"canonical_id": v.canonical_id, "mode": m.get("mode") or "ACKNOWLEDGE",
@@ -2299,7 +2392,47 @@ def _apply_templates(db, actor, s, created) -> None:
                 ORG.OrgPackageDocument.organization_id == s.organization_id,
                 ORG.OrgPackageDocument.canonical_id == v.canonical_id).first()
             if row is not None:
+                row.variant_id = v.id
                 created["package_rows"].append(row.id)
+
+
+def _auto_release_templates(db, actor, s: DocsSetupSession, created: dict) -> None:
+    """When the setup is applied, automatically activate the jurisdiction pack and release the created
+    templates so that they are immediately live and will be generated and sent for new hires."""
+    from datetime import date
+    from app.modules.doc_templates import content as CT
+    from app.modules.doc_templates.models import JurisdictionPack, TemplateVariant
+    admin_name = CT._name(actor)
+    org_name = getattr(getattr(actor, "organization", None), "organization_name", None) or "Organisation"
+    review = {
+        "attestation_accepted": True,
+        "signed_name": admin_name,
+        "counsel_name": admin_name,
+        "counsel_firm": org_name,
+        "reviewer_role": "Organization admin",
+        "counsel_qualification": "Organisation admin attestation (TENANT_ATTESTED)",
+        "review_date": date.today().isoformat(),
+    }
+    for vid in created.get("variants") or []:
+        v = db.get(TemplateVariant, vid)
+        if v is None or v.owner_organization_id != s.organization_id:
+            continue
+        try:
+            if v.status in ("ACTIVE", "LIVE"):
+                continue
+            pack = db.get(JurisdictionPack, v.pack_id)
+            if pack is not None and pack.status == "DRAFT":
+                CT.submit_pack(db, actor, pack)
+            if pack is not None and pack.status == "LEGAL_REVIEW":
+                CT.activate_pack(db, actor, pack, {"accepted": True, "name": admin_name})
+            if v.status == "IN_DRAFT":
+                CT.submit_variant(db, actor, v)
+            if v.status == "LEGAL_REVIEW":
+                CT.approve_legal(db, actor, v, dict(review))
+            if v.status == "LEGAL_APPROVED":
+                CT.release_variant(db, actor, v)
+        except Exception:
+            logger.exception("auto-release failed for variant %s", vid)
 
 
 def _apply_only_uploaded(db, actor, s, created) -> None:
@@ -2311,13 +2444,19 @@ def _apply_only_uploaded(db, actor, s, created) -> None:
         return
     replaced = {(_confirmed(f) or {}).get("category") for f in _files(db, s) if _confirmed(f).get("action") == "variant_of"}
     new_ids = set(created.get("package_rows") or [])
+    new_cids = set(created.get("definitions") or [])
     off = []
     for r in ORG.ensure_rows(db, s.organization_id):
-        keep = (r.source == "platform" and r.category in replaced) or (r.source == "org_template" and r.id in new_ids)
+        keep = (r.source == "platform" and r.category in replaced) or (
+            r.source == "org_template" and (r.id in new_ids or r.canonical_id in new_cids)
+        )
         if not keep and r.enabled:
             r.enabled = False
             r.updated_by = actor.id
             off.append(r.category)
+        elif keep and not r.enabled:
+            r.enabled = True
+            r.updated_by = actor.id
     db.flush()
     created["switched_off"] = off
     ORG.audit(db, actor, "onboarding_package_only_uploaded", {"session_id": s.id, "switched_off": off})
@@ -2410,6 +2549,11 @@ def approve_and_release(db, actor, s: DocsSetupSession, body: dict, *, ip: Optio
         d = db.get(TemplateDefinition, v.canonical_id)
         item = {"variant_id": v.id, "canonical_id": v.canonical_id, "title": getattr(d, "title", None) or v.canonical_id}
         try:
+            if v.status in ("ACTIVE", "LIVE"):
+                # already live (an earlier Approve): reported as released, so a second click never reads "0 of 0"
+                item.update(ok=True, status=v.status)
+                results.append(item)
+                continue
             pack = db.get(JurisdictionPack, v.pack_id)
             if pack is not None and pack.status == "DRAFT":
                 CT.submit_pack(db, actor, pack)

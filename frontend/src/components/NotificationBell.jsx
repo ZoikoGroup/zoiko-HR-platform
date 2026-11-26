@@ -6,11 +6,17 @@
  * read", sound toggle, and "View all". The badge follows the server's unread
  * count: polled (see useUnreadNotifications) and updated immediately after any read action.
  * Plays a notification sound when new notifications arrive (see useNotificationSound).
+ *
+ * The latest list lives on the shared query cache: hovering/focusing the bell
+ * warms it, and reopening shows cached rows immediately while a stale entry
+ * revalidates in the background. Read actions update the cache optimistically.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Bell, Volume2, VolumeX } from "lucide-react";
 import { notificationService } from "../service/notificationService";
+import { keys } from "../service/queryKeys";
 import { publishUnreadCount, useUnreadNotifications } from "../hooks/useUnreadNotifications";
 import { useNotificationSound } from "../hooks/useNotificationSound";
 import { formatBadge, relativeTime } from "../utils/notificationFormat";
@@ -19,53 +25,86 @@ import { useDismissible } from "../hooks/useDismissible";
 
 export const NOTIFICATIONS_PATH = "/shared/notifications";
 const LATEST = 5;
+const LATEST_PARAMS = { page: 1, page_size: LATEST };
+const LATEST_KEY = keys.notifications.list(LATEST_PARAMS);
+const FRESH_MS = 30_000;
+const fetchLatest = ({ signal }) => notificationService.list(LATEST_PARAMS, { signal });
 
 export default function NotificationBell() {
-  const { count, refresh } = useUnreadNotifications();
+  const { count } = useUnreadNotifications();
+  const qc = useQueryClient();
   const { soundEnabled, toggleSound } = useNotificationSound(count);
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const badge = formatBadge(count);
 
-  const loadLatest = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await notificationService.list({ page: 1, page_size: LATEST });
-      setItems(data.items || []);
-      publishUnreadCount(data.unread_count);
-    } catch (e) {
-      setError(e.message || "Could not load notifications.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const latest = useQuery({
+    queryKey: LATEST_KEY,
+    queryFn: fetchLatest,
+    enabled: open,
+    staleTime: FRESH_MS,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const items = latest.data?.items || [];
+  const error = actionError || (latest.isError ? latest.error?.message || "Could not load notifications." : null);
 
-  useEffect(() => { if (open) loadLatest(); }, [open, loadLatest]);
+  // Start the request on intent, not on click. prefetchQuery is a no-op when the cache entry is still fresh.
+  const prefetchLatest = useCallback(() => {
+    qc.prefetchQuery({ queryKey: LATEST_KEY, queryFn: fetchLatest, staleTime: FRESH_MS }).catch(() => {});
+  }, [qc]);
+
+  // Warm once when the header mounts: touch users have no hover before the tap. The cached rows stay usable even
+  // after they go stale — the next open shows them at once and revalidates behind the scenes.
+  useEffect(() => { prefetchLatest(); }, [prefetchLatest]);
+
+  useEffect(() => {
+    const next = latest.data?.unread_count;
+    if (typeof next === "number") publishUnreadCount(next);
+  }, [latest.data]);
 
   useDismissible(rootRef, open, () => setOpen(false), { returnFocusRef: triggerRef });
 
   const markAll = async () => {
+    setActionError(null);
+    // A list request already in flight must not overwrite the optimistic read state.
+    await qc.cancelQueries({ queryKey: LATEST_KEY });
+    const previous = qc.getQueryData(LATEST_KEY);
+    qc.setQueryData(LATEST_KEY, (old) => old
+      ? { ...old, unread_count: 0, items: (old.items || []).map((i) => ({ ...i, is_read: true })) }
+      : old);
+    publishUnreadCount(0);
     try {
       const r = await notificationService.markAllRead();
-      publishUnreadCount(r.unread_count);
-      setItems((list) => list.map((i) => ({ ...i, is_read: true })));
+      const nextCount = Number(r?.unread_count) || 0;
+      qc.setQueryData(LATEST_KEY, (old) => old ? { ...old, unread_count: nextCount } : old);
+      publishUnreadCount(nextCount);
     } catch (e) {
-      setError(e.message || "Could not mark notifications as read.");
+      qc.setQueryData(LATEST_KEY, previous);
+      publishUnreadCount(previous?.unread_count ?? count);
+      setActionError(e.message || "Could not mark notifications as read.");
     }
   };
 
   const loadDetail = useCallback(async () => {
     const detail = await notificationService.get(selectedId);
-    publishUnreadCount(detail.unread_count);
-    setItems((list) => list.map((i) => (i.id === detail.id ? { ...i, is_read: true } : i)));
+    const nextCount = Number(detail?.unread_count);
+    if (Number.isFinite(nextCount)) publishUnreadCount(nextCount);
+    qc.setQueryData(LATEST_KEY, (old) => old ? {
+      ...old,
+      unread_count: Number.isFinite(nextCount) ? nextCount : old.unread_count,
+      items: (old.items || []).map((i) => (i.id === detail.id ? { ...i, is_read: true } : i)),
+    } : old);
     return detail;
-  }, [selectedId]);
+  }, [selectedId, qc]);
+
+  const retry = () => {
+    setActionError(null);
+    if (latest.isError) latest.refetch();
+  };
 
   return (
     <div className="relative" ref={rootRef}>
@@ -73,6 +112,9 @@ export default function NotificationBell() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
+        onMouseEnter={prefetchLatest}
+        onFocus={prefetchLatest}
+        onTouchStart={prefetchLatest}
         aria-label={count > 0 ? `Notifications, ${count} unread` : "Notifications"}
         aria-haspopup="true"
         aria-expanded={open}
@@ -123,11 +165,11 @@ export default function NotificationBell() {
           </div>
 
           <div className="max-h-96 overflow-y-auto">
-            {loading && items.length === 0 ? (
+            {latest.isLoading && items.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-slate-400">Loading…</p>
             ) : error ? (
               <div role="alert" className="px-4 py-4 text-sm text-red-600">
-                {error} <button onClick={loadLatest} className="font-semibold underline">Retry</button>
+                {error} <button onClick={retry} className="font-semibold underline">Retry</button>
               </div>
             ) : items.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-slate-400">You have no notifications</p>
@@ -165,7 +207,7 @@ export default function NotificationBell() {
         <NotificationDetailDialog
           key={selectedId}
           load={loadDetail}
-          onClose={() => { setSelectedId(null); refresh(); }}
+          onClose={() => setSelectedId(null)}
         />
       )}
     </div>

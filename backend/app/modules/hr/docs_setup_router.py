@@ -233,11 +233,13 @@ async def _docx(user, file: UploadFile) -> bytes:
 async def docx_check(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db),
                      user=Depends(get_current_admin)):
     from app.modules.hr import docx_import
+    from app.modules.hr import onboarding_custom_fields as CF
     data = await _docx(user, file)
     res = docx_import.convert(data)
+    placeholders = docx_import.check_placeholders(res["blocks"], CF.tokens(db, user.organization_id))
     return {"title": docx_import.title_from(res["blocks"], file.filename or ""), "block_count": len(res["blocks"]),
-            "warnings": res["warnings"], "placeholders": res["placeholders"],
-            "unknown": [p["key"] for p in res["placeholders"] if not p["known"]]}
+            "warnings": res["warnings"], "placeholders": placeholders,
+            "unknown": [p["key"] for p in placeholders if not p["known"]]}
 
 
 @router.post("/docx-import", summary="Create a draft template from a Word file (unknown placeholders must be mapped)")
@@ -250,19 +252,21 @@ async def docx_create(request: Request, file: UploadFile = File(...), title: str
     from app.modules.hr import docx_import
     from app.modules.hr import onboarding_package_content as C
     from app.modules.hr import onboarding_package_org as ORG
+    from app.modules.hr import onboarding_custom_fields as CF
     data = await _docx(user, file)
     try:
         chosen = json.loads(mapping or "{}")
         assert isinstance(chosen, dict)
     except Exception:
         raise HTTPException(422, "mapping must be a JSON object of {unknown placeholder: known placeholder}.")
-    bad = {k: v for k, v in chosen.items() if not docx_import.known_key(str(v))}
+    extra = CF.tokens(db, user.organization_id)
+    bad = {k: v for k, v in chosen.items() if not docx_import.known_key(str(v), extra)}
     if bad:
         raise HTTPException(422, {"code": "UNKNOWN_PLACEHOLDER_MAPPING", "message": "Map each placeholder to a known one.",
                                   "mapping": bad})
     res = docx_import.convert(data)
-    blocks = docx_import.apply_mapping(res["blocks"], chosen)
-    unknown = [p for p in docx_import.check_placeholders(blocks) if not p["known"]]
+    blocks = docx_import.normalise_custom(docx_import.apply_mapping(res["blocks"], chosen), extra)
+    unknown = [p for p in docx_import.check_placeholders(blocks, extra) if not p["known"]]
     if unknown:
         raise HTTPException(422, {"code": "UNKNOWN_PLACEHOLDERS", "message": "Fix or map every unknown placeholder first.",
                                   "placeholders": unknown})
@@ -270,6 +274,9 @@ async def docx_create(request: Request, file: UploadFile = File(...), title: str
     if target == "new":
         v = ORG.create_org_template(db, user, title=title or docx_import.title_from(blocks, file.filename or ""), content=blocks,
                                     change_reason=reason)
+        from app.modules.hr import onboarding_docx_master as DM     # the Word file stays the layout of issued documents
+        DM.attach(db, v, data, filename=file.filename or "")
+        db.commit()
     else:
         if target not in C.DOCS:
             raise HTTPException(422, "target must be 'new' or one of the package documents.")

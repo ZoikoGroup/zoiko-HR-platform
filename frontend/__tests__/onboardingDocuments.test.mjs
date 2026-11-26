@@ -85,6 +85,7 @@ async function load(t, over = {}) {
     getHirePackagePreview: async () => ({ blob: new Blob(["%PDF"]), filename: "preview.pdf" }),
     sendOnboardingPortalInvite: async () => ({ email_sent: true }),
     getOfferPackageTemplateSet: async () => ({ blob: new Blob(["%PDF"]), filename: "set.pdf" }),
+    saveCompanySectors: async () => ({}), addEngagementCategories: async () => ({}), addSuggestedRoles: async () => ({}),
     getOnboardingProfiles: async () => CURRENT.over.profiles ?? ({ engagement_profiles: [{ slug: "standard-employee", name: "Standard Employee", default: true, builtin: true }],
       role_profiles: [] }),
     downloadHirePackageDocument: async (id, cat, fmt) => ({ blob: new Blob(["x"]), filename: `${cat}.${fmt}` }),

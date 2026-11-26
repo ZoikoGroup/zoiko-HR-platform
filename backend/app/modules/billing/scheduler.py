@@ -242,6 +242,16 @@ def _ensure_scheduler():
         replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Onboarding package documents due N days before a start date, and documents held earlier (checked again every morning).
+    from app.modules.hr.onboarding_doc_automation import daily_job as _onboarding_doc_automation
+    _scheduler.add_job(
+        _onboarding_doc_automation,
+        CronTrigger(hour=7, minute=30),
+        id="onboarding_document_automation",
+        name="Prepare or send onboarding documents that are due",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     # Generated documents: reminders, expiry, HR-DOC-016 expiry items and digest, retention flags, policies for new joiners.
     from app.modules.doc_templates.jobs import register as _register_doc_template_jobs
     _register_doc_template_jobs(_scheduler)

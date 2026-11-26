@@ -51,6 +51,7 @@ test("notice rules: add a rule for an employee type and the header Save sends it
     getOnboardingSettings: async () => SETTINGS,
     getOnboardingChecklistTemplates: async () => [],
     saveOnboardingSettings: async (p) => p,
+    resetOnboardingSettings: async () => ({ reset: true }),
     getOfferPackageSettings: async () => ({ settings: { brand_primary: "#0B3D91", brand_accent: "#00A3E0", paper: "A4", spelling: "UK",
       date_format: "DMY", response_days: 7 }, clauses: [], documents: [], mode_labels: {} }),
     saveOfferPackageSettings: async (p) => ({ settings: p, clauses: [], documents: [], mode_labels: {} }),
@@ -64,6 +65,7 @@ test("notice rules: add a rule for an employee type and the header Save sends it
     getCompanyProfile: async () => ({ profile: { notice_rules: rules, pay_frequency: "" }, completeness: { percent: 100, missing: [], complete: true }, fields }),
     saveCompanyProfile: async (p) => { saved.push(p); return { profile: { ...p }, completeness: { percent: 100, missing: [], complete: true }, fields }; },
     prefillCompanyProfile: async () => ({ proposal: {} }),
+    saveCompanySectors: async () => ({}), addEngagementCategories: async () => ({}), addSuggestedRoles: async () => ({}),
     getOnboardingProfiles: async () => ({ engagement_profiles: [{ slug: "ascend", name: "Ascend Associates" }], role_profiles: [] }),
     saveEngagementProfile: async () => ({}), deleteEngagementProfile: async () => ({}), saveRoleProfile: async () => ({}), deleteRoleProfile: async () => ({}),
   } });

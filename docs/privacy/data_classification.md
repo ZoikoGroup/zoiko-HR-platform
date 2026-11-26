@@ -777,7 +777,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `org_package_documents` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `sort_order`, `updated_at`
-- **PERSONAL_BASIC**: `source`, `category`, `canonical_id`, `title`, `variant_id`, `mode`, `enabled`, `mandatory`, `applies_to_engagement_slugs`, `excluded_engagement_slugs`, `signers`, `created_by_session_id`, `updated_by`
+- **PERSONAL_BASIC**: `source`, `category`, `canonical_id`, `title`, `variant_id`, `mode`, `enabled`, `mandatory`, `applies_to_engagement_slugs`, `excluded_engagement_slugs`, `signers`, `conditions`, `send_when`, `send_days_before`, `created_by_session_id`, `updated_by`
 
 ## `organization_configs` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`

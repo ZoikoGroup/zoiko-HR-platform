@@ -173,7 +173,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Depts with Head · Manage organizational entities · Budget by Department · Employees by Department · Recently Created Departments · Root Departments Overview"
+   "about": "Comprehensive visibility into organizational units, workforce distribution, leadership assignments, and budget utilization. · Organize your company workforce, assign leadership, and allocate financial budgets by creating your first department. · Actual expenditure YTD · All heads assigned · Budget Allocation & Expenditure · Financial allocation vs spent budget for major operating departments · Workforce Headcount Distribution · Personnel density and direct team sizes across organization branches · Department Leadership Roster · Appointed Heads of Departments overseeing operational teams · Hierarchy & Unit Health · Active Status Rate · Explore Structure Tree · Refresh department data"
   },
   {
    "section": "PRODUCTS",
@@ -188,7 +188,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage organizational entities · Number(formData.budget) && ( · Parent Entity (Optional) · Create New Department · Head of department (optional) · It will appear again in pickers and reports as an active department. · It will be hidden from department pickers and marked inactive. Employees and history are kept. A department with active employees or active sub-departments cannot be deactivated. · People could not be loaded."
+   "about": "Comprehensive registry of organizational entities, hierarchy paths, leadership, and budget allocation · All Budget Statuses · Near Limit (80%–100%) · Reset All Filters · Add First Department · Head of Dept · Define entity parameters, leadership, and budget allocation · Number(formData.budget) && ( · Parent Department (Optional) · Department Purpose / Notes · Could not modify department active status. · Modify Department Unit · Create Department Unit · Head of department (optional) · This unit will be restored to active status across employee records, org trees, and reporting lists."
   },
   {
    "section": "PRODUCTS",
@@ -203,7 +203,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage organizational entities · Organizational hierarchy tree and functional links · Org Chart Hierarchy"
+   "about": "Interactive organizational structure, functional parent-child reporting pathways, and unit governance · Manage in Directory · Create a department in the directory to initialize your organizational hierarchy. · Add Primary Unit · Head of Department · Mandate / Description · Open in Directory · Refresh department data · Department sync failed: · Updated just now · Updated 2m ago · Live · Updated just now"
   },
   {
    "section": "PRODUCTS",
@@ -218,22 +218,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Export and analyze department data · Department Data Report"
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Departments",
-    "Settings"
-   ],
-   "href": "/zoiko-hr/departments/settings",
-   "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Configure departments module preferences · Maximum depth limits how deep a department can sit under its parent. The other switches are saved with your organization for the hierarchy rules. · These control how the Department List looks for everyone in your organization. · Department head changed · Department budget updated · Department status changed · New department added under your hierarchy · Department deletion requested · Could not load the department settings. · Could not save the settings. Nothing was changed. · Default Department Code Prefix · Default Status for New Departments · Auto-generate Department Codes"
+   "about": "Department Financial Analytics & Reports · Financial allocation auditing, budget variance tracking, and operational expenditure telemetry · Export CSV Report · Expenditure to Date · Net Budget Variance · All Budget Tiers · Near Limit (80%–100%) · Root Entities Only · Head of Department · Surplus remaining available · Deficit (Expenditure over allocated cap) · Refresh department data · Department sync failed: · Updated just now · Updated 2m ago · Live · Updated just now"
   },
   {
    "section": "PRODUCTS",
@@ -248,7 +233,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Overview of job titles, levels, and organizational structure · Lowest minimum to highest maximum · Employees in Designations · Active employees assigned · Create your first designation to see levels, salary ranges and department coverage here. · Go to Designation List · Salary Range by Level · Entry to Mid (L1-L3)"
+   "about": "Overview of organizational job titles, seniority levels, department allocation, and roles · Lowest minimum to highest maximum · Employees in Designations · Active employees assigned · Create your first designation to see levels, salary bands, and department coverage here. · Go to Designation List · Salary Ranges by Level · Recently Added Designations · Entry to Mid (L1-L3) · Refresh designation data · Live · Updated just now · Designation sync error:"
   },
   {
    "section": "PRODUCTS",
@@ -263,7 +248,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Refresh from the server · Add User form · People with this designation · Assign to employees · Reason for position request · Reports to designation ID · Pay grade ID · Approved job description · Submit position request · Designation list refreshed. · Could not save the designation. · N employee(s) hold this designation · Could not load the position authorization record. · Could not submit the position request. · Could not save the position decision. · Filter by source · Give this designation to existing employees · Only an active, approved designation can be assigned · Add New Designation · Give it to employees (optional) · What needs fixing"
+   "about": "Comprehensive catalogue of organizational roles, hierarchy mapping, and workforce assignments · Refresh from the server · Holding active staff · Zero current assignees · Add User form · People with this designation · Assign to employees · Reason for position request · Reports to designation ID · Pay grade ID · Approved job description · Submit position request · Define role parameters, department alignment, and hierarchy level · Designation list refreshed. · Could not save the designation. · Could not load the position authorization record. · Could not submit the position request. · Could not save the position decision. · Filter by source · Filter by department · Filter by status"
   },
   {
    "section": "PRODUCTS",
@@ -278,7 +263,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Organizational hierarchy and designation relationships · Assign people from the Designation List · Pick a designation to see its details or change its level. · Interns, trainees, and junior staff · Associates and junior specialists · Senior specialists and leads · Team leads and department managers · Senior managers and directors · Directors and senior directors · Senior vice presidents · Give these a level so they sit in the hierarchy · Above the maximum depth in Settings · The designations could not be loaded."
+   "about": "Level Matrix & Structure · Comprehensive organizational seniority levels, reporting ladders, and role stratification · Open in list · Interns, trainees, and junior staff · Associates and junior specialists · Senior specialists and leads · Team leads and department managers · Senior managers and directors · Directors and senior directors · Senior vice presidents · Give these a level so they sit in the hierarchy · Above the maximum depth in Settings · Assign a seniority tier to place in the matrix. · Refresh designation data · Live · Updated just now · Designation sync error:"
   },
   {
    "section": "PRODUCTS",
@@ -293,22 +278,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Analytics and insights across all designations · Minimum - maximum pay across current headcount · Reports appear once designations exist: add them in the list or upload employees with a Designation column. · Go to Designation List · Active employees holding a designation, by joining date (cumulative) · Budget by Department · Salary budget (min - max) · All have a salary range"
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Designations",
-    "Settings"
-   ],
-   "href": "/zoiko-hr/designations/settings",
-   "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Configure designations module preferences · Maximum depth limits the level (L1 to L10) a designation can be given. The other switches are saved with your organization for the hierarchy rules. · These control how the Designation List looks for everyone in your organization. · Designation head changed · Designation budget updated · Designation status changed · New designation added under your hierarchy · Designation deletion requested · Could not load the designation settings. · Could not save the settings. Nothing was changed. · Default Status for New Designations · Max Hierarchy Depth · Allow Cross-Designations Heads · Allow a person to head multiple designations · Require Parent Designation"
+   "about": "Analytics, functional distribution, compensation envelopes, and staffing growth telemetry · Minimum - maximum pay across current headcount · Reports appear once designations exist: add them in the list or upload employees with a Designation column. · Go to Designation List · Active employees holding a designation, by joining date (cumulative) · Quarterly creation cadence and catalog expansion · Budget by Department · Salary budget (min - max) · All have a salary range · Refresh designation data · Live · Updated just now · Designation sync error:"
   },
   {
    "section": "PRODUCTS",
@@ -353,7 +323,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Team leave calendar view · View team leaves and company holidays · Add Company Holiday · Name and date are required"
+   "about": "Team leave calendar view · View team leaves and company holidays · Change leave dates · New start date · New end date · Add Company Holiday · Name and date are required · Choose both the start and the end date. · The end date cannot be before the start date. · Choose new dates to move this leave. · The leave could not be moved. · Save new dates"
   },
   {
    "section": "PRODUCTS",
@@ -771,7 +741,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Configure legal, policy, and operational defaults for a consistent and automated onboarding experience. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Link valid for · Remind new hires about missing documents every · Set up docs for your organisation · You have unsaved changes. · About these settings · On this page · Legal & policy defaults · Engagement & role profiles · Documents in your package · Offer package & clauses · Forms new hires fill in · Onboarding settings could not be loaded."
+   "about": "Configure legal, policy, and operational defaults for a consistent and automated onboarding experience. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Clear all onboarding details? · This cannot be undone. · New hires, issued documents, submitted forms and audit history are kept. · Link valid for · Remind new hires about missing documents every · Set up docs for your organisation · You have unsaved changes. · About these settings · On this page · Legal & policy defaults · Engagement & role profiles"
   },
   {
    "section": "PRODUCTS",
@@ -1000,7 +970,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1015,7 +985,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1029,7 +999,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1044,7 +1014,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1059,7 +1029,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1073,7 +1043,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1087,7 +1057,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1101,7 +1071,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Assessments & Quizzes · Create and manage assessments, quizzes, and track attempts. · Whole number from 1 to 100."
+   "about": "Learning & Development · Course catalog, enrollments, training programs, assessments, certifications, skills and reports. · Overview of learning and development KPIs. · Enrollments per Month · Courses by Category · Avg Skill Level · Quizzes In Progress · Courses by category · Manage course catalog, categories, and providers. · Add New Course · Learners only see active courses. · Open course link · The course could not be updated. · The course could not be created. · Learners cannot see this quiz until it has a question · Employees cannot see this quiz while its course is inactive. Activate the course under Courses. · Assessments & Quizzes"
   },
   {
    "section": "PRODUCTS",
@@ -1112,7 +1082,9 @@
    ],
    "href": "/zoiko-hr/compensation",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Overview of compensation, benefits, and costs. · Total Salary Cost"
   },
@@ -1125,7 +1097,9 @@
    ],
    "href": "/zoiko-hr/compensation/salary-structures",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Manage salary structure templates. · Amount / formula · Add a component · Amount or formula · Required. A fixed amount, a percentage, or a formula. A component's default amount is only filled in as a suggestion. · Add Salary Structure · Update Salary Structure · The components could not be loaded. · The amount could not be changed. · The component could not be removed. · Every component is already in this structure · Add to structure"
   },
@@ -1138,7 +1112,9 @@
    ],
    "href": "/zoiko-hr/compensation/pay-grades",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Define salary bands and grade structures. · Add Pay Grade · Update Pay Grade · Max must be greater than min · Create Pay Grade"
   },
@@ -1151,7 +1127,9 @@
    ],
    "href": "/zoiko-hr/compensation/salary-components",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Manage salary components and compensation items. · Set per structure · Add Salary Component · A suggested starting value. The amount that counts is set for this component inside each salary structure. · Update Salary Component · The component could not be created. · The component could not be updated."
   },
@@ -1164,7 +1142,9 @@
    ],
    "href": "/zoiko-hr/compensation/bands",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Define compensation band ranges and levels. · Highest Band Max: · Add Compensation Band · Update Compensation Band · Max must be greater than min"
   },
@@ -1177,9 +1157,25 @@
    ],
    "href": "/zoiko-hr/compensation/revisions",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Track and manage salary revision history. · Add Salary Revision · Update Salary Revision"
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Approvals & Letters"
+   ],
+   "href": "/zoiko-hr/compensation/approvals",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ],
+   "about": "Salary revisions and allowance awards need a second person before anyone is told. · New salary revision · Sentence for the employee's letter (optional) · Submit for approval · New allowance award · Review date (optional) · Why the employee is eligible · Conditions it depends on (shown in the letter) · Send for approval · Employees can download their own statement any time from My compensation. Use this for an annual run. · Managers may open the compensation documents of their own reports · Off by default. Only an organization admin can change this. · Expense claims above this total need a second approver · Correction (no letter) · Comment (required to reject)"
   },
   {
    "section": "PRODUCTS",
@@ -1190,7 +1186,9 @@
    ],
    "href": "/zoiko-hr/compensation/allowances",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Manage employee allowances. · There are no employees in this organization yet. Add an employee first, then you can give them an allowance. · The allowance could not be updated. · The allowance could not be created."
   },
@@ -1203,7 +1201,9 @@
    ],
    "href": "/zoiko-hr/compensation/benefits",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Manage employee benefits, enrollments, and coverage."
   },
@@ -1375,7 +1375,9 @@
    ],
    "href": "/zoiko-hr/workforce-planning",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Strategic organizational alignment · Headcount by Department · Recent Workforce Initiatives"
   },
@@ -1388,7 +1390,9 @@
    ],
    "href": "/zoiko-hr/workforce-planning/plans",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Strategic workforce planning and budgeting · ITEMS_PER_PAGE && ( · Year must be between 2020 and 2100"
   },
@@ -1401,7 +1405,9 @@
    ],
    "href": "/zoiko-hr/workforce-planning/headcount",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Department-wise workforce planning and vacancy tracking · ITEMS_PER_PAGE && ( · Workforce plan ID (optional) · There are no departments in this organization yet. Create a department first, then plan its headcount. · Filled plus vacant cannot be more than approved. An empty number counts as 0. · The headcount record could not be saved. · Could not load the authorization record. · Could not submit the headcount request. · Could not save the authorization decision. · Headcount authorization record · Edit Headcount Record · New Headcount Record · What needs fixing · A draft is created first. Nothing is sent to the recipient until it is issued. · E-mail signing link · Not delivered (record only)"
   },
@@ -1414,9 +1420,25 @@
    ],
    "href": "/zoiko-hr/workforce-planning/succession",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Key position mapping and talent pipeline management · All Risk Levels · ITEMS_PER_PAGE && ( · Plan owner (optional) · The approved plan document is generated from this authorization. Readiness issues have links to fix pages. · There are no employees in this organization yet. Add employees first, then you can plan their succession. · The list of employees could not be loaded. Close this window and try again. · The succession record could not be saved. · Could not load the succession authorization record. · Could not submit the succession plan. · Could not save the succession decision. · Succession authorization record · Add Succession Record · What needs fixing"
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Job Descriptions"
+   ],
+   "href": "/zoiko-hr/workforce-planning/job-descriptions",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ],
+   "about": "Create, check, version and approve structured job descriptions · New job description · Create new version · Check inclusive language · Submit for approval · Return for revision · This approved version may be linked to an authorized position. · The job description could not be saved. · Job description created. · Inclusive-language check failed. · Submitted for approval. · Job description approved. · Job description returned for revision. · New draft version created. · Key responsibilities (one per line) · Essential requirements (one per line) · Desirable requirements (one per line) · Reports to designation · Direct reports summary · Untitled job description"
   },
   {
    "section": "PRODUCTS",
@@ -1427,7 +1449,9 @@
    ],
    "href": "/zoiko-hr/workforce-planning/reports",
    "roles": [
-    "manager"
+    "manager",
+    "hr_admin",
+    "admin"
    ],
    "about": "Generate and export workforce analytics reports · ITEMS_PER_PAGE && ("
   },
@@ -1663,7 +1687,7 @@
     "employee",
     "manager"
    ],
-   "about": "Submit a new leave request for manager review and approval. · View Leave History · Paternity / partner · Shared / parental · Pay option (where offered) · I am interested in keep-in-touch days · We may ask for the evidence the law allows, such as a certificate of expected birth. Please do not share more medical information than we ask for. HR will confirm your dates and pay. · We are very sorry for your loss. You do not have to tell us anything you do not want to share. · I need to travel · Message to your manager (optional) · Cover and handover (optional, seen by your manager and HR) · (optional, you do not need to give a diagnosis) · Submit Leave Request"
+   "about": "Submit a new leave request for manager review and approval. · View Leave History · Paternity / partner · Shared / parental · Pay option (where offered) · I am interested in keep-in-touch days · We may ask for the evidence the law allows, such as a certificate of expected birth. Please do not share more medical information than we ask for. HR will confirm your dates and pay. · We are very sorry for your loss. You do not have to tell us anything you do not want to share. · I need to travel · Message to your manager (optional) · Cover and handover · (optional, seen by your manager and HR) · (optional, you do not need to give a diagnosis) · Submit Leave Request"
   },
   {
    "section": "MY WORKSPACE",
@@ -1806,7 +1830,7 @@
     "employee",
     "manager"
    ],
-   "about": "Overview of your business travel and reimbursements. · Employee Self Service"
+   "about": "Overview of your business travel and reimbursements. · Recent Expense Claims · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1832,7 +1856,7 @@
     "employee",
     "manager"
    ],
-   "about": "View the approval status of your travel requests. · Employee Self Service"
+   "about": "View the approval status of your travel requests and expense claims. · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",

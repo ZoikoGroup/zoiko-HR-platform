@@ -39,7 +39,7 @@ function mockShell(t) {
 }
 
 async function loadSettings(t, over = {}) {
-  const calls = { save: [] };
+  const calls = { save: [], reset: [] };
   let fails = over.failTimes || 0;
   mockShell(t);
   t.mock.module("../src/service/hrService.js", { exports: {
@@ -48,6 +48,7 @@ async function loadSettings(t, over = {}) {
     getOnboardingSettings: async () => { if (fails > 0) { fails -= 1; throw new Error("Network down"); } return SETTINGS; },
     getOnboardingChecklistTemplates: async () => [{ id: 1, name: "IT Setup", category: "it" }, { id: 2, name: "HR Basics", category: "hr" }],
     saveOnboardingSettings: async (p) => { calls.save.push(p); if (over.saveError) throw over.saveError; return p; },
+    resetOnboardingSettings: async () => { calls.reset.push(true); return { reset: true }; },
     getOfferPackageSettings: async () => ({ settings: { brand_primary: "#0B3D91", brand_accent: "#00A3E0", paper: "A4", spelling: "UK",
       date_format: "DMY", response_days: 7 }, clauses: [], documents: [], mode_labels: {} }),
     saveOfferPackageSettings: async (p) => ({ settings: p, clauses: [], documents: [], mode_labels: {} }),
@@ -61,6 +62,7 @@ async function loadSettings(t, over = {}) {
     getCompanyProfile: async () => ({ profile: { legal_name: "" }, completeness: { percent: 0, missing: [], complete: false }, fields: [] }),
     saveCompanyProfile: async (p) => ({ profile: p, completeness: { percent: 100, missing: [], complete: true }, fields: [] }),
     prefillCompanyProfile: async () => ({ proposal: {}, saved: false }),
+    saveCompanySectors: async () => ({}), addEngagementCategories: async () => ({}), addSuggestedRoles: async () => ({}),
     getOnboardingProfiles: async () => ({ engagement_profiles: [], role_profiles: [] }),
     saveEngagementProfile: async () => ({ engagement_profiles: [], role_profiles: [] }),
     deleteEngagementProfile: async () => ({ engagement_profiles: [], role_profiles: [] }),
@@ -108,6 +110,18 @@ test("a failed settings load shows Retry, and Retry loads the form", async (t) =
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await settle();
   assert.ok(screen.getAllByRole("button", { name: "Save changes" })[0]);
+});
+
+test("Clear all details warns first, then resets the page through the API", async (t) => {
+  const calls = await loadSettings(t);
+  fireEvent.click(screen.getByRole("button", { name: "Clear all details" }));
+  const warning = screen.getByRole("alertdialog");
+  assert.match(warning.textContent, /cannot be undone/i);
+  assert.match(warning.textContent, /New hires, issued documents/i);
+  fireEvent.click(screen.getByRole("button", { name: /Yes, clear everything/i }));
+  await settle();
+  assert.equal(calls.reset.length, 1);
+  assert.ok(screen.getAllByRole("status").some((s) => /All onboarding details were cleared/i.test(s.textContent)));
 });
 
 test("the authorised signatory's signature can be uploaded next to the company logo (QA R1-9, R2-6)", async (t) => {

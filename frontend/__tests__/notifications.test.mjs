@@ -239,11 +239,11 @@ const ITEMS = [
   { id: 3, title: "Third", preview: "p3", sender_name: "Zoiko HR Admin", sent_at: "2026-09-28T09:00:00Z", is_read: true },
 ];
 
-async function renderBell(t, unread) {
+async function renderBell(t, unread, list = async () => ({ items: ITEMS, total: 3, unread_count: unread })) {
   cleanup();
   mockModules(t);
   notificationService.getUnreadCount = async () => ({ unread_count: unread });
-  notificationService.list = async () => ({ items: ITEMS, total: 3, unread_count: unread });
+  notificationService.list = list;
   const mod = await import(`../src/components/NotificationBell.jsx?t=${Math.random()}`);
   await act(async () => { render(withQuery(React.createElement(mod.default))); });
   await settle();
@@ -291,6 +291,23 @@ test("bell: dropdown lists the latest items with unread styling and a View all l
   assert.ok(screen.getByText("First") && screen.getByText("Second") && screen.getByText("Third"));
   assert.equal(screen.getAllByText("Unread").length, 2);                      // sr-only markers
   assert.equal(screen.getByRole("link", { name: /view all/i }).getAttribute("href"), "/shared/notifications");
+});
+
+test("bell: the list is warmed before the first click and reopening stays cached", async (t) => {
+  let calls = 0;
+  await renderBell(t, 2, async () => { calls += 1; return { items: ITEMS, total: 3, unread_count: 2 }; });
+  assert.equal(calls, 1, "mount should warm the list even without hover");
+  const bell = screen.getByRole("button", { name: /notifications, 2 unread/i });
+  fireEvent.click(bell);
+  await settle();
+  assert.equal(calls, 1, "open should reuse the warm list");
+  assert.ok(screen.getByText("First"));
+  fireEvent.click(bell);          // close
+  await settle();
+  fireEvent.click(bell);          // reopen within the fresh window
+  await settle();
+  assert.equal(calls, 1, "reopen should not refetch");
+  assert.ok(screen.getByText("First"));
 });
 
 test("bell: refetches the count when the window regains focus", async (t) => {

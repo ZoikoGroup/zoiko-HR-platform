@@ -35,6 +35,7 @@ EVENTS = {
     "expense.approved": ("expense", "Expense claim approved", "Your expense claim has been approved."),
     "expense.rejected": ("expense", "Expense claim not approved", "Your expense claim was not approved."),
     "expense.reimbursed": ("expense", "Expense claim reimbursed", "Your expense claim has been marked as reimbursed."),
+    "leave.rescheduled": ("leave", "Leave dates changed", "HR moved your leave to {title}. See My Leave for the details."),
     "travel.approved": ("travel", "Travel request approved", "Your travel request has been approved."),
     "travel.rejected": ("travel", "Travel request not approved", "Your travel request was not approved."),
     "document.to_sign": ("document", "Document to sign", "“{title}” is ready for your signature."),
@@ -54,6 +55,10 @@ EVENTS = {
     "document.retention_due": ("document", "Retention period ended", "The retention period ended for {title}. Review them before anything is removed."),
     "document.weekly_digest": ("document", "Weekly documents summary", "This week: {title}. Open Approval Workflow for details."),
     "onboarding.tasks_assigned": ("onboarding", "Onboarding tasks assigned", "You have new onboarding tasks to complete."),
+    # onboarding package automation (to the organisation's admins and HR admins); {title} = "<n> document(s) for <hire>"
+    "onboarding.documents_ready": ("onboarding", "Documents ready to send", "{title} are prepared. Review and send them in Onboarding › Documents."),
+    "onboarding.documents_sent": ("onboarding", "Documents sent automatically", "{title} were sent automatically."),
+    "onboarding.documents_held": ("onboarding", "Documents need details", "{title} are on hold until missing details are added. Open Onboarding › Documents to see what is missing."),
     # offboarding (ZHR-PRIV-001: no reason for leaving, no names of the leaver's colleagues)
     "offboarding.resignation_submitted": ("offboarding", "Resignation to review", "A resignation is waiting for your decision."),
     "offboarding.approval_needed": ("offboarding", "Exit to approve", "An exit is waiting for approval in Offboarding."),

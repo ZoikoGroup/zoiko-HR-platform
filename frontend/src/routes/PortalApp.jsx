@@ -40,13 +40,11 @@ const ZoikoHRDepartmentsDashboard = lazyRoute(() => import("../modules/zoiko-hr/
 const ZoikoHRDepartmentsDepartmentList = lazyRoute(() => import("../modules/zoiko-hr/departments/department-list.jsx"));
 const ZoikoHRDepartmentsDepartmentStructure = lazyRoute(() => import("../modules/zoiko-hr/departments/department-structure.jsx"));
 const ZoikoHRDepartmentsReports = lazyRoute(() => import("../modules/zoiko-hr/departments/reports.jsx"));
-const ZoikoHRDepartmentsSettings = lazyRoute(() => import("../modules/zoiko-hr/departments/settings.jsx"));
 
 const ZoikoHRDesignationsDashboard = lazyRoute(() => import("../modules/zoiko-hr/designations/dashboard.jsx"));
 const ZoikoHRDesignationList = lazyRoute(() => import("../modules/zoiko-hr/designations/designation-list.jsx"));
 const ZoikoHRDesignationStructure = lazyRoute(() => import("../modules/zoiko-hr/designations/designation-structure.jsx"));
 const ZoikoHRDesignationReports = lazyRoute(() => import("../modules/zoiko-hr/designations/reports.jsx"));
-const ZoikoHRDesignationSettings = lazyRoute(() => import("../modules/zoiko-hr/designations/settings.jsx"));
 
 const PerformanceDashboard = lazyRoute(() => import("../modules/zoiko-hr/performance/dashboard.jsx"));
 const GoalsOKRs = lazyRoute(() => import("../modules/zoiko-hr/performance/goals.jsx"));
@@ -276,13 +274,14 @@ const routeOverrides = {
   "/zoiko-hr/departments/list": <ZoikoHRDepartmentsDepartmentList />,
   "/zoiko-hr/departments/structure": <ZoikoHRDepartmentsDepartmentStructure />,
   "/zoiko-hr/departments/reports": <ZoikoHRDepartmentsReports />,
-  "/zoiko-hr/departments/settings": <ZoikoHRDepartmentsSettings />,
+  "/zoiko-hr/departments/settings": <Navigate to="/zoiko-hr/departments" replace />,
   // Designations
   "/zoiko-hr/designations": <ZoikoHRDesignationsDashboard />,
   "/zoiko-hr/designations/list": <ZoikoHRDesignationList />,
   "/zoiko-hr/designations/levels": <ZoikoHRDesignationStructure />,
+  "/zoiko-hr/designations/structure": <ZoikoHRDesignationStructure />,
   "/zoiko-hr/designations/reports": <ZoikoHRDesignationReports />,
-  "/zoiko-hr/designations/settings": <ZoikoHRDesignationSettings />,
+  "/zoiko-hr/designations/settings": <Navigate to="/zoiko-hr/designations" replace />,
   // Leave
   "/zoiko-hr/leave": <ZoikoHRLeaveDashboard />,
   "/zoiko-hr/leave/requests": <ZoikoHRLeaveRequests />,

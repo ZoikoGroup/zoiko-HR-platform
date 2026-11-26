@@ -8,11 +8,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle, BellRing, Check, CheckCircle2, ClipboardCheck, FileText, Info, Layers, Link2, ListChecks, MinusCircle, Settings2,
-  Sparkles, UploadCloud,
+  Sparkles, Trash2, UploadCloud,
 } from "lucide-react";
-import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates, getCompanyProfile } from "../../../service/hrService";
+import { getOnboardingSettings, saveOnboardingSettings, resetOnboardingSettings, getOnboardingChecklistTemplates, getCompanyProfile } from "../../../service/hrService";
 import { getDocsSetupStatus, getRequestCategories } from "../../../service/docsSetupService";
 import PackageDocumentsSettings from "./PackageDocumentsSettings";
+import CustomFieldsSettings from "./CustomFieldsSettings";
+import CountersignSettings from "./CountersignSettings";
+import TestPackageCard from "./TestPackageCard";
+import SetupStatusCard from "./SetupStatusCard";
 import PortalFormsSettings from "./PortalFormsSettings";
 import RequestCategoriesSettings from "./RequestCategoriesSettings";
 import { humanizeValidationError } from "../../../utils/validationMessage";
@@ -118,7 +122,10 @@ const PAGE_NAV = [
     { href: "#company-profile", label: "Company profile" },
     { href: "#company-profile-legal", label: "Legal & policy defaults" },
     { href: "#onboarding-profiles", label: "Engagement & role profiles" },
+    { href: "#custom-fields", label: "Your document fields" },
     { href: "#package-documents", label: "Documents in your package" },
+    { href: "#countersign", label: "Employer countersignature" },
+    { href: "#test-package", label: "Test your package" },
     { href: "#offer-package", label: "Offer package & clauses" },
     { href: "#portal-forms", label: "Forms new hires fill in" },
     { href: "#finance-viewers", label: "Finance viewers" },
@@ -139,6 +146,44 @@ function ToggleRow({ id, title, help, checked, onChange, label }) {
 }
 
 const FieldError = ({ msg }) => (msg ? <p role="alert" className="mt-1 inline-flex items-center gap-1 text-xs text-rose-600"><AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{msg}</p> : null);
+
+/** Destructive-action warning. The organisation scope is explicit: no hires or issued documents are deleted. */
+function ClearAllDialog({ open, busy, onCancel, onConfirm }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4" onMouseDown={(e) => {
+      if (!busy && e.target === e.currentTarget) onCancel();
+    }}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="clear-all-title" aria-describedby="clear-all-warning"
+        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600" aria-hidden="true">
+            <AlertCircle className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="clear-all-title" className="text-lg font-semibold text-gray-900">Clear all onboarding details?</h2>
+            <p id="clear-all-warning" className="mt-1 text-sm text-gray-600">
+              This resets this organisation's onboarding setup to fresh defaults: automation and welcome message,
+              company profile, engagement and role profiles, custom fields, package documents and rules, document
+              automation, countersigners, portal forms, upload categories, finance viewers and docs-setup history.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+          <p className="font-medium">This cannot be undone.</p>
+          <p className="mt-0.5">New hires, issued documents, submitted forms and audit history are kept.</p>
+        </div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <SecondaryButton onClick={onCancel} disabled={busy} autoFocus>Cancel</SecondaryButton>
+          <button type="button" onClick={onConfirm} disabled={busy}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-60">
+            <Trash2 className="h-4 w-4" aria-hidden="true" />{busy ? "Clearing…" : "Yes, clear everything"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const optionTile = (on) => `flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm cursor-pointer transition-colors ${
   on ? "border-blue-200 bg-blue-50/60 text-gray-900" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`;
@@ -170,6 +215,8 @@ export default function OnboardingSettings() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const [banner, setBanner] = useState({ type: "", text: "" });
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [categoryView, setCategoryView] = useState(null);
   const [managingCategories, setManagingCategories] = useState(false);
   const [setupStatus, setSetupStatus] = useState(null);
@@ -182,7 +229,7 @@ export default function OnboardingSettings() {
     getDocsSetupStatus().then((v) => live && setSetupStatus(v)).catch(() => live && setSetupStatus({ enabled: false }));
     getCompanyProfile().then((v) => live && setProfileComplete(!!v?.completeness?.complete)).catch(() => {});
     return () => { live = false; };
-  }, []);
+  }, [reloadKey]);
   const categoryOptions = categoryView
     ? categoryView.categories.filter((c) => c.active).map((c) => ({ value: c.key, label: c.label }))
     : DEFAULT_CATEGORIES;
@@ -331,11 +378,33 @@ export default function OnboardingSettings() {
     setBanner({ type: "", text: "" });
   };
 
+  const clearAll = async () => {
+    setResetting(true);
+    setBanner({ type: "", text: "" });
+    try {
+      await resetOnboardingSettings();
+      setConfirmReset(false);
+      setForm(EMPTY);
+      setSaved(EMPTY);
+      setErrors({});
+      setSectionDirty({});
+      setBanner({ type: "warning", text: "All onboarding details were cleared. Fresh default settings are now loaded. New hires and issued documents were not touched." });
+      setReloadKey((k) => k + 1);       // remounts every settings card so it loads the fresh defaults
+    } catch (err) {
+      setBanner({ type: "error", text: err?.message || "The onboarding settings could not be cleared." });
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const numberBox = (name) =>
     `w-24 rounded-xl border ${errors[name] ? "border-rose-300 bg-rose-50/40" : "border-gray-200 bg-white"} px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100`;
 
   const actions = !loading && !loadError ? (
     <>
+      <SecondaryButton icon={Trash2} onClick={() => setConfirmReset(true)} disabled={saving || resetting}>
+        {resetting ? "Clearing…" : "Clear all details"}
+      </SecondaryButton>
       <SecondaryButton onClick={discardAll} disabled={!anyDirty || saving}>Discard changes</SecondaryButton>
       <PrimaryButton icon={Check} onClick={saveAll} disabled={!anyDirty || saving}>{saving ? "Saving…" : "Save changes"}</PrimaryButton>
     </>
@@ -369,11 +438,13 @@ export default function OnboardingSettings() {
 
   return page(
     <SettingsSaveContext.Provider value={saveCtx}>
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div key={reloadKey} className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-5">
           {banner.text && (
             <div role={banner.type === "error" ? "alert" : "status"} className={`flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 sm:items-center ${
-              banner.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"
+              banner.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : banner.type === "warning" ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-rose-200 bg-rose-50 text-rose-700"
             }`}>
               <span className="inline-flex min-w-0 items-center gap-2 text-sm break-words">
                 {banner.type === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}{banner.text}
@@ -503,9 +574,13 @@ export default function OnboardingSettings() {
             </section>
           )}
 
+          <SetupStatusCard />
           <CompanyProfileSettings />
           <OnboardingProfilesSettings />
+          <CustomFieldsSettings />
           <PackageDocumentsSettings />
+          <CountersignSettings />
+          <TestPackageCard />
           <OfferPackageSettings />
           <PortalFormsSettings />
           <FinanceViewersSetting />
@@ -567,6 +642,7 @@ export default function OnboardingSettings() {
           </nav>
         </aside>
       </div>
+      <ClearAllDialog open={confirmReset} busy={resetting} onCancel={() => setConfirmReset(false)} onConfirm={clearAll} />
     </SettingsSaveContext.Provider>
   );
 }

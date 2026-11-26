@@ -545,11 +545,16 @@ def get_assessment_by_id(db: Session, assessment_id: int, organization_id: Optio
 
 
 def _assessment_dict(db: Session, a: LearningAssessment) -> dict:
-    course = db.query(LearningCourse.course_name).filter(LearningCourse.id == a.course_id).first()
+    course = (db.query(LearningCourse.course_name, LearningCourse.status, LearningCourse.department)
+              .filter(LearningCourse.id == a.course_id).first())
     return {
         "id": a.id,
         "course_id": a.course_id,
         "course_name": course[0] if course else None,
+        # the admin list says why a quiz is not reaching employees (an inactive course hides it; a department course
+        # reaches only that department and the people enrolled in it)
+        "course_status": course[1] if course else None,
+        "course_department": (course[2] or None) if course else None,
         "title": a.title,
         "description": a.description,
         "passing_score": a.passing_score,

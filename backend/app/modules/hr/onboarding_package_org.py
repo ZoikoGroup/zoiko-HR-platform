@@ -70,13 +70,17 @@ def ensure_rows(db, organization_id: int, *, persist: bool = True) -> list[OrgPa
             .order_by(OrgPackageDocument.sort_order, OrgPackageDocument.id).all())
     have = {r.category for r in rows}
     added = False
+    from app.modules.hr import onboarding_starter_sets as SS
+    starter = SS.starter_for(db, organization_id)       # None: an existing organisation – every document on, sent by HR
     for i, d in enumerate(C.documents()):
         if d["category"] in have:
             continue
+        on = True if starter is None else d["category"] in starter["documents"] or d["category"] in MANDATORY
         row = OrgPackageDocument(organization_id=organization_id, source="platform", category=d["category"],
-                                 canonical_id=PT.canonical_for(d["template_id"]), title=d["title"], mode=d["mode"], enabled=True,
+                                 canonical_id=PT.canonical_for(d["template_id"]), title=d["title"], mode=d["mode"], enabled=on,
                                  mandatory=d["category"] in MANDATORY, applies_to_engagement_slugs=[],
-                                 excluded_engagement_slugs=[], sort_order=(i + 1) * 10)
+                                 excluded_engagement_slugs=[], sort_order=(i + 1) * 10,
+                                 send_when=(starter or {}).get("send_when") if on else None)
         if persist:
             db.add(row)
             added = True
@@ -108,6 +112,8 @@ def meta(db, organization_id: int, category: str, row: Optional[OrgPackageDocume
             d["mode"] = row.mode
         d["canonical_id"] = PT.canonical_for(d["template_id"])
         d["source"] = "platform"
+        if row is not None and row.mode == "SIGN" and "employer" in (row.signers or []):
+            d["party_signers"] = list(row.signers or [])      # the employer countersigns after the new hire
         return d
     if row is None or not is_org_category(category):
         raise HTTPException(404, "Unknown package document.")
@@ -153,8 +159,9 @@ def documents_for_hire(db, hire) -> list[dict]:
         eng, _source = P.engagement_with_source(db, hire)
         slug = (eng or {}).get("slug")
         out = []
+        from app.modules.hr import onboarding_document_rules as RULES
         for r in rows_for(db, hire.organization_id):
-            if not r.enabled or not applies_to(r, slug):
+            if not r.enabled or not applies_to(r, slug) or not RULES.applies(db, r, hire):
                 continue
             if r.source == "org_template" and resolve_org_variant(db, r) is None:
                 continue
@@ -206,7 +213,7 @@ def resolve_org_variant(db, row: OrgPackageDocument, country: Optional[str] = No
         if v is not None and v.owner_organization_id == row.organization_id and _live(v) and _pack_ok(db, v):
             return v
         if row.source == "org_template":
-            return None                    # a pinned own document that is not released: never sent
+            return None    # a pinned own document that is not released (draft, suspended, retired): never sent
     return released_variant(db, row.organization_id, row.canonical_id, country)
 
 
@@ -258,7 +265,7 @@ def content_for_source(db, category: str, source: Optional[dict]) -> Optional[li
 
 # ── "Customise this document" and the state of each document's template ──────────────────────────────────────────────
 def variant_state(db, organization_id: int, canonical_id: str) -> dict:
-    """What the settings row says: Using Zoiko default / Your version vN – released / Draft in review."""
+    """What the settings row says: Using the standard template / Your version vN – released / Draft in review."""
     vs = (db.query(TemplateVariant).filter(TemplateVariant.canonical_id == canonical_id,
                                            TemplateVariant.owner_organization_id == organization_id)
           .order_by(TemplateVariant.version.desc()).all())
@@ -269,7 +276,7 @@ def variant_state(db, organization_id: int, canonical_id: str) -> dict:
     elif any(v.status == LIVE for v in vs):
         label = "Your version is released but its jurisdiction pack is not active"
     else:
-        label = "Using Zoiko default"
+        label = "Using the standard template"
     if working is not None:
         label += f" · v{working.version} " + {"IN_DRAFT": "draft", "LEGAL_REVIEW": "in legal review",
                                                "LEGAL_APPROVED": "approved – waiting for release",
@@ -375,6 +382,8 @@ def _row_view(db, organization_id: int, r: OrgPackageDocument) -> dict:
             "applies_to_engagement_slugs": list(r.applies_to_engagement_slugs or []),
             "excluded_engagement_slugs": list(r.excluded_engagement_slugs or []), "signers": list(r.signers or []),
             "sort_order": r.sort_order, "variant_id": r.variant_id, "template_state": state, "warning": warning,
+            "conditions": list(r.conditions or []), "conditions_text": _rules().describe(r.conditions),
+            "send_when": r.send_when or "manual", "send_days_before": r.send_days_before,
             "can_customise": r.source == "platform", "risk": d.get("risk"),
             "customise_blocked": customise_block(db, organization_id, r.category) if r.source == "platform" else None}
 
@@ -387,7 +396,27 @@ def settings_documents(db, organization_id: int) -> dict:
             "signer_parties": list(SIGNER_PARTIES),
             "engagement_profiles": [{"slug": p.get("slug"), "name": p.get("name") or p.get("slug")}
                                     for p in PR.engagement_profiles(db, organization_id) if p.get("slug")],
-            "addable_templates": addable_templates(db, organization_id)}
+            "addable_templates": addable_templates(db, organization_id),
+            "condition_fields": [{**f, "ops": _rules().ops_for(f["kind"])} for f in _rules().field_catalogue(db, organization_id)],
+            "condition_ops": [{"value": k, "label": v} for k, v in _rules().OPS.items()],
+            "triggers": [{"value": k, "label": v} for k, v in _rules().TRIGGERS.items()],
+            "automation": _automation().settings(db, organization_id),
+            "countersigners": _countersign().summary(db, organization_id)}
+
+
+def _rules():
+    from app.modules.hr import onboarding_document_rules as RULES
+    return RULES
+
+
+def _automation():
+    from app.modules.hr import onboarding_doc_automation as AUTO
+    return AUTO
+
+
+def _countersign():
+    from app.modules.hr import onboarding_countersign as CS
+    return CS
 
 
 def _clean_slugs(value, known: set, label: str) -> list:
@@ -449,6 +478,15 @@ def update_documents(db, actor, items: list) -> dict:
             raise HTTPException(422, BOTH_AUDIENCES)
         if "signers" in item:
             r.signers = _clean_signers(item["signers"])
+            if r.mandatory and r.signers and "candidate" not in r.signers:
+                raise HTTPException(422, f"{name} is always signed by the new hire.")
+        if "conditions" in item:
+            r.conditions = _rules().clean_conditions(db, org_id, item["conditions"], title=name)
+            if r.mandatory and r.conditions:
+                raise HTTPException(422, f"{name} goes to every new hire.")
+        if "send_when" in item or "send_days_before" in item:
+            r.send_when, r.send_days_before = _rules().clean_trigger(item.get("send_when", r.send_when),
+                                                                     item.get("send_days_before", r.send_days_before), title=name)
         if "sort_order" in item:
             try:
                 r.sort_order = int(item["sort_order"])
@@ -514,9 +552,17 @@ def add_org_document(db, actor, data: dict, *, session_id: Optional[int] = None,
     excluded = _clean_slugs(data.get("excluded_engagement_slugs"), known, "Send to all except")
     if only and excluded:
         raise HTTPException(422, BOTH_AUDIENCES)
+    conditions = _rules().clean_conditions(db, org_id, data.get("conditions"), title=d.title)
+    if "send_when" in data:
+        trigger = data.get("send_when")
+    else:                                # an organisation that started from a starter set prepares its documents automatically
+        from app.modules.hr import onboarding_starter_sets as SS
+        trigger = (SS.starter_for(db, org_id) or {}).get("send_when")
+    send_when, days = _rules().clean_trigger(trigger, data.get("send_days_before"), title=d.title)
     row = OrgPackageDocument(organization_id=org_id, source="org_template", category=category, canonical_id=cid, title=d.title,
                              mode=mode, enabled=True, mandatory=False, applies_to_engagement_slugs=only,
-                             excluded_engagement_slugs=excluded,
+                             excluded_engagement_slugs=excluded, conditions=conditions, send_when=send_when,
+                             send_days_before=days,
                              signers=_clean_signers(data.get("signers")) or (["candidate"] if mode == "SIGN" else []),
                              sort_order=max([r.sort_order for r in rows] or [0]) + 10, updated_by=actor.id,
                              created_by_session_id=session_id)

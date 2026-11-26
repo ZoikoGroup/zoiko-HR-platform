@@ -1793,9 +1793,13 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
 
     record = get_leave_request(db, leave_id, org_id)
     update_data = data.model_dump(exclude_unset=True)
+    moved = False
     if "start_date" in update_data or "end_date" in update_data:
-        start = update_data.get("start_date", record.start_date)
-        end = update_data.get("end_date", record.end_date)
+        start = update_data.get("start_date") or record.start_date
+        end = update_data.get("end_date") or record.end_date
+        update_data["start_date"], update_data["end_date"] = start, end
+        _check_leave_move(db, record, start, end)              # leave calendar "Edit" (bug 27)
+        moved = (start, end) != (record.start_date, record.end_date)
         update_data["days"] = _compute_leave_days(start, end)
     from app.modules.hr import leave_documents
     decision = update_data.get("status") if update_data.get("status") in (RequestStatus.APPROVED, RequestStatus.REJECTED) else None
@@ -1827,7 +1831,29 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
         leave_notifications.leave_decided(db, record)      # A5
     elif update_data.get("status") == RequestStatus.CANCELLED and before.get("status") != RequestStatus.CANCELLED:
         leave_notifications.leave_cancelled(db, record)
+    if moved and record.status != RequestStatus.CANCELLED:       # HR moved the leave: the person is told the new dates
+        from app.modules.hr.hr_notifications import notify_employee
+        notify_employee(db, record.organization_id, record.employee_id, "leave.rescheduled",
+                        title=leave_notifications.period_label(record.start_date, record.end_date), link="/employee/leaves/history")
     return record
+
+
+def _check_leave_move(db: Session, record: LeaveRequest, start, end) -> None:
+    """New dates for a leave must make sense: the end not before the start, the leave still standing (a rejected or
+    cancelled one is applied for again instead), and no overlap with another pending or approved leave of the same person."""
+    if end < start:
+        raise BadRequestException("The end date cannot be before the start date.")
+    if record.status in (RequestStatus.REJECTED, RequestStatus.CANCELLED):
+        raise BadRequestException("A rejected or cancelled leave cannot be moved. The employee can apply again.")
+    clash = (db.query(LeaveRequest)
+             .filter(LeaveRequest.employee_id == record.employee_id, LeaveRequest.id != record.id,
+                     LeaveRequest.organization_id == record.organization_id,
+                     LeaveRequest.status.in_([RequestStatus.PENDING, RequestStatus.IN_PROGRESS, RequestStatus.APPROVED]),
+                     LeaveRequest.start_date <= end, LeaveRequest.end_date >= start)
+             .first())
+    if clash is not None:
+        raise BadRequestException(f"These dates overlap another leave of this employee ({clash.start_date:%d %b %Y} – "
+                                  f"{clash.end_date:%d %b %Y}). Choose other dates.")
 
 
 def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) -> None:
@@ -2198,14 +2224,16 @@ def get_leave_calendar(db: Session, org_id: int, year: Optional[int] = None, mon
         LeaveRequest.organization_id == org_id,
         LeaveRequest.status.in_([RequestStatus.APPROVED, RequestStatus.PENDING]),
     )
+    # every leave that touches the period, so one running across a month (or year) end shows in both months
     if year:
-        query = query.filter(
-            func.extract("year", LeaveRequest.start_date) == year,
-        )
-    if month:
-        query = query.filter(
-            func.extract("month", LeaveRequest.start_date) == month,
-        )
+        import calendar as _cal
+        if month:
+            first, last = date(year, month, 1), date(year, month, _cal.monthrange(year, month)[1])
+        else:
+            first, last = date(year, 1, 1), date(year, 12, 31)
+        query = query.filter(LeaveRequest.start_date <= last, LeaveRequest.end_date >= first)
+    elif month:
+        query = query.filter(func.extract("month", LeaveRequest.start_date) == month)
     records = query.order_by(LeaveRequest.start_date).all()
 
     people = _rows_by_id(db, Employee, [r.employee_id for r in records], Employee.organization_id == org_id)
@@ -5013,6 +5041,40 @@ def check_expense_trip(db: Session, data, organization_id: int) -> None:
         raise BadRequestException("Choose one of your own trips for this claim, or leave the trip empty.")
     if trip.status in (RequestStatus.REJECTED, RequestStatus.CANCELLED):
         raise BadRequestException("This trip was rejected or cancelled, so expenses cannot be claimed against it.")
+
+
+def check_expense_limit(db: Session, data, organization_id: int) -> None:
+    """Refuse a claim above the organization's expense limit (Travel › Settings "expense limit per day", or a stricter
+    active travel policy's daily allowance). A claim on a trip may use the limit for every day of that trip, less what is
+    already claimed on it (rejected and cancelled claims do not count); a claim without a trip gets one day's limit."""
+    from decimal import Decimal
+    from app.modules.hr.compensation_documents import _limit
+    limit = _limit(db, organization_id)
+    if limit is None or data.amount is None:
+        return
+    amount = Decimal(str(data.amount))
+    currency = (getattr(data, "currency", None) or "").upper()
+    days, already = 1, Decimal(0)
+    trip_id = getattr(data, "request_id", None)
+    if trip_id is not None:
+        trip = db.query(TravelRequest).filter(TravelRequest.id == trip_id, TravelRequest.organization_id == organization_id).first()
+        if trip is not None and trip.start_date and trip.end_date:
+            days = max((trip.end_date - trip.start_date).days + 1, 1)
+        claimed = db.query(func.coalesce(func.sum(TravelExpense.amount), 0)).filter(
+            TravelExpense.request_id == trip_id, TravelExpense.organization_id == organization_id,
+            TravelExpense.status.notin_([RequestStatus.REJECTED, RequestStatus.CANCELLED])).scalar()
+        already = Decimal(str(claimed or 0))
+    allowed = limit * days - already
+    if amount <= allowed:
+        return
+    money = lambda v: f"{currency + ' ' if currency else ''}{v:,.2f}"           # noqa: E731
+    if trip_id is not None:
+        detail = (f"The expense limit is {money(limit)} per day, so this {days}-day trip allows {money(limit * days)}"
+                  + (f", and {money(already)} is already claimed on it" if already else "")
+                  + f". You can claim up to {money(max(allowed, Decimal(0)))}.")
+    else:
+        detail = f"The expense limit is {money(limit)} per day. Enter {money(limit)} or less, or claim it against your trip."
+    raise BadRequestException(f"The amount is over your organization's expense limit. {detail}")
 
 
 def create_travel_expense(db: Session, data: TravelExpenseCreate, organization_id: int) -> TravelExpense:

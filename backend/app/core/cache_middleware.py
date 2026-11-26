@@ -161,6 +161,8 @@ _WRITE_INVALIDATION = [
     (r"/public/documents/sign", "/hr/employee"),
     (r"/public/documents/sign", "/hr/recruitment"),
     (r"/public/documents/sign", "/hr/onboarding"),
+    # the new hire's portal (details, forms, acknowledgements) changes what HR's onboarding and package screens show
+    (r"/public/onboarding", "/hr/onboarding"),
     (r"/hr/learning", "/hr/learning"),
     (r"/hr/recruitment", "/hr/recruitment"),
     (r"/hr/workforce", "/hr/workforce"),
@@ -243,6 +245,25 @@ def _build_key(org_id: Optional[int], user_key: str, method: str, path: str, que
     query_hash = hashlib.md5(query.encode()).hexdigest()[:10] if query else "none"
     org_part = org_id if org_id is not None else "none"
     return f"resp:{org_part}:{user_key}:{method}:{path}:{query_hash}"
+
+
+def invalidate_org_reads(org_id: Optional[int], prefix: str) -> None:
+    """Drop an organization's cached GET responses under `prefix`. For changes that do not come through an HTTP write the
+    middleware sees (the morning onboarding job, a starter set recorded at registration). Never raises."""
+    redis_client = get_redis()
+    if redis_client is None:
+        return
+    org_part = org_id if org_id is not None else "*"
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = redis_client.scan(cursor=cursor, match=f"resp:{org_part}:*:*:{prefix}*", count=200)
+            if keys:
+                redis_client.delete(*keys)
+            if cursor == 0:
+                break
+    except Exception as exc:
+        logger.debug("[cache] invalidation failed for org %s '%s': %s", org_id, prefix, exc)
 
 
 def _get_invalidation_prefixes(path: str) -> list[str]:

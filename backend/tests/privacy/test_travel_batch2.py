@@ -164,14 +164,33 @@ def test_the_maximum_is_per_organization(world):
     assert world.post("b_emp1", "/hr/travel", json=body).status_code == 200
 
 
-def test_a_claim_over_the_daily_limit_is_flagged_when_filed_not_blocked(world):
+def test_a_claim_over_the_daily_limit_is_refused_with_the_reason(world):
     _settings(world, expense_limit_per_day=Decimal("100"))
     over = world.post("a_emp1", "/hr/travel/expenses", json={"expense_type": "Hotel", "amount": 150, "description": "Two nights"})
     under = world.post("a_emp1", "/hr/travel/expenses", json={"expense_type": "Hotel", "amount": 50, "description": "One night"})
-    assert over.status_code == 201 and under.status_code == 201
-    assert over.json()["within_policy"] is False and under.json()["within_policy"] is True
-    listed = {r["id"]: r["within_policy"] for r in world.get("a_admin", "/hr/travel-expenses").json()}
-    assert listed == {over.json()["id"]: False, under.json()["id"]: True}
+    assert over.status_code == 400 and "expense limit" in str(over.json())
+    assert under.status_code == 201 and under.json()["within_policy"] is True
+    listed = [r["id"] for r in world.get("a_admin", "/hr/travel-expenses").json()]
+    assert listed == [under.json()["id"]], "the refused claim was never saved"
+
+
+def test_a_claim_on_a_trip_may_use_the_limit_for_every_day_less_what_is_claimed(world):
+    _settings(world, expense_limit_per_day=Decimal("100"))
+    trip = _trip(world, days=3)                                          # 3 days: up to 300 in all
+    _claim_row(world, amount=120, request_id=trip.id)
+    _claim_row(world, amount=500, request_id=trip.id, status=RequestStatus.REJECTED)   # a refused claim does not count
+    post = lambda amt: world.post("a_emp1", "/hr/travel/expenses",  # noqa: E731
+                                  json={"expense_type": "Hotel", "amount": amt, "description": "Hotel", "request_id": trip.id})
+    too_much = post(181)
+    assert too_much.status_code == 400
+    assert "up to INR 180.00" in str(too_much.json()) or "up to 180.00" in str(too_much.json())
+    assert post(180).status_code == 201
+    assert post(1).status_code == 400, "the trip's allowance is used up"
+
+
+def test_without_a_limit_any_amount_is_accepted(world):
+    ok = world.post("a_emp1", "/hr/travel/expenses", json={"expense_type": "Hotel", "amount": 99999, "description": "Hotel"})
+    assert ok.status_code == 201 and ok.json()["within_policy"] is None
 
 
 # ── T6: paging and totals ────────────────────────────────────────────────────────────────────────────────────────────

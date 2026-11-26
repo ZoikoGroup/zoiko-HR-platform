@@ -13,6 +13,7 @@ import { Briefcase, Copy, Loader2, Pencil, Plus, Save, Star, Trash2, Users, X } 
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import { deleteEngagementProfile, deleteRoleProfile, getOnboardingProfiles, saveEngagementProfile, saveRoleProfile }
   from "../../../service/hrService";
+import ProfileQuickSetup from "./ProfileQuickSetup";
 
 const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 const labelCls = "mb-1 block text-sm font-medium text-gray-700";
@@ -54,15 +55,27 @@ function Input({ id, label, value, onChange, type = "text", hint }) {
   );
 }
 
-function EngagementForm({ draft, set }) {
+function EngagementForm({ draft, set, categories = [] }) {
+  const pickCategory = (key) => {
+    const c = categories.find((x) => x.key === key);
+    set({ category: key, ...(c ? { employment_type: c.employment_type, ...(draft.name ? {} : { name: c.label }) } : {}) });
+  };
   return (
     <div className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label htmlFor="ep-cat" className={labelCls}>Employment category</label>
+        <select id="ep-cat" className={inputCls} value={draft.category || ""} onChange={(e) => pickCategory(e.target.value)}>
+          <option value="">Choose a category…</option>
+          {categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        </select>
+      </div>
       <Input id="ep-name" label="Profile name" value={draft.name} onChange={(v) => set({ name: v })} hint="e.g. Graduate Programme Associate" />
       <Input id="ep-party" label="What the person is called" value={draft.party_term} onChange={(v) => set({ party_term: v })} hint="e.g. Employee" />
       <Input id="ep-prog" label="Programme name" value={draft.programme_name} onChange={(v) => set({ programme_name: v })} />
       <Input id="ep-prog-s" label="Programme short name" value={draft.programme_short} onChange={(v) => set({ programme_short: v })} />
       <Input id="ep-eterm" label="What the engagement is called" value={draft.engagement_term} onChange={(v) => set({ engagement_term: v })} hint="e.g. employment" />
-      <Input id="ep-etype" label="Employment type" value={draft.employment_type} onChange={(v) => set({ employment_type: v })} />
+      <Input id="ep-etype" label="Employment type wording" value={draft.employment_type} onChange={(v) => set({ employment_type: v })}
+        hint="Filled from the category, e.g. Full-time, permanent" />
       <div>
         <label htmlFor="ep-rtype" className={labelCls}>Pay type</label>
         <select id="ep-rtype" className={inputCls} value={draft.remuneration_type || "salary"} onChange={(e) => set({ remuneration_type: e.target.value })}>
@@ -110,9 +123,18 @@ function EngagementForm({ draft, set }) {
   );
 }
 
-function RoleForm({ draft, set }) {
+function RoleForm({ draft, set, suggestions = [] }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
+      {suggestions.length > 0 && (
+        <div className="sm:col-span-2">
+          <label htmlFor="rp-suggest" className={labelCls}>Pick a role for your sectors</label>
+          <select id="rp-suggest" className={inputCls} value="" onChange={(e) => e.target.value && set({ title: e.target.value })}>
+            <option value="">Choose a suggested role… (or type the title below)</option>
+            {suggestions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      )}
       <div className="sm:col-span-2"><Input id="rp-title" label="Role title (matched to the hire's position)" value={draft.title} onChange={(v) => set({ title: v })} /></div>
       <TextArea id="rp-about" label="About the role (blank line between paragraphs)" rows={4}
         value={(draft.about || []).join("\n\n")} onChange={(v) => set({ about: v.split(/\n\s*\n/) })} />
@@ -131,7 +153,7 @@ function RoleForm({ draft, set }) {
   );
 }
 
-const ENGAGEMENT_KEYS = ["name", "programme_name", "programme_short", "party_term", "engagement_term", "employment_type", "remuneration_type",
+const ENGAGEMENT_KEYS = ["name", "category", "programme_name", "programme_short", "party_term", "engagement_term", "employment_type", "remuneration_type",
   "remuneration_label", "assessment_months", "assessment_label", "conversion_text", "working_days", "start_time", "end_time", "timezone_label",
   "work_schedule", "saturday_rule", "leave_rule", "leave_accrual_days_per_month", "leave_cap_in_period", "paid_leave_after_months",
   "carry_forward_on_conversion", "workspace_requirements", "default"];
@@ -205,6 +227,9 @@ export default function OnboardingProfilesSettings() {
     }
   };
 
+  const categoryLabel = (key) => ((data?.employment_categories || []).find((c) => c.key === key) || {}).label || "";
+  const roleSuggestions = (data?.suggested_roles || []).filter((r) => !r.added).map((r) => r.title);
+
   const List = ({ kind, items, icon: Icon, title, empty }) => (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -218,7 +243,7 @@ export default function OnboardingProfilesSettings() {
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-gray-900">{p.name || p.title}</span>
                 <span className="block truncate text-xs text-gray-500">
-                  {kind === "engagement" ? `${p.party_term || "—"} · ${p.assessment_label || "—"} · ${p.remuneration_label || "—"}`
+                  {kind === "engagement" ? `${categoryLabel(p.category) ? `${categoryLabel(p.category)} · ` : ""}${p.party_term || "—"} · ${p.assessment_label || "—"} · ${p.remuneration_label || "—"}`
                     : `${(p.responsibility_groups || []).length} responsibility group(s) · ${(p.kpi_areas || []).length} KPI area(s)`}
                 </span>
               </span>
@@ -255,6 +280,7 @@ export default function OnboardingProfilesSettings() {
               {msg.text}
             </div>
           )}
+          <ProfileQuickSetup data={data} onData={setData} onMessage={setMsg} busy={busy} setBusy={setBusy} />
           <List kind="engagement" items={data.engagement_profiles} icon={Users} title="Engagement profiles" empty="" />
           <List kind="role" items={data.role_profiles} icon={Briefcase} title="Role profiles"
             empty="No role profiles yet. A hire's documents print their role's duties only when a role profile matches their position." />
@@ -278,8 +304,10 @@ export default function OnboardingProfilesSettings() {
                 </ul>
               )}
               {editing.kind === "role"
-                ? <RoleForm draft={editing.draft} set={(patch) => setEditing((e) => ({ ...e, draft: { ...e.draft, ...patch } }))} />
-                : <EngagementForm draft={editing.draft} set={(patch) => setEditing((e) => ({ ...e, draft: { ...e.draft, ...patch } }))} />}
+                ? <RoleForm draft={editing.draft} suggestions={editing.isNew ? roleSuggestions : []}
+                    set={(patch) => setEditing((e) => ({ ...e, draft: { ...e.draft, ...patch } }))} />
+                : <EngagementForm draft={editing.draft} categories={data?.employment_categories || []}
+                    set={(patch) => setEditing((e) => ({ ...e, draft: { ...e.draft, ...patch } }))} />}
             </div>
             <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-4">
               <SecondaryButton onClick={() => setEditing(null)} disabled={busy}>Cancel</SecondaryButton>

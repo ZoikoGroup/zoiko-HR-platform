@@ -8,13 +8,14 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Download, Eye, FileSignature, Hourglass, Info, Loader2, Send, ShieldAlert, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Eye, FileSignature, Hourglass, Info, Loader2, Send, ShieldAlert, UserRound, Zap } from "lucide-react";
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import OfferPackageV2Section from "./OfferPackageV2Section";
 import { Toast, useToast } from "../../../components/Toast";
 import { openFile } from "../../../utils/fileViewer";
 import { downloadHirePackageDocument, downloadHirePackageZip, getHirePackage, getHirePackagePreview, saveHirePackageInputs, sendOnboardingPackage,
   sendOnboardingPortalInvite } from "../../../service/hrService";
+import { sendPreparedDocuments } from "../../../service/onboardingSetupService";
 
 const MODE_TONE = { SIGN: "violet", ACKNOWLEDGE: "blue", COMPLETE: "teal", VOLUNTARY: "pink", INFO: "gray" };
 
@@ -34,6 +35,36 @@ const UNSENT = ["not_sent", "declined"];
 /** Can HR choose to send this document now? Ready, or waiting only for something the new hire enters in the portal. */
 const sendable = (d) => UNSENT.includes(d.state) && (d.ready
   || (d.missing_clauses.length === 0 && d.missing_fields.length > 0 && d.missing_fields.every((f) => f.candidate_provides)));
+
+/** One typed input for a value HR enters: the organisation's own fields carry their type (choice, yes/no, date, number). */
+export function HireValueInput({ id, field, value, onChange, className, placeholder, maxLength }) {
+  const t = field.custom ? field.input_type : null;
+  if (t === "choice" || t === "yes_no") {
+    const options = t === "yes_no" ? [{ v: "yes", l: "Yes" }, { v: "no", l: "No" }] : (field.options || []).map((o) => ({ v: o, l: o }));
+    return (
+      <select id={id} className={className} value={value || ""} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Choose…</option>
+        {options.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    );
+  }
+  if (t === "long_text") {
+    return <textarea id={id} rows={3} maxLength={4000} className={className} value={value || ""} onChange={(e) => onChange(e.target.value)} />;
+  }
+  return (
+    <input id={id} className={className} value={value || ""} maxLength={maxLength}
+      type={t === "date" || DATE_INPUTS.includes(field.key) ? "date" : "text"}
+      inputMode={t === "number" || t === "money" || field.key === "employment.base_pay" ? "decimal" : undefined}
+      placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+  );
+}
+
+/** How the panel names something only the new hire provides. */
+function hireNeedText(f) {
+  if (f.key === "worker.postal_address") return "their postal address";
+  if (f.key === "worker.outside_activities") return "their outside-activities declaration";
+  return (f.meaning || "").toLowerCase();
+}
 
 const fieldCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 
@@ -136,8 +167,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
       waitingForHire: unsent.filter((d) => !d.ready && d.missing_clauses.length === 0
         && d.missing_fields.length > 0 && d.missing_fields.every((f) => f.candidate_provides)),
       blocked: unsent.filter((d) => !d.ready && (d.missing_clauses.length > 0 || d.missing_fields.some((f) => !f.candidate_provides))),
-      hireNeeds: [...new Set(unsent.flatMap((d) => d.missing_fields.filter((f) => f.candidate_provides)
-        .map((f) => (f.key === "worker.postal_address" ? "their postal address" : "their outside-activities declaration"))))],
+      hireNeeds: [...new Set(unsent.flatMap((d) => d.missing_fields.filter((f) => f.candidate_provides).map(hireNeedText)))],
     };
   }, [pkg]);
   const [resending, setResending] = useState(false);
@@ -190,6 +220,49 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
       setInputs({});
     } catch (e) {
       setError(e?.message || "The details could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // documents automation prepared (Settings › Documents in your onboarding package › Rules & timing): one click sends them
+  const prepared = useMemo(() => {
+    const q = pkg?.automation?.queued || [];
+    return (pkg?.documents || []).filter((d) => q.includes(d.category));
+  }, [pkg]);
+  const [sendingPrepared, setSendingPrepared] = useState(false);
+  const sendPrepared = async () => {
+    setSendingPrepared(true);
+    setError("");
+    try {
+      const res = await sendPreparedDocuments(hireId);
+      if (res?.package) setPkg(res.package);
+      setResult(res);
+      showToast(res?.issued?.length ? "success" : "error", res?.message || "Nothing was sent.");
+      onSent?.(res);
+    } catch (e) {
+      const msg = e?.message || "The prepared documents could not be sent.";
+      setError(msg);
+      showToast("error", msg);
+    } finally {
+      setSendingPrepared(false);
+    }
+  };
+
+  // the organisation's own fields HR types for this hire (all of them, so values can be set before anything is missing)
+  const customInputs = (pkg?.input_fields || []).filter((f) => f.custom);
+  const [customValues, setCustomValues] = useState({});
+  const saveCustom = async () => {
+    const values = Object.fromEntries(Object.entries(customValues).map(([k, v]) => [k, String(v ?? "").trim()]));
+    if (!Object.keys(values).length) return;
+    setSaving(true);
+    setError("");
+    try {
+      setPkg(await saveHirePackageInputs(hireId, values));
+      setCustomValues({});
+      showToast("success", "Saved.");
+    } catch (e) {
+      setError(e?.message || "The values could not be saved.");
     } finally {
       setSaving(false);
     }
@@ -250,7 +323,42 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
           </div>
         )}
 
+        {prepared.length > 0 && (
+          <div role="status" className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+            <p className="flex items-start gap-2 font-semibold"><Zap className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {prepared.length} document{prepared.length === 1 ? " was" : "s were"} prepared automatically and {prepared.length === 1 ? "is" : "are"} ready to send
+            </p>
+            <p className="mt-1 text-xs">{prepared.map((d) => d.title).join(", ")}. Preview them below, then send.</p>
+            <button type="button" onClick={sendPrepared} disabled={sendingPrepared}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              {sendingPrepared ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Send the prepared document{prepared.length === 1 ? "" : "s"}
+            </button>
+          </div>
+        )}
+
         {pkg && <OfferPackageV2Section pkg={pkg} hireId={hireId} onSaved={setPkg} onError={setError} onNotice={showToast} />}
+
+        {customInputs.length > 0 && (
+          <fieldset className="rounded-2xl border border-gray-200 bg-white p-4">
+            <legend className="px-1 text-sm font-semibold text-gray-800">Your document fields – {pkg?.candidate_name}</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {customInputs.map((f) => (
+                <div key={f.key}>
+                  <label htmlFor={`pkg-cf-${f.key}`} className="mb-1 block text-sm font-medium text-gray-700">
+                    {f.meaning}{!f.required && <span className="text-xs font-normal text-gray-400"> (optional)</span>}
+                  </label>
+                  <HireValueInput id={`pkg-cf-${f.key}`} field={f} className={fieldCls}
+                    value={customValues[f.key] ?? f.value ?? ""} onChange={(v) => setCustomValues((p) => ({ ...p, [f.key]: v }))} />
+                  {f.help && <p className="mt-0.5 text-xs text-gray-500">{f.help}</p>}
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <SecondaryButton onClick={saveCustom} disabled={saving || !Object.keys(customValues).length}>{saving ? "Saving…" : "Save"}</SecondaryButton>
+            </div>
+          </fieldset>
+        )}
 
         {pkg && status && ready.length === 0 && (
           <div role="status" className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
@@ -332,11 +440,10 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
                     <textarea id={`pkg-in-${f.key}`} rows={3} maxLength={1200} className={fieldCls} value={inputs[f.key] || ""}
                       placeholder="2–3 sentences on why the role exists" onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
                   ) : (
-                    <input id={`pkg-in-${f.key}`} className={fieldCls} value={inputs[f.key] || ""} maxLength={f.org_wide ? 255 : 300}
-                      type={DATE_INPUTS.includes(f.key) ? "date" : "text"}
-                      inputMode={f.key === "employment.base_pay" ? "decimal" : undefined}
+                    <HireValueInput id={`pkg-in-${f.key}`} field={f} className={fieldCls} value={inputs[f.key] || ""}
+                      maxLength={f.org_wide ? 255 : 300}
                       placeholder={PLACEHOLDERS[f.key] || (f.key.includes("_url") ? "https://…" : "")}
-                      onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
+                      onChange={(v) => setInputs((p) => ({ ...p, [f.key]: v }))} />
                   )}
                   {f.key === "employment.base_pay" && (
                     <p className="mt-0.5 text-xs text-gray-500">Type the amount (e.g. 12000): it is printed with the currency and pay period, e.g. “₹12,000 per month”.</p>
@@ -405,8 +512,10 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusPill tone={MODE_TONE[d.mode]}>{d.mode_label}</StatusPill>
                     {unsent && d.ready
-                      ? <StatusPill tone="teal" icon={FileSignature}>Ready to send</StatusPill>
-                      : <StatusPill tone={unsent ? "amber" : st.tone} icon={st.icon}>{unsent ? "Waiting" : st.label}</StatusPill>}
+                      ? <StatusPill tone="teal" icon={FileSignature}>{prepared.some((p) => p.category === d.category) ? "Prepared – ready to send" : "Ready to send"}</StatusPill>
+                      : d.awaiting_employer
+                        ? <StatusPill tone="violet" icon={Hourglass}>Signed – awaiting employer</StatusPill>
+                        : <StatusPill tone={unsent ? "amber" : st.tone} icon={st.icon}>{unsent ? "Waiting" : st.label}</StatusPill>}
                   </div>
                 </div>
                 {unsent && !d.ready && (

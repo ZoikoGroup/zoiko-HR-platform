@@ -179,14 +179,12 @@ const products = {
           { label: "Department List",      href: "/zoiko-hr/departments/list",        icon: Building2 },
           { label: "Structure",            href: "/zoiko-hr/departments/structure",    icon: GitBranch },
           { label: "Reports",              href: "/zoiko-hr/departments/reports",      icon: FileText },
-          { label: "Settings",             href: "/zoiko-hr/departments/settings",     icon: SlidersHorizontal },
         ]},
         { label: "Designations",       icon: BadgeCheck, children: [
           { label: "Dashboard",            href: "/zoiko-hr/designations",             icon: LayoutDashboard },
           { label: "Designation List",     href: "/zoiko-hr/designations/list",        icon: BadgeCheck },
           { label: "Level Matrix",         href: "/zoiko-hr/designations/levels",       icon: Layers },
           { label: "Reports",              href: "/zoiko-hr/designations/reports",      icon: FileText },
-          { label: "Settings",             href: "/zoiko-hr/designations/settings",     icon: SlidersHorizontal },
         ]},
         { label: "Leave",              icon: Calendar, children: [
           { label: "Dashboard",            href: "/zoiko-hr/leave",                    icon: LayoutDashboard },
@@ -262,8 +260,7 @@ const products = {
           { label: "Skills",             href: "/zoiko-hr/learning/skills",         icon: Target, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
           { label: "Reports",           href: "/zoiko-hr/learning/reports",        icon: FileText, excludeRoles: [ROLES.MANAGER], featureKey: "hr.learning.core" },
         ]},
-        // Temporarily hidden for Org Admin and HR Admin; remove excludeRoles to restore.
-        { label: "Compensation",       icon: CircleDollarSign, excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN], children: [
+        { label: "Compensation",       icon: CircleDollarSign, children: [
           { label: "Dashboard",          href: "/zoiko-hr/compensation",               icon: LayoutDashboard },
           { label: "Salary Structures",  href: "/zoiko-hr/compensation/salary-structures", icon: CircleDollarSign },
           { label: "Pay Grades",         href: "/zoiko-hr/compensation/pay-grades",     icon: BadgeCheck },
@@ -300,8 +297,7 @@ const products = {
           { label: "Expenses",           href: "/zoiko-hr/travel/expenses",       icon: Receipt, featureKey: "hr.travel.core" },
           { label: "Settings",           href: "/zoiko-hr/travel/settings",       icon: SlidersHorizontal, featureKey: "hr.travel.core" },
         ]},
-        // Temporarily hidden for Org Admin and HR Admin; remove excludeRoles to restore.
-        { label: "Workforce Planning", icon: Target, excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN], children: [
+        { label: "Workforce Planning", icon: Target, children: [
           { label: "Dashboard",             href: "/zoiko-hr/workforce-planning",       icon: LayoutDashboard, featureKey: "hr.workforce_planning.core" },
           { label: "Plans",                 href: "/zoiko-hr/workforce-planning/plans",  icon: Target, featureKey: "hr.workforce_planning.core" },
           { label: "Headcount",             href: "/zoiko-hr/workforce-planning/headcount", icon: Users, featureKey: "hr.workforce_planning.core" },

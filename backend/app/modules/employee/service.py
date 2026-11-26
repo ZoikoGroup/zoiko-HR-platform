@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional, List
 from decimal import Decimal
 
-from sqlalchemy import cast, extract, func, Integer, text
+from sqlalchemy import and_, cast, extract, func, Integer, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base
@@ -899,6 +899,12 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     except Exception:
         db.rollback()
         logger.exception("company profile could not be created for new organisation %s", org.id)
+    try:                                             # its onboarding documents start from its country's starter set
+        from app.modules.hr import onboarding_starter_sets
+        onboarding_starter_sets.mark_new_organisation(db, org.id, getattr(org, "country", None))
+    except Exception:
+        db.rollback()
+        logger.exception("onboarding starter set could not be recorded for new organisation %s", org.id)
 
     dept_code = f"MGMT_{org.id}"
     dept_department_code = f"{org_code}DEP001"
@@ -2739,6 +2745,15 @@ def _employee_list_loads():
     return (joinedload(Employee.department), joinedload(Employee.designation), joinedload(Employee.reporting_manager))
 
 
+def _employee_search_filter(search: str, *extra_columns):
+    """Match a typed search the way people type it: every word must appear in the name, email, ID, code (or an extra
+    column), so "siddartha a" finds Siddartha Arora — the whole text never has to sit inside one column."""
+    columns = (Employee.first_name, Employee.last_name, Employee.email, Employee.employee_id, Employee.employee_code,
+               *extra_columns)
+    words = [w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") for w in search.split()]
+    return and_(*(or_(*(col.ilike(f"%{w}%", escape="\\") for col in columns)) for w in words))
+
+
 def get_all_employees(
     db: Session,
     page: int = 1,
@@ -2758,15 +2773,8 @@ def get_all_employees(
     if visible_roles:
         query = query.filter(Employee.role.in_(visible_roles))
 
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            (Employee.first_name.ilike(search_term)) |
-            (Employee.last_name.ilike(search_term)) |
-            (Employee.email.ilike(search_term)) |
-            (Employee.employee_id.ilike(search_term)) |
-            (Employee.employee_code.ilike(search_term))
-        )
+    if search and search.strip():
+        query = query.filter(_employee_search_filter(search))
 
     if department_id:
         query = query.filter(Employee.department_id == department_id)
@@ -2808,16 +2816,8 @@ def get_employees(
     else:
         query = query.filter(Employee.role == UserRole.EMPLOYEE)
 
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            (Employee.first_name.ilike(search_term)) |
-            (Employee.last_name.ilike(search_term)) |
-            (Employee.email.ilike(search_term)) |
-            (Employee.employee_id.ilike(search_term)) |
-            (Employee.employee_code.ilike(search_term)) |
-            (Employee.job_title.ilike(search_term))
-        )
+    if search and search.strip():
+        query = query.filter(_employee_search_filter(search, Employee.job_title))
 
     if department_id:
         query = query.filter(Employee.department_id == department_id)

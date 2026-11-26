@@ -1243,6 +1243,7 @@ def create_travel_expense(
     # only an organization admin or HR admin may file a claim for someone else (audit T2)
     data.employee_id = ownership.on_behalf_employee_id(current_user, data.employee_id)
     hr_service.check_expense_trip(db, data, current_user.organization_id)       # same organization, own trip (audit T4)
+    hr_service.check_expense_limit(db, data, current_user.organization_id)      # over the expense limit: refused, with why
     return hr_service.create_travel_expense(db, data, organization_id=current_user.organization_id)
 
 

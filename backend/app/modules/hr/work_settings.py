@@ -94,10 +94,52 @@ def _type_of(key: str):
     raise KeyError(key)
 
 
+# ── read cache ───────────────────────────────────────────────────────────────────────────────────────────────────
+# A document pulls ~20 settings and a bulk policy rollout renders hundreds of documents: one query per key made that the
+# largest cost of a rollout. All of an organization's settings are read in one query and kept on the session until it
+# commits, rolls back, or flushes a change to any organization_configs row, so a value saved is always read back at once.
+_CACHE_KEY = "work_settings_values"
+_PREFIXES = sorted({k.split(".", 1)[0] for k in SETTINGS})
+
+
+def _values(db, organization_id: int) -> dict:
+    info = getattr(db, "info", None)
+    cache = info.setdefault(_CACHE_KEY, {}) if isinstance(info, dict) else {}
+    if organization_id not in cache:
+        from sqlalchemy import or_
+        rows = (db.query(OrganizationConfig.key, OrganizationConfig.value)
+                .filter(OrganizationConfig.organization_id == organization_id,
+                        or_(*[OrganizationConfig.key.like(f"{p}.%") for p in _PREFIXES])).all())
+        cache[organization_id] = {k: v for k, v in rows}
+    return cache[organization_id]
+
+
+def _drop_cache(session, *_args) -> None:
+    session.info.pop(_CACHE_KEY, None)
+
+
+def _drop_on_config_change(session, _flush_context, _instances) -> None:
+    if _CACHE_KEY in session.info and any(isinstance(o, OrganizationConfig)
+                                          for o in (*session.new, *session.dirty, *session.deleted)):
+        session.info.pop(_CACHE_KEY, None)
+
+
+def _install_cache_events() -> None:
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    if not event.contains(Session, "after_commit", _drop_cache):
+        event.listen(Session, "after_commit", _drop_cache)
+        event.listen(Session, "after_rollback", _drop_cache)
+        event.listen(Session, "after_soft_rollback", _drop_cache)
+        event.listen(Session, "before_flush", _drop_on_config_change)
+
+
+_install_cache_events()
+
+
 def get(db, organization_id: int, key: str):
     typ = _type_of(key)
-    row = _row(db, organization_id, key)
-    value = _cast(row.value if row else None, typ)
+    value = _cast(_values(db, organization_id).get(key), typ)
     return SETTINGS[key][1] if value is None and key in SETTINGS else value
 
 

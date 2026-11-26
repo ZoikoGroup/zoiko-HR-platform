@@ -200,4 +200,4 @@ def test_section_13_undo_before_use_restores_the_settings(world):
     cats = [c["key"] for c in world.get("a_admin", "/hr/onboarding/request-categories").json()["categories"]]
     assert "driving_licence" not in cats
     docs = {d["category"]: d for d in world.get("a_admin", "/hr/onboarding/package/documents").json()["documents"]}
-    assert docs["velocity_report"]["excluded_engagement_slugs"] == [] and "Zoiko default" in docs["offer_letter"]["template_state"]["label"]
+    assert docs["velocity_report"]["excluded_engagement_slugs"] == [] and "standard template" in docs["offer_letter"]["template_state"]["label"]

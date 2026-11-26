@@ -44,7 +44,8 @@ export function serverExpenseErrors(err) {
     }
   }
   const message = err?.message || "";
-  if (!Object.keys(fieldErrors).length && /trip/i.test(message)) fieldErrors.tripId = message;
+  if (!Object.keys(fieldErrors).length && /expense limit/i.test(message)) fieldErrors.amount = message;   // over the limit
+  else if (!Object.keys(fieldErrors).length && /trip/i.test(message)) fieldErrors.tripId = message;
   return { fieldErrors, message: Object.keys(fieldErrors).length ? "" : message || "The expense claim could not be submitted." };
 }
 

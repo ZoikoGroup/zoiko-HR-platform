@@ -301,6 +301,19 @@ export default function OnboardingDocuments() {
 
   const activeHires = records.filter((r) => !INACTIVE_HIRE_STATUSES.includes(r.status));
 
+  // ?hire=<id> (the link in "Documents ready to send" notifications) opens that new hire's package panel once
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hireParam = params.get("hire");
+    if (!hireParam || !activeHires.some((r) => String(r.id) === String(hireParam))) return;
+    setPackageHireId(String(hireParam));
+    setShowPackageModal(true);
+    params.delete("hire");
+    const qs = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records]);
+
   const statusCounts = useMemo(() => STATUSES.reduce((acc, s) => {
     acc[s.value] = documents.filter((d) => statusOf(d) === s.value).length;
     return acc;
