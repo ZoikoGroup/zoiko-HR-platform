@@ -10,6 +10,11 @@ on:
   # Keep deployment recoverable from the Actions tab if a workflow_run was
   # missed or its run was cancelled. Manual runs deploy the current main HEAD.
   workflow_dispatch:
+    inputs:
+      skip_backup:
+        description: "Skip the pre-migration database backup (emergencies only, e.g. pg_dump itself is broken)"
+        type: boolean
+        default: false
 
 # One production deploy at a time; a deploy that has started is never cancelled halfway through.
 concurrency:
@@ -95,11 +100,12 @@ jobs:
           # the commit CI tested (a manual run: the current main HEAD). Deployed exactly, never "whatever main is now",
           # so a commit merged while this one was being tested cannot go live untested.
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SKIP_BACKUP: ${{ github.event.inputs.skip_backup || 'false' }}
         with:
           host: ${{ secrets.GCP_SSH_HOST }}
           username: ${{ secrets.GCP_SSH_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
-          envs: CI_BUILD,DEPLOY_SHA
+          envs: CI_BUILD,DEPLOY_SHA,SKIP_BACKUP
           script: |
             set -e
             echo "Deploying $DEPLOY_SHA"
@@ -111,6 +117,13 @@ jobs:
             cd backend
             source venv/bin/activate
             pip install -r requirements.txt
+            # M1-02: a restore point before any migration. Skips itself when no migration is pending; if the backup
+            # fails, the deploy stops here and the database is untouched. Restore: docs/runbooks/database-restore.md
+            if [ "$SKIP_BACKUP" = "true" ]; then
+              echo "::warning::Pre-migration backup skipped (manual run with skip_backup)"
+            else
+              python scripts/predeploy_backup.py --label "$DEPLOY_SHA"
+            fi
             alembic upgrade head
             deactivate
             sudo systemctl restart zoiko-hr-backend
