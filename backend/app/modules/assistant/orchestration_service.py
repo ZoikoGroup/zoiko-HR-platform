@@ -331,6 +331,11 @@ _SCREEN_NAME_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 _POLICY_WORD_RE = re.compile(r"\bpolic(y|ies)\b|\bhandbook\b|\brules?\b", re.IGNORECASE)
+# The platform guide's answer for a screen that doesn't exist ("Zoiko HR doesn’t have a screen called …").
+_SCREEN_ABSENT_RE = re.compile(
+    r"\bZoiko HR (doesn['’]t|does not) (currently )?(have|include|offer)\b.{0,60}"
+    r"\b(screen|page|portal|feature|hub|cent(er|re)|dashboard|tracker|module)s?\b",
+    re.IGNORECASE)
 
 _CAPABILITIES_RE = re.compile(
     r"^\s*(what\s+(can|do)\s+you\s+(do|help(\s+me)?\s+with|know)|how\s+can\s+you\s+help(\s+me)?|help(\s+me)?|"
@@ -421,7 +426,9 @@ Respond in exactly two parts, in this order:
 Rules:
 - The plain-language answer always comes first. Never put the delimiter or JSON before it.
 - If the evidence does not answer the question, say so plainly in your answer and set
-  answer_type="no_answer", confidence_state="no_reliable_answer".
+  answer_type="no_answer", confidence_state="no_reliable_answer". Say it the way the user sees it — "your
+  organization's published policies don't cover this" — never "the evidence", "the available evidence", "the
+  documents provided" or "the context": those are internal words the user never sees.
 - If two or more pieces of evidence materially disagree, set confidence_state="conflict" and describe
   the disagreement neutrally in your answer without picking a winner.
 - cited_fragment_ids must only contain ids that appear in the <evidence id="..."> tags given to you.
@@ -1222,10 +1229,25 @@ def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
                                  "or choose 'Talk to HR' and someone will point you to it.",
                                  AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
         return
-    found = metadata.get("answer_type") != "no_answer"
+    # "Zoiko HR doesn't have a screen called X" is a definite answer read off the complete screen list, not a
+    # failure to answer: shown without the "No reliable answer" label and the Talk-to-HR prompt.
+    found = metadata.get("answer_type") != "no_answer" or bool(_SCREEN_ABSENT_RE.search(answer_text))
     yield ("done", _finalize(db, turn, _plain_identifiers(answer_text),
                              AnswerType.GROUNDED if found else AnswerType.NO_ANSWER,
                              ConfidenceState.SUPPORTED if found else ConfidenceState.NO_RELIABLE_ANSWER))
+
+
+def _merge_general_guidance(not_found_text: str, guidance: str, cited_ids) -> str:
+    """The reply when the organization's documents didn't answer and labelled general guidance follows.
+
+    A "not covered" part that cites no company document says nothing the guidance doesn't — the guidance already
+    opens with "Your organization hasn't published a policy on this" — and showing both read as the same answer
+    twice ("…open Attendance → Shifts & Work Policy…" in each). Then only the guidance is shown (the streamed
+    "not covered" text is replaced when the turn completes). A part that DID cite a company document carries real
+    company information, so both are kept."""
+    if cited_ids:
+        return f"{not_found_text}\n\n{guidance}"
+    return guidance
 
 
 def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
@@ -1362,8 +1384,9 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
         extra_text = (extra_text or "").strip()
         if (extra_text and extra_meta is not None and extra_meta.get("answer_type") != "no_answer"
                 and not extra_text.upper().startswith("NONE") and not guardrails.check_output_disclosure(extra_text)):
-            yield ("delta", f"\n\n{extra_text}")
-            answer_text = f"{answer_text}\n\n{extra_text}"
+            answer_text = _merge_general_guidance(answer_text, extra_text, cited_ids)
+            if answer_text != extra_text:
+                yield ("delta", f"\n\n{extra_text}")
             answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
 
     if confidence_state == ConfidenceState.CONFLICT:

@@ -86,3 +86,20 @@ def test_a_drop_of_more_than_three_points_fails():
     assert scoring.compare({"overall": 87.5, "dimensions": {"correct_screen": 92.0}}, base) == []
     assert scoring.compare({"overall": 86.9, "dimensions": {"correct_screen": 95.0}}, base)
     assert scoring.compare({"overall": 90.0, "dimensions": {"correct_screen": 91.9}}, base)
+
+
+def test_a_policy_answer_is_said_once():
+    twice = _live("pol-emp-remote-work",
+                  "The remote-work policy isn't listed in the available evidence. Open Attendance → Shifts & Work Policy."
+                  "\n\nYour organization hasn't published a policy on this, so here's general guidance: open "
+                  "Attendance → Shifts & Work Policy.", answer_type="partial")
+    assert not twice.checks[scoring.GROUNDED] and not twice.checks[scoring.PLAIN]
+    once = _live("pol-emp-remote-work", "Your organization hasn't published a policy on this, so here's general "
+                                        "guidance: ...", answer_type="partial")
+    assert once.checks[scoring.GROUNDED] and once.checks[scoring.PLAIN]
+
+
+def test_no_such_screen_is_not_labelled_no_reliable_answer():
+    answer = "Zoiko HR doesn’t have a screen called “Wellness Hub.” Ask your HR team."
+    assert not _live("inv-emp-wellness-hub", answer, answer_type="no_answer").checks[scoring.GROUNDED]
+    assert _live("inv-emp-wellness-hub", answer, answer_type="grounded").passed
