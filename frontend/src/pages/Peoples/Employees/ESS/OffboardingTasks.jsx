@@ -68,7 +68,8 @@ function TaskRow({ task, onChange }) {
           : <CheckCircle2 size={18} className="mt-0.5 text-emerald-600" aria-hidden="true" />}
         <div>
           <p className="font-medium text-slate-900">{task.title}</p>
-          {task.description && <p className="text-sm text-slate-600">{task.description}</p>}
+          {task.auto_key ? <p className="text-sm text-blue-800">{task.auto_hint}</p>
+            : task.description && <p className="text-sm text-slate-600">{task.description}</p>}
           <p className={`text-xs ${task.overdue ? "font-semibold text-red-700" : "text-slate-500"}`}>
             {task.owner_label} · due {formatDate(task.due_date)}{task.overdue ? " · overdue" : ""}{task.status === "exception" ? " · not needed" : ""}
           </p>

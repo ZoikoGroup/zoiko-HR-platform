@@ -8,9 +8,10 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Download, Eye, FileSignature, Hourglass, Info, Loader2, Send, ShieldAlert, UserRound, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Eye, FileSignature, Hourglass, Info, Loader2, Pencil, Send, ShieldAlert, UserRound, Zap } from "lucide-react";
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import OfferPackageV2Section from "./OfferPackageV2Section";
+import PackageDocumentEditor from "./PackageDocumentEditor";
 import { Toast, useToast } from "../../../components/Toast";
 import { openFile } from "../../../utils/fileViewer";
 import { downloadHirePackageDocument, downloadHirePackageZip, getHirePackage, getHirePackagePreview, saveHirePackageInputs, sendOnboardingPackage,
@@ -76,6 +77,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [previewing, setPreviewing] = useState("");
+  const [editing, setEditing] = useState(null);        // the document open in the full editor (see PackageDocumentEditor)
   const [result, setResult] = useState(null);
   const [chosen, setChosen] = useState(() => new Set());     // the documents HR ticked to send
   const [toast, showToast] = useToast();                     // success / error of Send and Save choices, always on screen
@@ -554,6 +556,12 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <p className="text-xs text-gray-400">Signs: {d.signers}</p>
                   <span className="flex items-center gap-1">
+                    <button type="button" onClick={() => setEditing(d)} disabled={previewing === d.category}
+                      title={d.editable ? "Edit the whole document, including any missing details or wording" : "Sent documents are read-only"}
+                      aria-label={`Edit / Fill missing gaps for ${d.title}`}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50">
+                      <Pencil className="h-3.5 w-3.5" />Edit / Fill missing gaps{d.edited ? " · edited" : ""}
+                    </button>
                     <button type="button" onClick={() => preview(d.category)} disabled={previewing === d.category}
                       className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50">
                       {previewing === d.category ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}{d.filled_online ? "View filled form" : "Preview"}
@@ -585,6 +593,12 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
           {sending ? "Sending…" : `Send ${chosenCount || ""} selected document${chosenCount === 1 ? "" : "s"}`}
         </PrimaryButton>
       </Footer>
+      {editing && (
+        <PackageDocumentEditor hireId={hireId} category={editing.category} title={editing.title}
+          onClose={() => setEditing(null)}
+          onSaved={(updated, message) => { setPkg(updated); showToast("success", message); }}
+          onError={(message) => showToast("error", message)} />
+      )}
       <Toast toast={toast} />
     </>
   );

@@ -34,6 +34,7 @@ function TaskCard({ task, onDone, onAssign, onExcuse, busy }) {
       </p>
       <p className="mt-1 text-xs text-slate-500">{task.assignee ? `Assigned to ${task.assignee.name}` : "Unassigned"}
         {!task.mandatory && " · optional"}</p>
+      {task.auto_key && <p className="mt-1 text-xs text-blue-800">{task.auto_hint}</p>}
       <div className="mt-2 flex flex-wrap gap-1.5">
         <button type="button" disabled={busy} onClick={() => onDone(task)} aria-label={`Mark ${task.title} done`}
           className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">

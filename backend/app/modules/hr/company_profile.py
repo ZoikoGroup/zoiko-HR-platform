@@ -98,6 +98,11 @@ FIELDS: dict[str, tuple] = {
     "stipend_gross_label": ("legal", "Print \"(gross)\" after pay", "bool", None),
     "time_tracking_tool_name": ("legal", "Time-tracking tool", "choice", (120, TIME_TRACKING_TOOLS)),
     "task_system_name": ("legal", "Task / project system", "text", 200),
+    # printed when a new hire's offer names no work location (an offer's own location always wins)
+    "default_work_location": ("legal", "Default work location", "text", 200),
+    # printed when neither the offer, HR's entry for the hire nor the engagement profile names the employment type
+    "default_employment_type": ("legal", "Default employment type", "choice",
+                                (60, ("Full-time", "Part-time", "Contract", "Fixed-term", "Internship", "Temporary"))),
     "compliance_documents": ("legal", "Documents to submit before starting", "list", 120),
     "affidavit_submission_hours": ("legal", "Affidavit due within (hours)", "int", (1, 720)),
     "affidavit_requires_notary": ("legal", "Affidavit needs a notary", "bool", None),
@@ -491,6 +496,11 @@ def save_profile(db, actor, data: dict, *, partial_keys: Optional[set] = None) -
         raise HTTPException(422, {"message": "Some company details need correcting.", "errors": errors})
     _write(db, organization_id, profile)
     _audit(db, actor, organization_id, before, profile)
+    # Service callers (docs-setup apply, offer-package settings, tests) can save the profile without going through an
+    # HTTP write, so the response cache middleware never sees it. Drop HR's cached onboarding reads here as well, or
+    # Settings › Missing details keeps reporting values that were just cleared (CI runs Redis; local runs do not).
+    from app.core.cache_middleware import invalidate_org_reads
+    invalidate_org_reads(organization_id, "/hr/onboarding")
     return profile
 
 

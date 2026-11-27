@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { getOrganizationDetails, updateOrganizationDetails } from "../../service/orgAdminService";
 import { X, CheckCircle, AlertTriangle } from "lucide-react";
 import { formatDate } from "../../utils/dateTime";
@@ -322,20 +323,78 @@ const StatTile = ({ glowColor, label, value, sub, valueColor }) => (
   </div>
 );
 
-function WorkforceRing({ total, active, hrAdmins }) {
-  const safeTotal = total || 0;
-  const safeActive = active || 0;
-  const safeHr = hrAdmins || 0;
-  const unassigned = safeTotal - safeActive - safeHr;
+/**
+ * The workforce as three parts that never overlap and always add up to the total (QA bug 31): active employees who are not
+ * HR admins (blue), active HR admins (green; the server counts only active ones) and inactive employees (silver).
+ */
+/**
+ * One field of the Edit Organization dialog. Defined at module level (QA bug 30): defined inside the page component it was
+ * a new component type on every render, so React remounted the input after each keystroke and the field lost focus
+ * (Backspace and further typing then did nothing).
+ */
+function EditField({ label, value, onChange, textarea, mono }) {
+  const Tag = textarea ? "textarea" : "input";
+  const id = `org-edit-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  return (
+    <div className="form-field">
+      <label htmlFor={id}>{label}</label>
+      <Tag
+        id={id}
+        type={textarea ? undefined : "text"}
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        rows={textarea ? 3 : undefined}
+        className={mono ? "mono" : undefined}
+      />
+    </div>
+  );
+}
+
+/** The line under "Seats over limit" (QA bug 32): says which limit, and what it means, instead of "Within limit". */
+export function seatsOverText({ seatsOver, seatsUsed, maxUsers, isUnlimited, plan }) {
+  const used = Number(seatsUsed) || 0;
+  const users = `${used} ${used === 1 ? "user" : "users"}`;
+  if (isUnlimited || maxUsers == null) return `Your ${plan} plan has no seat limit`;
+  if (seatsOver > 0) {
+    return `${seatsOver} ${seatsOver === 1 ? "user" : "users"} more than your ${maxUsers}-seat plan allows: upgrade the plan or deactivate users`;
+  }
+  const free = Math.max(0, maxUsers - used);
+  return `All ${users} fit in your ${maxUsers}-seat plan · ${free} ${free === 1 ? "seat" : "seats"} free`;
+}
+
+export function workforceSegments(total, active, hrAdmins) {
+  const safeTotal = Math.max(Number(total) || 0, 0);
+  const safeActive = Math.min(Math.max(Number(active) || 0, 0), safeTotal);
+  const hr = Math.min(Math.max(Number(hrAdmins) || 0, 0), safeActive);
   const pct = (n) => (safeTotal ? Math.round((n / safeTotal) * 100) : 0);
+  return [
+    { key: "active", label: "Active employees", count: safeActive - hr, color: "url(#orgActiveGrad)",
+      swatch: "linear-gradient(120deg,#3B82F6,#0A1128)", pct: pct(safeActive - hr) },
+    { key: "hr", label: "HR admins", count: hr, color: "#10B981", swatch: "#10B981", pct: pct(hr) },
+    { key: "inactive", label: "Inactive", count: safeTotal - safeActive, color: "#C3CAD6", swatch: "#C3CAD6",
+      pct: pct(safeTotal - safeActive) },
+  ];
+}
+
+export function WorkforceRing({ total, active, hrAdmins }) {
+  const safeTotal = Math.max(Number(total) || 0, 0);
+  const segments = workforceSegments(total, active, hrAdmins);
   const circumference = 2 * Math.PI * 78;
-  const activeLen = (safeActive / Math.max(safeTotal, 1)) * circumference;
-  const hrLen = (safeHr / Math.max(safeTotal, 1)) * circumference;
+  const shown = segments.filter((s) => s.count > 0);
+  const gap = shown.length > 1 ? 3 : 0;                  // a hairline between parts so each colour is visible
+  let offset = 0;
+  const arcs = shown.map((s) => {
+    const len = (s.count / Math.max(safeTotal, 1)) * circumference;
+    const arc = { ...s, dash: Math.max(len - gap, 1.5), offset };
+    offset += len;
+    return arc;
+  });
 
   return (
     <div className="workforce-body">
       <div className="ring-wrap">
-        <svg width="190" height="190" viewBox="0 0 190 190">
+        <svg width="190" height="190" viewBox="0 0 190 190" role="img"
+          aria-label={segments.map((s) => `${s.label} ${s.count}`).join(", ")}>
           <defs>
             <linearGradient id="orgActiveGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stopColor="#3B82F6" />
@@ -343,16 +402,13 @@ function WorkforceRing({ total, active, hrAdmins }) {
             </linearGradient>
           </defs>
           <circle cx="95" cy="95" r="78" fill="none" stroke="rgba(10,17,40,0.07)" strokeWidth="16" />
-          <circle
-            cx="95" cy="95" r="78" fill="none" stroke="url(#orgActiveGrad)" strokeWidth="16"
-            strokeDasharray={`${activeLen} ${circumference}`} strokeDashoffset="0" strokeLinecap="round"
-            transform="rotate(-90 95 95)"
-          />
-          <circle
-            cx="95" cy="95" r="78" fill="none" stroke="#10B981" strokeWidth="16"
-            strokeDasharray={`${hrLen} ${circumference}`} strokeDashoffset={-activeLen} strokeLinecap="round"
-            transform="rotate(-90 95 95)"
-          />
+          {arcs.map((a) => (
+            <circle key={a.key} data-segment={a.key}
+              cx="95" cy="95" r="78" fill="none" stroke={a.color} strokeWidth="16"
+              strokeDasharray={`${a.dash} ${circumference}`} strokeDashoffset={-a.offset} strokeLinecap="butt"
+              transform="rotate(-90 95 95)"
+            />
+          ))}
         </svg>
         <div className="ring-center">
           <div className="num">{safeTotal}</div>
@@ -361,24 +417,19 @@ function WorkforceRing({ total, active, hrAdmins }) {
       </div>
 
       <div className="legend">
-        <div className="legend-row">
-          <div className="legend-left"><span className="swatch" style={{ background: "linear-gradient(120deg,#3B82F6,#0A1128)" }} />Active employees</div>
-          <div className="legend-figs"><span className="count">{safeActive}</span><span className="pct">{pct(safeActive)}%</span></div>
-        </div>
-        <div className="legend-row">
-          <div className="legend-left"><span className="swatch" style={{ background: "#10B981" }} />HR admins</div>
-          <div className="legend-figs"><span className="count">{safeHr}</span><span className="pct">{pct(safeHr)}%</span></div>
-        </div>
-        <div className="legend-row">
-          <div className="legend-left"><span className="swatch" style={{ background: "rgba(10,17,40,0.12)" }} />Unassigned</div>
-          <div className="legend-figs"><span className="count">{unassigned}</span><span className="pct">{pct(unassigned)}%</span></div>
-        </div>
+        {segments.map((s) => (
+          <div key={s.key} className="legend-row">
+            <div className="legend-left"><span className="swatch" style={{ background: s.swatch }} />{s.label}</div>
+            <div className="legend-figs"><span className="count">{s.count}</span><span className="pct">{s.pct}%</span></div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 export default function OrgAdminOrganizationPage() {
+  const navigate = useNavigate();
   const [org, setOrg] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -473,22 +524,6 @@ export default function OrgAdminOrganizationPage() {
   const seatsRemaining = isUnlimited ? "Unlimited" : Math.max(0, maxUsers - seatsUsed);
   const regDate = org.created_at ? formatDate(org.created_at) : "—";
 
-  const EditField = ({ label, value, onChange, textarea, mono }) => {
-    const Tag = textarea ? "textarea" : "input";
-    return (
-      <div className="form-field">
-        <label>{label}</label>
-        <Tag
-          type="text"
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          rows={textarea ? 3 : undefined}
-          className={mono ? "mono" : undefined}
-        />
-      </div>
-    );
-  };
-
   return (
     <div className="org-dash">
       <style>{styles}</style>
@@ -504,7 +539,7 @@ export default function OrgAdminOrganizationPage() {
             <p className="subtitle">A live record of your organization's identity, plan, and workforce.</p>
           </div>
           <div className="head-actions">
-            <button className="btn btn-ghost">View audit log</button>
+            <button className="btn btn-ghost" onClick={() => navigate("/organization-admin/audit-log")}>View audit log</button>
             <button className="btn btn-primary" onClick={openEdit}>Edit organization</button>
           </div>
         </div>
@@ -535,7 +570,9 @@ export default function OrgAdminOrganizationPage() {
           <StatTile glowColor="var(--violet)" label="Total Employees" value={totalEmployees} sub="Across your organization" />
           <StatTile glowColor="var(--success)" label="Active" value={activeEmployees} sub={`${Math.round((activeEmployees / Math.max(totalEmployees, 1)) * 100)}% of workforce`} valueColor="var(--violet-deep)" />
           <StatTile glowColor="var(--amber)" label="Plan Limit" value={planLimitDisplay} sub={isUnlimited ? `${plan} plan · Unlimited seats` : `${seatsUsed} of ${maxUsers} seats used · ${plan} plan`} valueColor="var(--amber-deep)" />
-          <StatTile glowColor="var(--danger)" label="Seats Over Limit" value={seatsOver > 0 ? `−${seatsOver}` : "0"} sub={seatsOver > 0 ? "Needs upgrade" : "Within limit"} valueColor="var(--danger)" />
+          <StatTile glowColor={seatsOver > 0 ? "var(--danger)" : "var(--success)"} label="Seats Over Limit" value={String(seatsOver)}
+            sub={seatsOverText({ seatsOver, seatsUsed, maxUsers, isUnlimited, plan })}
+            valueColor={seatsOver > 0 ? "var(--danger)" : "var(--success)"} />
         </div>
 
         <div className="grid rise" style={{ animationDelay: ".25s" }}>
@@ -619,14 +656,15 @@ export default function OrgAdminOrganizationPage() {
           </div>
           <WorkforceRing total={totalEmployees} active={activeEmployees} hrAdmins={hrAdmins} />
           <div className="foot-note" style={{ margin: "0 24px 26px", paddingTop: 16 }}>
-            <span><b>{totalEmployees - activeEmployees}</b> seats inactive</span>
+            <span><b>{activeEmployees}</b> {activeEmployees === 1 ? "seat" : "seats"} in use</span>
+            <span><b>{Math.max(totalEmployees - activeEmployees, 0)}</b> inactive</span>
             {seatsOver > 0 && (
-              <span style={{ color: "var(--danger)" }}><b style={{ color: "var(--danger)" }}>−{seatsOver}</b> seats remaining on {plan} plan</span>
+              <span style={{ color: "var(--danger)" }}><b style={{ color: "var(--danger)" }}>{seatsOver}</b> {seatsOver === 1 ? "seat" : "seats"} over your {plan} plan limit</span>
             )}
             {isUnlimited ? (
               <span><b>Unlimited</b> seats on {plan} plan</span>
             ) : (
-              <span><b>{seatsRemaining}</b> seats remaining on {plan} plan</span>
+              <span><b>{seatsRemaining}</b> {seatsRemaining === 1 ? "seat" : "seats"} free on {plan} plan</span>
             )}
           </div>
         </div>

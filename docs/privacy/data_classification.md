@@ -709,7 +709,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `offboarding_tasks` (default PERSONAL_BASIC; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `sort_order`, `created_at`
-- **PERSONAL_BASIC**: `case_id`, `title`, `description`, `owner_role`, `assignee_id`, `mandatory`, `due_date`, `status`, `completed_by`, `completed_at`, `reminded_at`
+- **PERSONAL_BASIC**: `case_id`, `title`, `description`, `owner_role`, `assignee_id`, `mandatory`, `due_date`, `status`, `completed_by`, `completed_at`, `reminded_at`, `auto_key`
 - **PERSONAL_CONFIDENTIAL**: `note`
 - **SPECIAL_CATEGORY**: `exception_reason`
 

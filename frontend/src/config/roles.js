@@ -76,6 +76,7 @@ export const ROLE_ALLOWED_PREFIXES = {
   [ROLES.ADMIN]: [
     "/organization-admin/dashboard",
     "/organization-admin/organization",
+    "/organization-admin/audit-log",
     "/organization-admin/assets",
     "/organization-admin/assets/requests",
     "/organization-admin/users",

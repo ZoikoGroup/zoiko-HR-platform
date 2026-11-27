@@ -135,8 +135,11 @@ export default function ApplyStep({ session, onSession }) {
         <div className="space-y-3">
           {!session.undone_at && <ReleasePanel sessionId={session.id} variantIds={created.variants || []} onReleased={() => setReleased(true)} />}
           <div className="flex flex-wrap gap-2">
-            <Link to="/zoiko-hr/onboarding/settings#package-documents" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50">
-              Open Settings
+            {/* next step after the setup: Settings › Missing details lists anything the documents still need */}
+            <Link to="/zoiko-hr/onboarding/settings#missing-details"
+              className={released ? "rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+                : "rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"}>
+              {released ? "Next: check for missing details" : "Open Settings"}
             </Link>
             {(created.clauses_pending || []).length > 0 && !released && (
               <Link to="/zoiko-hr/onboarding/settings#offer-package" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50">

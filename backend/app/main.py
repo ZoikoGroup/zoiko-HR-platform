@@ -490,6 +490,8 @@ for _r in document_flow_routers:
 offer_package_routers = _safe_import(lambda: [
     __import__("app.modules.hr.onboarding_package_router", fromlist=["x"]).router,
     __import__("app.modules.hr.onboarding_package_router", fromlist=["x"]).portal_router,
+    # Organization › View audit log: the organisation's own activity (organisation admins)
+    __import__("app.modules.hr.org_audit_router", fromlist=["x"]).router,
     # every organisation's own fields, rules, automation, countersigners, test package and setup score
     __import__("app.modules.hr.onboarding_setup_router", fromlist=["x"]).router,
     # "Set up docs for your organisation" and the Word template import (behind HR_ONBOARDING_DOCS_SETUP)

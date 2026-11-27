@@ -4,3 +4,5 @@ export const getOrganizationDetails = () => api.get("/hr/organization");
 export const updateOrganizationDetails = (data) => api.put("/hr/organization", data);
 export const getOrganizationDashboardStats = () => api.get("/hr/organization/dashboard");
 export const getOrganizationDetailedMetrics = () => api.get("/hr/organization/metrics");
+// Organization › View audit log: what people did inside this organisation (organisation admins)
+export const getOrganizationAuditLog = (params = {}) => api.get("/hr/organization/audit-log", { params });

@@ -83,6 +83,23 @@ async function load(t, over = {}) {
     getHirePackage: async (id) => CURRENT.over.pkg ?? PACKAGE(id),
     saveHirePackageInputs: async (id, values) => { CURRENT.calls.inputs = values; if (CURRENT.over.saveError) throw CURRENT.over.saveError; return CURRENT.over.pkg ?? PACKAGE(id); },
     getHirePackagePreview: async () => ({ blob: new Blob(["%PDF"]), filename: "preview.pdf" }),
+    getHirePackageDocumentEdit: async (id, cat) => CURRENT.over.edit ?? {
+      category: cat, title: "Offer Letter", template_id: "HR-HIR-011", state: "not_sent", editable: true, edited: false,
+      content: [{ type: "paragraph", text: "A standard paragraph about {{worker.full_name}}." }],
+      standard_content: [{ type: "paragraph", text: "A standard paragraph about {{worker.full_name}}." }],
+      missing_fields: [{ key: "employment.base_pay", meaning: "Base pay amount and currency", editable: true }],
+      missing_clauses: [], values: {},
+      placeholders: { fields: [{ key: "worker.full_name", label: "Full name" }], clauses: [], list_sources: [] },
+    },
+    previewHirePackageDocumentEdit: async (id, cat, content, values) => {
+      (CURRENT.calls.preview ??= []).push({ id, cat, content, values });
+      return { blob: new Blob(["%PDF"], { type: "application/pdf" }), filename: "edit-preview.pdf" };
+    },
+    saveHirePackageDocumentEdit: async (id, cat, content, values) => {
+      CURRENT.calls.edit = { id, cat, content, values };
+      return CURRENT.over.pkg ?? PACKAGE(id);
+    },
+    resetHirePackageDocumentEdit: async (id, cat) => { CURRENT.calls.reset = [id, cat]; return CURRENT.over.pkg ?? PACKAGE(id); },
     sendOnboardingPortalInvite: async () => ({ email_sent: true }),
     getOfferPackageTemplateSet: async () => ({ blob: new Blob(["%PDF"]), filename: "set.pdf" }),
     saveCompanySectors: async () => ({}), addEngagementCategories: async () => ({}), addSuggestedRoles: async () => ({}),
@@ -269,6 +286,63 @@ test("the offer package panel shows readiness, takes missing data, and sends onl
   assert.match(document.body.textContent, /Sent: Daily Key Performance Indicators/);
   const toasts = [...document.querySelectorAll('[data-testid="toast"]')].map((n) => n.textContent);
   assert.ok(toasts.some((x) => /1 document\(s\) sent to Ann Lee/.test(x)), "a toast confirms the send");
+});
+
+test("Edit / Fill missing gaps opens the whole-document editor and saves wording and gaps together", async (t) => {
+  const calls = await load(t);
+  fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Edit \/ Fill missing gaps for Offer Letter/ }));
+  await settle();
+  const dialog = screen.getByRole("dialog", { name: "Edit Offer Letter" });
+  assert.match(dialog.textContent, /Document wording/);
+  assert.match(dialog.textContent, /A standard paragraph about/);
+  assert.ok(document.getElementById("pkg-edit-gap-employment.base_pay"), "the missing value is editable here too");
+  fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+  await settle();
+  const textarea = [...dialog.querySelectorAll("textarea")].find((n) => n.value.includes("standard paragraph"));
+  assert.ok(textarea, "the block's text can be changed");
+  fireEvent.change(textarea, { target: { value: "A revised paragraph about {{worker.full_name}}." } });
+  fireEvent.change(document.getElementById("pkg-edit-gap-employment.base_pay"), { target: { value: "GBP 45,000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await settle();
+  assert.equal(calls.edit.id, 7);
+  assert.equal(calls.edit.cat, "offer_letter");
+  assert.match(calls.edit.content[0].text, /A revised paragraph/);
+  assert.deepEqual(calls.edit.values, { "employment.base_pay": "GBP 45,000" });
+});
+
+test("the live preview in the editor uses unsaved wording and gap values", async (t) => {
+  const calls = await load(t);
+  const created = URL.createObjectURL, revoked = URL.revokeObjectURL;
+  URL.createObjectURL = () => "blob:preview";
+  URL.revokeObjectURL = () => {};
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Edit \/ Fill missing gaps for Offer Letter/ }));
+    await settle();
+    fireEvent.change(document.getElementById("pkg-edit-gap-employment.base_pay"), { target: { value: "GBP 47,000" } });
+    await act(async () => { await new Promise((r) => setTimeout(r, 900)); });
+    assert.ok(calls.preview?.length, "the editor asked for a preview");
+    assert.equal(calls.preview.at(-1).values["employment.base_pay"], "GBP 47,000", "without saving first");
+  } finally {
+    URL.createObjectURL = created;
+    URL.revokeObjectURL = revoked;
+  }
+});
+
+test("a sent document opens in the editor read-only", async (t) => {
+  await load(t, { edit: { category: "daily_work_report", title: "Daily Work Report (DWR)", template_id: "HR-DWR",
+    state: "available", editable: false, edited: false, content: [{ type: "paragraph", text: "Sent wording." }],
+    standard_content: [], missing_fields: [], missing_clauses: [], values: {},
+    placeholders: { fields: [], clauses: [], list_sources: [] } } });
+  fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Edit \/ Fill missing gaps for Daily Work Report/ }));
+  await settle();
+  assert.match(screen.getByRole("dialog", { name: "Edit Daily Work Report (DWR)" }).textContent, /already been sent/);
+  assert.equal(screen.queryByRole("button", { name: "Save changes" }), null);
 });
 
 test("the org admin chooses how many of the documents to send", async (t) => {

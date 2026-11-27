@@ -11,7 +11,8 @@ export const sendPreparedDocuments = (hireId, categories) =>
   api.post(`/hr/onboarding/new-hires/${hireId}/package/send-prepared`, categories ? { categories } : {}, { timeoutMs: 120000 });
 export const getTestPackage = ({ engagement, role } = {}) =>
   api.get("/hr/onboarding/package/test", { params: { engagement: engagement || undefined, role: role || undefined }, timeoutMs: 120000 });
-export const getSetupStatus = () => api.get("/hr/onboarding/setup-status", { timeoutMs: 120000 });
+export const getSetupStatus = ({ fresh } = {}) =>
+  api.get("/hr/onboarding/setup-status", { params: { fresh: fresh ? "true" : undefined }, timeoutMs: 120000 });
 export const getStarterSets = () => api.get("/hr/onboarding/package/starter-sets");
 export const applyStarterSet = (key, sendWhen) => api.post(`/hr/onboarding/package/starter-sets/${encodeURIComponent(key)}/apply`, { send_when: sendWhen });
 export const getCountersigners = () => api.get("/hr/onboarding/package/countersigners");
@@ -34,3 +35,6 @@ export async function getTestPackagePreview(category, { engagement, role } = {})
   }
   return res.blob();
 }
+// Settings › Missing details: every value the documents still need, asked for in one place
+export const getSettingsGaps = () => api.get("/hr/onboarding/settings-gaps", { timeoutMs: 120000 });
+export const saveSettingsGaps = (payload) => api.put("/hr/onboarding/settings-gaps", payload, { timeoutMs: 120000 });

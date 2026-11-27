@@ -278,6 +278,8 @@ export default function OffboardingSettings() {
             </div>
             <Toggle label="Issue the resignation acknowledgement automatically when a resignation is accepted" checked={form.auto_issue_acknowledgement}
               onChange={(v) => set({ auto_issue_acknowledgement: v })} />
+            <Toggle label="Close a case automatically once the last working day has passed and every required step is done"
+              checked={form.auto_close !== false} onChange={(v) => set({ auto_close: v })} />
           </Section>
 
           <Card title="Clearance checklists" action={<SecondaryButton icon={Plus} onClick={() => setEditing(null)}>New checklist</SecondaryButton>}>

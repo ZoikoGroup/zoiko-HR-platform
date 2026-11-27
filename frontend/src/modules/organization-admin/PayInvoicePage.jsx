@@ -102,8 +102,8 @@ export default function PayInvoicePage() {
           <XCircle className="w-10 h-10 mx-auto mb-3" style={{ color: RED }} />
           <p className="text-[14px] font-semibold" style={{ color: INK }}>Unable to load invoice</p>
           <p className="text-[12.5px] mt-1" style={{ color: INK_SOFT }}>{error || "This invoice could not be found."}</p>
-          <button onClick={() => navigate("/organization-admin/dashboard")} className="mt-5 text-[12.5px] font-semibold cursor-pointer text-blue-600 hover:text-blue-700">
-            Back to Dashboard
+          <button onClick={() => navigate("/organization-admin/billing-and-plan")} className="mt-5 text-[12.5px] font-semibold cursor-pointer text-blue-600 hover:text-blue-700">
+            Back to Billing &amp; Plan
           </button>
         </div>
       </div>
@@ -122,9 +122,9 @@ export default function PayInvoicePage() {
       ) : null}
 
       <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-600 hover:text-blue-700">
+        <button onClick={() => navigate("/organization-admin/billing-and-plan")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-600 hover:text-blue-700">
           <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
-          Back to Dashboard
+          Back to Billing &amp; Plan
         </button>
         <div className="flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">

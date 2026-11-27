@@ -691,6 +691,7 @@ def finalize_exit(db: Session, case: OffboardingCase, actor=None) -> Offboarding
     except Exception:
         db.rollback()
         logger.exception("exit documents link could not be sent (case %s)", case.id)
+    after_change(db, case)
     return case
 
 
@@ -753,13 +754,13 @@ def close_blockers(db: Session, case: OffboardingCase) -> list:
 
 def close(db: Session, case: OffboardingCase, actor: Employee) -> OffboardingCase:
     require_hr(actor)
+    if case.status == "closed":
+        return case                    # already closed (automatically, once its last step was done)
     blockers = close_blockers(db, case)
     if blockers:
         raise OffboardingError("The case cannot be closed yet: " + " ".join(blockers), "OFFBOARDING_CLOSE_BLOCKED",
                                details=blockers)
-    case.status, case.closed_at, case.closed_by = "closed", datetime.utcnow(), actor.id
-    log(db, case, actor.id, "closed", f"Case closed by {name_of(actor)}")
-    _audit(db, actor, case, "offboarding.closed")
+    _close(db, case, actor)
     db.commit()
     return case
 
@@ -787,7 +788,7 @@ def create_tasks(db: Session, case: OffboardingCase) -> list:
         if case.exit_type == "death_in_service" and role == "employee":
             continue
         t = OffboardingTask(organization_id=case.organization_id, case_id=case.id, title=it["title"],
-                            description=it.get("description"), owner_role=role,
+                            description=it.get("description"), owner_role=role, auto_key=S.auto_key_of(it),
                             assignee_id=_assignee_for(db, case, role, emp, cfg), mandatory=bool(it.get("mandatory", True)),
                             due_date=lwd + timedelta(days=int(it.get("due_offset_days") or 0)), sort_order=i)
         db.add(t)
@@ -811,7 +812,15 @@ def task_out(db: Session, t: OffboardingTask, people: Optional[dict] = None) -> 
             "owner_label": ROLE_LABELS.get(t.owner_role, t.owner_role), "assignee": person(t.assignee_id),
             "mandatory": bool(t.mandatory), "due_date": t.due_date, "status": t.status, "note": t.note,
             "exception_reason": t.exception_reason, "completed_by": person(t.completed_by), "completed_at": t.completed_at,
-            "overdue": t.status == "open" and t.due_date is not None and t.due_date < today()}
+            "overdue": t.status == "open" and t.due_date is not None and t.due_date < today(),
+            # ticked automatically when its record is done (see AUTO_HINTS); a person may still tick it
+            "auto_key": t.auto_key, "auto_hint": AUTO_HINTS.get(t.auto_key)}
+
+
+AUTO_HINTS = {"assets": "Ticks itself when every tracked asset is returned or written off in Asset recovery.",
+              "settlement": "Ticks itself when the final settlement is marked paid or not applicable.",
+              "interview": "Ticks itself when the leaver submits the exit interview.",
+              "relieving_letter": "Ticks itself when the relieving or experience letter is issued."}
 
 
 def _task(db: Session, org_id: int, task_id: int) -> OffboardingTask:
@@ -853,6 +862,7 @@ def set_task_done(db: Session, user: Employee, task_id: int, done: bool, note: O
         t.status, t.completed_by, t.completed_at, t.exception_reason = "open", None, None, None
         log(db, case, user.id, "task_reopened", f"“{t.title}” reopened by {name_of(user)}")
     db.commit()
+    after_change(db, case)
     return t
 
 
@@ -866,6 +876,7 @@ def task_exception(db: Session, actor: Employee, task_id: int, reason: str) -> O
     t.status, t.exception_reason, t.completed_by, t.completed_at = "exception", reason[:2000], actor.id, datetime.utcnow()
     log(db, case, actor.id, "task_exception", f"“{t.title}” marked not needed: {reason}", hr_only=True)
     db.commit()
+    after_change(db, case)
     return t
 
 
@@ -1000,6 +1011,7 @@ def resolve_asset(db: Session, actor: Employee, return_id: int, body: dict) -> O
     from app.modules.hr.offboarding import settlement as settlement_service
     settlement_service.refresh_computed(db, case)
     db.commit()
+    after_change(db, get_case(db, actor.organization_id, r.case_id))
     return r
 
 
@@ -1085,6 +1097,8 @@ def save_interview(db: Session, user: Employee, answers: dict, submit: bool) -> 
     else:
         iv.status = "draft"
     db.commit()
+    if submit:
+        after_change(db, case)
     return iv
 
 
@@ -1231,3 +1245,76 @@ def interview_analytics(db: Session, org_id: int, *, date_from=None, date_to=Non
                                 key=lambda r: -r["count"]),
             "by_department": sorted([{"label": k, "count": v} for k, v in depts.items()], key=lambda r: -r["count"]),
             "by_month": [{"month": k, "count": months[k]} for k in sorted(months)]}
+
+
+# ── clearance items that tick themselves, and closing a finished case ───────────────────────────────────────────────
+AUTO_NOTE = "Completed automatically"
+
+
+def _auto_done(db: Session, case: OffboardingCase) -> dict:
+    """{auto_key: why it is done, or None} for the records an automatic clearance item mirrors."""
+    assets = db.query(OffboardingAssetReturn).filter(OffboardingAssetReturn.case_id == case.id).all()
+    st = db.query(OffboardingSettlement).filter(OffboardingSettlement.case_id == case.id).first()
+    iv = db.query(OffboardingInterview).filter(OffboardingInterview.case_id == case.id).first()
+    letter = (db.query(OffboardingDocument).filter(OffboardingDocument.case_id == case.id,
+                                                   OffboardingDocument.kind.in_(("relieving_letter", "experience_letter")),
+                                                   OffboardingDocument.revoked_at.is_(None)).first())
+    return {
+        "assets": ("every tracked asset is returned or written off"
+                   if assets and all(a.status != "pending" for a in assets) else None),
+        "settlement": (f"the settlement is {'paid' if st.status == 'paid' else 'not applicable'}"
+                       if st is not None and st.status in ("paid", "not_applicable") else None),
+        "interview": "the exit interview was submitted" if iv is not None and iv.status == "submitted" else None,
+        "relieving_letter": f"the {letter.title.lower()} was issued" if letter is not None else None,
+    }
+
+
+def sync_auto_tasks(db: Session, case: OffboardingCase) -> int:
+    """Tick (or, when the record is undone, reopen) the clearance items that only mirror another record of the case. An
+    item ticked by a person is never reopened. Returns how many changed; the caller commits."""
+    if case.status not in ("approved", "exited"):
+        return 0
+    tasks = (db.query(OffboardingTask).filter(OffboardingTask.case_id == case.id, OffboardingTask.auto_key.isnot(None),
+                                              OffboardingTask.status.in_(("open", "done"))).all())
+    if not tasks:
+        return 0
+    done = _auto_done(db, case)
+    changed = 0
+    for t in tasks:
+        why = done.get(t.auto_key)
+        if t.status == "open" and why:
+            t.status, t.completed_at, t.completed_by = "done", datetime.utcnow(), None
+            t.note = f"{AUTO_NOTE}: {why}."
+            log(db, case, None, "task_done", f"“{t.title}” completed automatically: {why}")
+            changed += 1
+        elif t.status == "done" and not why and t.completed_by is None and (t.note or "").startswith(AUTO_NOTE):
+            t.status, t.completed_at, t.note = "open", None, None
+            log(db, case, None, "task_reopened", f"“{t.title}” reopened: its record is no longer complete")
+            changed += 1
+    if changed:
+        db.flush()
+    return changed
+
+
+def _close(db: Session, case: OffboardingCase, actor) -> None:
+    case.status, case.closed_at, case.closed_by = "closed", datetime.utcnow(), getattr(actor, "id", None)
+    if actor is None:
+        log(db, case, None, "closed", "Case closed automatically: every clearance step is done")
+    else:
+        log(db, case, actor.id, "closed", f"Case closed by {name_of(actor)}")
+    _audit(db, actor, case, "offboarding.closed", {"automatic": actor is None})
+
+
+def after_change(db: Session, case: OffboardingCase) -> None:
+    """After anything a case depends on changed: tick the automatic items, then close the case when it is finished and the
+    organisation closes cases automatically. Commits. Never raises (the change itself is already saved)."""
+    try:
+        db.refresh(case)
+        sync_auto_tasks(db, case)
+        if (case.status == "exited" and S.get_settings(db, case.organization_id).get("auto_close")
+                and not close_blockers(db, case)):
+            _close(db, case, None)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("offboarding follow-up failed (case %s)", case.id)

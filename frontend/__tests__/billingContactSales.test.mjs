@@ -100,3 +100,46 @@ test("the dialog validates before anything is sent", async (t) => {
   assert.match(text, /Enter your company name/);
   assert.match(text, /contact me about this request/);
 });
+
+
+test("after sending, the dialog says where the reply arrives: e-mail, phone, no SMS (QA bug 37)", async (t) => {
+  svc.pricing.length = 0;
+  await open(t);
+  fireEvent.click(screen.getByRole("button", { name: /Contact sales/ }));
+  await settle();
+  assert.match(screen.getByRole("dialog", { name: "Contact sales" }).textContent, /We reply by email to your work email; we call only if you add a phone number\. No SMS is sent\./);
+  fill("sales-phone", "+91 98765 43210");
+  fill("sales-company", "Acme Ltd");
+  fill("sales-country", "India");
+  fill("sales-companySize", "51-200");
+  fireEvent.click(screen.getByText(/I agree that Zoiko HR may contact me/).previousElementSibling || document.querySelector('input[type="checkbox"]'));
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  await settle();
+  const text = screen.getByRole("dialog", { name: "Contact sales" }).textContent;
+  assert.match(text, /Where you'll hear from us/);
+  assert.match(text, /asha@acmeltd\.com with the subject “We received your pricing request \(PR-TEST-1\) \| Zoiko HR”/);
+  assert.match(text, /spam or promotions folder/);
+  assert.match(text, /may also call you on \+91 98765 43210/);
+  assert.match(text, /no text messages are sent/);
+});
+
+test("the third summary card shows when the free evaluation ends, never a bare dash (QA bug 35)", async () => {
+  const { renewalCard } = await import("../src/modules/organization-admin/BillingPlanPage.jsx");
+  const now = new Date("2026-11-26T10:00:00Z");
+  const evalCard = renewalCard({ status: "evaluation", evaluation_ends_at: "2026-12-03T10:00:00Z" }, now);
+  assert.equal(evalCard.label, "Free evaluation ends");
+  assert.notEqual(evalCard.value, "—");
+  assert.match(evalCard.sub, /^7 days left/);
+  assert.match(renewalCard({ status: "evaluation", evaluation_ends_at: "2026-11-26T20:00:00Z" }, now).sub, /^Ends today/);
+  assert.equal(renewalCard({ status: "evaluation_ended", evaluation_ends_at: "2026-11-20T10:00:00Z" }, now).label, "Free evaluation ended");
+  assert.equal(renewalCard({ status: "active", renewal_anchor_date: "2027-01-01" }, now).label, "Renews on");
+  const none = renewalCard({ status: "active" }, now);
+  assert.equal(none.value, "Not scheduled");
+  assert.match(renewalCard({ status: "evaluation" }, now).sub, /Pick a plan/);
+});
+
+test("the Seats card is gone from Billing & Plan (QA bug 34)", async (t) => {
+  await open(t);
+  assert.equal(screen.queryByText("active people on your plan"), null);
+  assert.equal(screen.queryByText("Seats"), null);
+});

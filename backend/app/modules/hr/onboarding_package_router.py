@@ -9,6 +9,10 @@ HR (org admin / HR admin):
   GET  /hr/onboarding/package/template.pdf                  cover sheet + 10 templates + Placeholder Dictionary
   GET  /hr/onboarding/new-hires/{id}/package                each document's readiness and state for one new hire
   PUT  /hr/onboarding/new-hires/{id}/package/inputs         HR-entered values for missing data
+  GET/PUT/DELETE /hr/onboarding/new-hires/{id}/package/{category}/edit
+                                                          per-hire document wording and missing gaps (drafts only)
+  POST /hr/onboarding/new-hires/{id}/package/{category}/edit/preview.pdf
+                                                          render unsaved edits without sending or storing
   GET  /hr/onboarding/new-hires/{id}/package/{category}/preview.pdf
   (sending is POST /hr/onboarding/new-hires/{id}/send-package in hr/router.py)
 Public (the pre-onboarding link token is the credential):
@@ -299,6 +303,33 @@ def hire_package_inputs(new_hire_id: int, data: dict = Body(...), db: Session = 
     hire = _hire(db, user, new_hire_id)
     onboarding_package.save_hire_inputs(db, hire, (data or {}).get("values") or {}, actor=user)
     return onboarding_package.package_view(db, hire)
+
+
+@router.get("/new-hires/{new_hire_id}/package/{category}/edit", summary="Open a draft package document in the per-hire editor")
+def hire_package_edit(new_hire_id: int, category: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    return onboarding_package.document_edit_view(db, _hire(db, user, new_hire_id), category)
+
+
+@router.put("/new-hires/{new_hire_id}/package/{category}/edit", summary="Save wording edits for this hire's draft document")
+def save_hire_package_edit(new_hire_id: int, category: str, data: dict = Body(...), db: Session = Depends(get_db),
+                           user=Depends(get_current_admin)):
+    hire = _hire(db, user, new_hire_id)
+    return onboarding_package.save_document_edit(db, hire, category, (data or {}).get("content"), user,
+                                                  (data or {}).get("values"))
+
+
+@router.delete("/new-hires/{new_hire_id}/package/{category}/edit", summary="Use the standard wording again for this hire's draft")
+def reset_hire_package_edit(new_hire_id: int, category: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    return onboarding_package.reset_document_edit(db, _hire(db, user, new_hire_id), category)
+
+
+@router.post("/new-hires/{new_hire_id}/package/{category}/edit/preview.pdf",
+             summary="Preview unsaved edits of one package document for a new hire")
+def hire_package_edit_preview(new_hire_id: int, category: str, data: dict = Body(...), db: Session = Depends(get_db),
+                              user=Depends(get_current_admin)):
+    pdf = onboarding_package.preview_document_edit(db, _hire(db, user, new_hire_id), category,
+                                                   (data or {}).get("content"), (data or {}).get("values"))
+    return _pdf(pdf, f"{onboarding_package.doc_meta(db, _hire(db, user, new_hire_id), category)['template_id']}-edit-preview.pdf")
 
 
 @router.get("/new-hires/{new_hire_id}/package/{category}/preview.pdf", summary="Preview one package document for a new hire")

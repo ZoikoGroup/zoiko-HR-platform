@@ -55,6 +55,8 @@ DEFAULT_SETTINGS = {
     "contract_end_lookahead_days": 30,
     # a case can only be closed once the settlement is paid or marked not applicable
     "close_requires_settlement": True,
+    # close a case by itself once the last working day has passed and nothing blocks it (no HR click needed)
+    "auto_close": True,
     "documents_link_days": 90,
     "auto_issue_acknowledgement": True,
 }
@@ -71,16 +73,30 @@ DEFAULT_CHECKLIST = [
     {"title": "Revoke system and e-mail access", "owner_role": "it", "due_offset_days": 0, "mandatory": True,
      "description": "Disable accounts, transfer mailbox and files, remove from groups and tools."},
     {"title": "Collect laptop, ID card and other company property", "owner_role": "admin", "due_offset_days": 0,
-     "mandatory": True, "description": "Record each item in Asset recovery."},
+     "mandatory": True, "auto": "assets",
+     "description": "Ticks itself when every tracked asset is recorded as returned or written off in Asset recovery."},
     {"title": "Clear outstanding advances and dues", "owner_role": "finance", "due_offset_days": 0, "mandatory": True,
      "description": "Loans, advances, travel and expense balances."},
-    {"title": "Prepare final settlement", "owner_role": "finance", "due_offset_days": 7, "mandatory": True,
-     "description": "Leave pay-out, notice, deductions, net amount."},
-    {"title": "Conduct exit interview", "owner_role": "hr", "due_offset_days": -1, "mandatory": False,
-     "description": "Send the questionnaire and review the answers."},
+    {"title": "Pay the final settlement", "owner_role": "finance", "due_offset_days": 7, "mandatory": True, "auto": "settlement",
+     "description": "Ticks itself when the settlement is marked paid (or not applicable) in Settlements."},
+    {"title": "Exit interview completed", "owner_role": "hr", "due_offset_days": -1, "mandatory": False, "auto": "interview",
+     "description": "Ticks itself when the leaver submits the exit interview."},
     {"title": "Issue relieving / experience letter", "owner_role": "hr", "due_offset_days": 1, "mandatory": True,
-     "description": "Issue it from the case's Documents tab."},
+     "auto": "relieving_letter", "description": "Ticks itself when the letter is issued from the case's Documents tab."},
 ]
+# clearance items that only mirror another record of the case: ticked automatically (service.sync_auto_tasks)
+AUTO_KEYS = ("assets", "settlement", "interview", "relieving_letter")
+# checklists saved before items carried "auto": matched by the standard titles they were created with
+LEGACY_AUTO_TITLES = {"collect laptop, id card and other company property": "assets", "prepare final settlement": "settlement",
+                      "pay the final settlement": "settlement", "conduct exit interview": "interview",
+                      "exit interview completed": "interview", "issue relieving / experience letter": "relieving_letter"}
+
+
+def auto_key_of(item: dict) -> Optional[str]:
+    key = (item or {}).get("auto")
+    if key in AUTO_KEYS:
+        return key
+    return LEGACY_AUTO_TITLES.get(" ".join(str((item or {}).get("title") or "").split()).lower())
 
 
 def _merge(stored: Optional[dict]) -> dict:
@@ -126,7 +142,8 @@ def save_settings(db: Session, org_id: int, actor_id: int, body: dict) -> dict:
         if body["approver"] not in ("hr", "manager_or_hr"):
             raise BadRequestException("Choose who decides resignations.")
         cfg["approver"] = body["approver"]
-    for key in ("second_approval_for_hr_exits", "interview_auto_send", "close_requires_settlement", "auto_issue_acknowledgement"):
+    for key in ("second_approval_for_hr_exits", "interview_auto_send", "close_requires_settlement", "auto_issue_acknowledgement",
+                "auto_close"):
         if key in body:
             cfg[key] = bool(body[key])
     for key, lo, hi, label in (("default_notice_days", 0, 365, "Default notice"), ("daily_rate_divisor", 1, 31, "Days per month"),
@@ -229,8 +246,11 @@ def _check_items(items) -> list:
             raise BadRequestException(f"Item {i + 1}: the due day must be a whole number.")
         if not -90 <= offset <= 90:
             raise BadRequestException(f"Item {i + 1}: the due day must be within 90 days of the last working day.")
-        out.append({"title": title, "description": (str(it.get("description") or "").strip()[:1000] or None),
-                    "owner_role": role, "due_offset_days": offset, "mandatory": bool(it.get("mandatory", True))})
+        item = {"title": title, "description": (str(it.get("description") or "").strip()[:1000] or None),
+                "owner_role": role, "due_offset_days": offset, "mandatory": bool(it.get("mandatory", True))}
+        if it.get("auto") in AUTO_KEYS:
+            item["auto"] = it["auto"]
+        out.append(item)
     return out
 
 

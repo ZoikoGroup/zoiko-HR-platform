@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { MetricsSkeleton } from "../../components/OrgAdminSkeleton";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDetailedMetrics } from "../../service/orgAdminService";
-import { Users, Building2, BadgeInfo, CalendarCheck, Activity, CreditCard, Wrench, ArrowLeft, TrendingUp, TrendingDown, Minus, Briefcase, Clock, UserCheck, UserX, UserMinus, PieChart, Layers, DollarSign, Package, Percent, Hash, BarChart3, List } from "lucide-react";
+import { Users, Building2, BadgeInfo, CalendarCheck, Activity, CreditCard, Wrench, TrendingUp, TrendingDown, Minus, Briefcase, Clock, UserCheck, UserX, UserMinus, PieChart, Layers, DollarSign, Package, Percent, Hash, BarChart3, List } from "lucide-react";
 import { formatCurrencyForUser } from "../../utils/appCurrency";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
@@ -90,7 +89,6 @@ function StatusDot({ color, shadow }) {
 
 export default function OrgAdminMetricsPage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -134,10 +132,6 @@ export default function OrgAdminMetricsPage() {
   return (
     <div className="font-['Inter',system-ui,sans-serif] space-y-6">
       <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-600 hover:text-blue-700">
-          <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
-          Back to Dashboard
-        </button>
         <div className="flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
             <img src={zoikoIcon} className="w-7 h-7" alt="ZoikoHR" />

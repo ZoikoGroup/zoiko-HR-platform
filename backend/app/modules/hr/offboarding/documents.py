@@ -97,6 +97,8 @@ def issue(db: Session, case: OffboardingCase, actor, kind: str, notify: bool = T
     db.commit()
     if case.status in ("exited", "closed"):
         send_link(db, case, only=[doc])
+    from app.modules.hr.offboarding.service import after_change
+    after_change(db, case)
     return doc
 
 
@@ -110,6 +112,8 @@ def revoke(db: Session, actor, case: OffboardingCase, doc_id: int) -> Offboardin
         doc.access_token_hash = None
         log(db, case, actor.id, "document_revoked", f"{doc.title} withdrawn", hr_only=True)
         db.commit()
+        from app.modules.hr.offboarding.service import after_change
+        after_change(db, case)
     return doc
 
 
