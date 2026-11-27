@@ -250,3 +250,23 @@ def test_questions_naming_a_screen_go_to_the_platform_guide():
 def test_the_platform_guide_prompt_forbids_mapping_an_invented_screen():
     assert "doesn't have a screen called that" in orch.PLATFORM_GUIDE_PROMPT
     assert '"is accessed through"' in orch.PLATFORM_GUIDE_PROMPT
+
+
+def test_a_no_such_screen_answer_is_a_definite_answer():
+    for text in ["Zoiko HR doesn’t have a screen called “Wellness Hub.”",
+                 "Zoiko HR doesn't have a Pet Insurance portal, so you won't find it.",
+                 "Zoiko HR does not currently include a Career Marketplace page in your menu."]:
+        assert orch._SCREEN_ABSENT_RE.search(text), text
+    assert not orch._SCREEN_ABSENT_RE.search("Open Zoiko HR → Offboarding → Dashboard.")
+
+
+def test_general_guidance_replaces_an_uncited_not_covered_answer():
+    not_found = "The remote-work policy isn't covered. Open Attendance → Shifts & Work Policy."
+    guidance = "Your organization hasn't published a policy on this, so here's general guidance: ..."
+    assert orch._merge_general_guidance(not_found, guidance, []) == guidance
+    # a "not covered" part that quotes a company document is real information: both are kept
+    assert orch._merge_general_guidance(not_found, guidance, [12]) == f"{not_found}\n\n{guidance}"
+
+
+def test_not_covered_answers_use_the_users_words():
+    assert "never \"the evidence\", \"the available evidence\"" in orch.BASE_SYSTEM_PROMPT

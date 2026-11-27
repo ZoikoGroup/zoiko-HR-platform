@@ -19,6 +19,10 @@ python evals/run_eval.py --rescore evals/results/live-<time>.json   # re-score s
 python evals/run_eval.py --save-baseline                  # (or with --live / --rescore) record a new baseline
 ```
 
+For the live baseline's setup, load the platform guide into a second local organization and run the backend with
+`HR_PLATFORM_KNOWLEDGE_ORG_ID` set to it (`python scripts/seed_platform_guide.py <owner_employee_id>`), as
+production does. Without it, "What is Zoiko HR?" has nothing to answer from.
+
 Live needs one sign-in per role: copy `accounts.example.json` to `accounts.local.json` (git-ignored). Use a local or
 staging backend with test accounts, never production: each case creates a real conversation. Results go to
 `results/` (git-ignored) with every answer, so a failure can be read, not guessed.

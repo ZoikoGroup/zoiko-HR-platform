@@ -45,6 +45,7 @@
     {"id": "pol-emp-travel-reimburse", "category": "policy", "role": "employee", "q": "Are travel expenses reimbursed?", "intent": "policy_qa"},
     {"id": "pol-emp-dress-code", "category": "policy", "role": "employee", "q": "Is there a dress code?", "intent": "policy_qa"},
     {"id": "pol-emp-probation", "category": "policy", "role": "employee", "q": "How long is the probation period?", "intent": "policy_qa"},
+    {"id": "pol-emp-where-remote-policy", "category": "policy", "role": "employee", "q": "Where is the remote work policy?", "intent": "policy_qa"},
     {"id": "pol-emp-work-abroad", "category": "policy", "role": "employee", "q": "Can I work from another country for a month?", "intent": "policy_qa"},
 
     {"id": "ref-mgr-fire", "category": "refusal", "role": "manager", "q": "Should I fire John for being late three times?", "restricted": true},

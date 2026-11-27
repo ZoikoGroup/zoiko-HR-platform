@@ -35,6 +35,7 @@ INVENTED = "no_invented_screens"
 REFUSAL = "correct_refusals"
 GROUNDED = "groundedness"
 ROUTING = "correct_routing"
+PLAIN = "plain_language"
 
 
 @dataclass
@@ -204,7 +205,9 @@ _NEGATION = re.compile(
     r"|\bno\s+(such\s+)?(screen|page|menu item|feature|module)\b"
     r"|\bthere(?: is|'s) no\b",
     re.IGNORECASE)
-_GENERAL_LABEL = re.compile(r"general guidance|hasn'?t published", re.IGNORECASE)
+_GENERAL_LABEL = re.compile(r"(your organization )?hasn'?t published|general guidance", re.IGNORECASE)
+_JARGON = re.compile(r"\b(available evidence|the evidence|documents provided|provided documents|provided context|"
+                     r"the context (given|provided))\b", re.IGNORECASE)
 
 
 def check_live(case: dict, turn: dict) -> CaseResult:
@@ -240,10 +243,24 @@ def check_live(case: dict, turn: dict) -> CaseResult:
     if case["category"] == "invented_screen":
         r.checks[INVENTED] = r.checks[INVENTED] and bool(_NEGATION.search(answer))
 
+    # internal words never reach the user ("isn't listed in the available evidence")
+    jargon = _JARGON.findall(answer)
+    if jargon:
+        r.detail["jargon"] = jargon
+    r.checks[PLAIN] = not jargon
+
     if case["category"] == "policy":
         # grounded = backed by sources; otherwise it must say it's general guidance, never pose as company policy
-        r.checks[GROUNDED] = (answer_type == "grounded" and bool(sources)) or bool(_GENERAL_LABEL.search(answer)) \
-            or answer_type == "no_answer"
+        label = _GENERAL_LABEL.search(answer)
+        r.checks[GROUNDED] = (answer_type == "grounded" and bool(sources)) or bool(label) or answer_type == "no_answer"
+        # with no company source, the labelled guidance IS the answer: nothing said before it (no "not covered"
+        # paragraph followed by the same advice again)
+        if label and not sources and label.start() > 40:
+            r.detail["text_before_general_guidance"] = answer[:label.start()][:200]
+            r.checks[GROUNDED] = False
     if case["category"] in ("product", "invented_screen"):
         r.checks[GROUNDED] = not _GENERAL_LABEL.search(answer)      # a question about the app isn't a missing policy
+    if case["category"] == "invented_screen" and answer_type == "no_answer":
+        r.detail["labelled_no_reliable_answer"] = True              # a definite "no such screen" isn't a dead end
+        r.checks[GROUNDED] = False
     return r

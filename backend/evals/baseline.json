@@ -7,20 +7,21 @@
       "correct_screen": 100.0,
       "no_invented_screens": 100.0
     },
-    "cases": 63,
-    "recorded": "20261127T073833Z"
+    "cases": 64,
+    "recorded": "20261127T090203Z"
   },
   "live": {
-    "overall": 98.8,
+    "overall": 100.0,
     "dimensions": {
       "correct_refusals": 100.0,
       "correct_screen": 100.0,
-      "groundedness": 95.0,
-      "no_invented_screens": 100.0
+      "groundedness": 100.0,
+      "no_invented_screens": 100.0,
+      "plain_language": 100.0
     },
-    "cases": 63,
-    "recorded": "20261127T073822Z",
-    "environment": "local: synthetic TENANT-A (Enterprise plan), no policies or platform guide loaded, model openai/gpt-oss-120b",
-    "note": "Model answers vary between runs; compare live runs against the same environment only. M1-14: 91.6 -> 98.8."
+    "cases": 64,
+    "recorded": "20261127T090155Z",
+    "environment": "local: synthetic TENANT-A (Enterprise plan); platform guide loaded into TENANT-B as HR_PLATFORM_KNOWLEDGE_ORG_ID=2 (scripts/seed_platform_guide.py 7); no company policies; model openai/gpt-oss-120b",
+    "note": "Model answers vary between runs; compare live runs against the same environment only. History: 91.6 (M1-15) -> 98.8 (M1-14) -> 100 (answer polish, platform guide loaded)."
   }
 }
