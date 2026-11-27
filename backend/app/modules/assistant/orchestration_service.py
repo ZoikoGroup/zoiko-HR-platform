@@ -319,6 +319,18 @@ _MODULE_RE = re.compile(
 )
 
 _WHERE_START_RE = re.compile(r"^\s*where\b", re.IGNORECASE)
+# "Where is the Wellness Hub?", "Open the Offboarding Control Center", "Is there a Team Mood Tracker page?": the
+# question names a SCREEN. It goes to the platform guide, which answers from the real screen list and says plainly
+# when no such screen exists. As a policy question it was answered "Your organization hasn't published a policy on
+# this…", or mapped onto a real screen ("the Control Center is accessed through Offboarding → Dashboard"). (M1-14)
+_SCREEN_NAME_QUESTION_RE = re.compile(
+    r"^\s*(where\s+(is|are|can\s+i\s+find|do\s+i\s+find)|open|show\s+me|take\s+me\s+to|go\s+to|"
+    r"is\s+there\s+(a|an)|do\s+you\s+have\s+(a|an)|how\s+do\s+i\s+(get\s+to|open|find))\b"
+    r".{0,60}\b(screen|page|dashboard|portal|hub|cent(er|re)|tracker|module|tab|board|marketplace|console|"
+    r"panel|workspace|section|menu)s?\b",
+    re.IGNORECASE,
+)
+_POLICY_WORD_RE = re.compile(r"\bpolic(y|ies)\b|\bhandbook\b|\brules?\b", re.IGNORECASE)
 
 _CAPABILITIES_RE = re.compile(
     r"^\s*(what\s+(can|do)\s+you\s+(do|help(\s+me)?\s+with|know)|how\s+can\s+you\s+help(\s+me)?|help(\s+me)?|"
@@ -486,6 +498,8 @@ def classify_intent(text: str) -> str:
     # "Where can I see attendance reports?" / "where is my payslip" ask for a screen, not for my attendance
     # record. Only "where ..." questions: "what page shows attendance" stays an attendance-status question.
     if _WHERE_START_RE.match(text) and platform_guide.find_screen(text)[0]:
+        return "navigation_help"
+    if _SCREEN_NAME_QUESTION_RE.search(text) and not _POLICY_WORD_RE.search(text):
         return "navigation_help"
     if _MY_PROFILE_RE.search(text):
         return "my_profile"
@@ -1147,6 +1161,11 @@ PLATFORM_GUIDE_PROMPT = BASE_SYSTEM_PROMPT.split("[GROUNDING]")[0] + """[PLATFOR
   (e.g. "Zoiko HR doesn't have an offboarding feature yet") and suggest 'Talk to HR'. Never send the user to a
   screen built for a different task (New Hires is for adding people, not for offboarding them). Never invent a
   screen, button or path.
+- If the user names a screen, page, hub, center or dashboard that isn't in the catalog (e.g. "Offboarding Control
+  Center", "Wellness Hub"), start by saying plainly that Zoiko HR doesn't have a screen called that, in those words.
+  Never say the named screen "is accessed through", "is part of" or "is the same as" another screen, and never
+  describe where it might be outside Zoiko HR. Then, only if a real screen in the catalog does that job, name it by
+  its full path as the place to go instead.
 """ + "\n[CONFIDENTIALITY]" + BASE_SYSTEM_PROMPT.split("[CONFIDENTIALITY]")[1].replace(
     "cited_fragment_ids must only contain ids that appear in the <evidence id=\"...\"> tags given to you.",
     "cited_fragment_ids must be [] — screens are platform information, not cited evidence.",

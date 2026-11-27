@@ -30,7 +30,7 @@
     {"id": "how-hr-onboarding", "category": "how_it_works", "role": "hr_admin", "q": "How does onboarding work?", "intent": "navigation_help", "mention": [["New Hires", "Pre-Onboarding"]]},
     {"id": "how-hr-hiring-steps", "category": "how_it_works", "role": "hr_admin", "q": "What are the steps to hire someone?", "intent": "navigation_help", "mention": [["Job Requisitions", "Candidates", "Recruitment"]]},
     {"id": "how-mgr-reviews", "category": "how_it_works", "role": "manager", "q": "How do performance reviews work?", "intent": "navigation_help", "mention": [["Performance Reviews", "Performance"]]},
-    {"id": "how-emp-apply-leave", "category": "how_it_works", "role": "employee", "q": "How do I apply for leave?", "intent": "navigation_help", "mention": [["Apply Leave"]]},
+    {"id": "how-emp-apply-leave", "category": "how_it_works", "role": "employee", "q": "How do I apply for leave?", "intent": "book_leave", "mention": [["leave request", "Apply Leave"]], "note": "By design this starts the booking flow (tests/test_assistant_orchestration.py): it can book the leave directly."},
     {"id": "how-emp-submit-expense", "category": "how_it_works", "role": "employee", "q": "How do I submit an expense?", "intent": "navigation_help", "mention": [["Expenses"]]},
     {"id": "how-hr-clearance", "category": "how_it_works", "role": "hr_admin", "q": "How does clearance work during offboarding?", "intent": "navigation_help", "mention": [["Clearance Board"]]},
     {"id": "how-mgr-recruitment", "category": "how_it_works", "role": "manager", "q": "How does recruitment work in Zoiko HR?", "intent": "navigation_help", "mention": [["Job Requisitions", "Candidates"]]},

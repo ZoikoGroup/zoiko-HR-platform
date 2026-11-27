@@ -227,3 +227,26 @@ def test_product_questions_route_to_retrieval_not_a_special_intent():
         assert orch.classify_intent(text) == "policy_qa", text
 
 
+
+
+def test_questions_naming_a_screen_go_to_the_platform_guide():
+    # M1-14: a question that names a screen ("Where is the Wellness Hub?") is answered from the real screen list,
+    # which says plainly when no such screen exists. Routed as a policy question it was answered "Your organization
+    # hasn't published a policy on this…" or mapped onto a real screen.
+    for text in [
+        "Where is the Offboarding Control Center?",
+        "Where is the Wellness Hub?",
+        "Where is the Team Mood Tracker?",
+        "Is there a pet insurance portal?",
+        "Open the Compliance Command Center",
+        "Where is the Employee Happiness Dashboard?",
+    ]:
+        assert orch.classify_intent(text) == "navigation_help", text
+    # policy questions stay policy questions, even when they say "where"
+    assert orch.classify_intent("Where is the remote work policy?") == "policy_qa"
+    assert orch.classify_intent("What is the annual leave policy?").startswith("policy_qa")
+
+
+def test_the_platform_guide_prompt_forbids_mapping_an_invented_screen():
+    assert "doesn't have a screen called that" in orch.PLATFORM_GUIDE_PROMPT
+    assert '"is accessed through"' in orch.PLATFORM_GUIDE_PROMPT
