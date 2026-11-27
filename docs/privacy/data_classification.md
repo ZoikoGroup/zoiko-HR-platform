@@ -318,6 +318,9 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `connect_channels` (default PLATFORM_META; most sensitive column rank 0)
 - **PLATFORM_META**: `id`, `channel`, `config_encrypted`, `last_tested_at`, `last_test_result`, `last_error`, `updated_by`, `created_at`, `updated_at`
 
+## `copilot_events` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `organization_id`, `turn_id`, `created_at`, `asker_role`, `intent`, `page_screen`, `outcome`, `answer_type`, `latency_ms`, `provider`, `model`, `feedback`, `feedback_code`, `handed_off`
+
 ## `decision_receipts` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`
 - **PERSONAL_BASIC**: `document_id`, `canonical_id`, `resolved_pack_id`, `variant_id`

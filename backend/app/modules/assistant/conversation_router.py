@@ -225,5 +225,7 @@ def submit_feedback(
     db.add(feedback)
     audit_service.record(db, organization_id, "feedback_submitted", "chat_feedback", None, current_user.id,
                           {"turn_id": turn.id, "rating": payload.rating})
+    from app.modules.assistant import analytics_service       # M1-16: thumbs onto the answer's event
+    analytics_service.mark_feedback(db, organization_id, turn.id, payload.rating, payload.reason_code)
     db.commit()
     return SuccessResponse(message="Thanks for the feedback.")

@@ -142,6 +142,10 @@ def invented_segments(answer: str) -> list[str]:
     known = known_segments()
     bad = []
     for path in menu_paths(_plain(answer)):
+        # arrows between steps, not menus ("start a New Exit → approve any Resignation → recover assets"): menu names
+        # are Title Case, so a path whose every part starts lowercase is a list of steps
+        if all(seg.strip()[:1].islower() for seg in path if seg.strip()):
+            continue
         for i, seg in enumerate(path):
             words = _words(seg)
             if not words:

@@ -715,6 +715,8 @@ def _finalize(db: Session, turn: ChatTurn, answer_text: str, answer_type: Answer
     turn.completed_at = datetime.datetime.utcnow()
     audit_service.record(db, turn.organization_id, "turn_completed", "chat_turn", turn.id, turn.employee_id,
                           {"intent": turn.intent, "answer_type": answer_type.value})
+    from app.modules.assistant import analytics_service       # M1-16: one event per answer, no text, no person
+    analytics_service.record(db, turn, analytics_service.outcome_for(answer_type, answer_text), answer_type)
     db.commit()
     db.refresh(turn)
     return turn
@@ -725,6 +727,8 @@ def _fail(db: Session, turn: ChatTurn, message: str) -> ChatTurn:
     turn.error_message = message
     audit_service.record(db, turn.organization_id, "turn_failed", "chat_turn", turn.id, turn.employee_id,
                           {"error": message})
+    from app.modules.assistant import analytics_service
+    analytics_service.record(db, turn, analytics_service.FAILED)
     db.commit()
     db.refresh(turn)
     return turn

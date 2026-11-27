@@ -114,3 +114,8 @@ def test_another_roles_screen_names_are_reported():
     assert scoring.other_role_screen_names("Check your balance on the Leave Dashboard.", "employee") == ["Leave Dashboard"]
     assert scoring.other_role_screen_names("Open Leaves → Apply Leave.", "employee") == []
     assert scoring.other_role_screen_names("Check the Leave Dashboard.", "manager") == []
+
+
+def test_arrows_between_steps_are_not_menu_paths():
+    assert scoring.invented_segments("The flow: start a New Exit → approve any Resignation → recover assets.") == []
+    assert scoring.invented_segments("Open Offboarding → Control Center.") == ["Control Center"]

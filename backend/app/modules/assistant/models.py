@@ -493,6 +493,33 @@ class ChatFeedback(Base):
     created_at  = Column(DateTime, server_default=func.now())
 
 
+class CopilotEvent(Base):
+    """One row per finished assistant answer, for copilot analytics (M1-16).
+
+    Deliberately holds NO message text and NO person: no question, no answer, no employee id — only what kind of
+    question it was (intent), where it was asked (the menu screen, never the raw route with record ids), how it
+    ended (outcome), how long it took, which model answered, and the asker's thumbs up/down. turn_id is a plain
+    integer, not a foreign key: these rows outlive the conversation itself (retention deletes chat turns)."""
+    __tablename__ = "copilot_events"
+    __table_args__ = (Index("ix_copilot_events_org_created", "organization_id", "created_at"),)
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    turn_id         = Column(Integer, nullable=True, index=True)
+    created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    asker_role      = Column(String(20), nullable=True)    # employee | manager | hr_admin | admin
+    intent          = Column(String(50), nullable=True)    # e.g. navigation_guide, policy_qa:leave_attendance
+    page_screen     = Column(String(200), nullable=True)   # menu href of the open screen, if any (M1-13)
+    outcome         = Column(String(20), nullable=False)   # answered | general_guidance | no_answer | refused | action | failed
+    answer_type     = Column(String(20), nullable=True)
+    latency_ms      = Column(Integer, nullable=True)       # question received -> answer finished
+    provider        = Column(String(30), nullable=True)    # empty for answers built without a model
+    model           = Column(String(100), nullable=True)
+    feedback        = Column(String(10), nullable=True)    # up | down (the asker's thumbs)
+    feedback_code   = Column(String(30), nullable=True)    # incorrect | outdated | not_enough_detail | other
+    handed_off      = Column(Boolean, nullable=False, default=False)   # a Talk-to-HR ticket was raised from it
+
+
 class ChatIdempotencyKey(Base):
     __tablename__ = "chat_idempotency_keys"
     __table_args__ = (
