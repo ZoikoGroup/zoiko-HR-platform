@@ -15,9 +15,17 @@ branch_labels = None
 depends_on = None
 
 
+def _columns() -> set:
+    return {c["name"] for c in sa.inspect(op.get_bind()).get_columns("chat_turns")}
+
+
 def upgrade() -> None:
-    op.add_column("chat_turns", sa.Column("page_route", sa.String(length=200), nullable=True))
+    # A fresh database already has it: the baseline migration (17aefc359dab) creates every table from the current
+    # models, so only an existing database needs the column added.
+    if "page_route" not in _columns():
+        op.add_column("chat_turns", sa.Column("page_route", sa.String(length=200), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("chat_turns", "page_route")
+    if "page_route" in _columns():
+        op.drop_column("chat_turns", "page_route")
