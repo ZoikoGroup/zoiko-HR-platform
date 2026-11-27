@@ -1113,7 +1113,7 @@ def _stream_answer(messages: list[dict], reasoning_effort: str | None = None):
 
 def _record_model_run(db: Session, turn: ChatTurn, model_run) -> None:
     db.add(ChatModelRun(
-        turn_id=turn.id, provider="groq", model_name=model_run.model,
+        turn_id=turn.id, provider=getattr(model_run, "provider", None) or llm_client.provider_name(), model_name=model_run.model,
         purpose="generate", prompt_tokens=model_run.prompt_tokens, completion_tokens=model_run.completion_tokens,
         latency_ms=model_run.latency_ms,
     ))
@@ -1439,7 +1439,7 @@ def _stream_attachment_qa(db: Session, turn: ChatTurn, employee):
         return
 
     db.add(ChatModelRun(
-        turn_id=turn.id, provider="groq", model_name=model_run.model,
+        turn_id=turn.id, provider=getattr(model_run, "provider", None) or llm_client.provider_name(), model_name=model_run.model,
         purpose="generate", prompt_tokens=model_run.prompt_tokens, completion_tokens=model_run.completion_tokens,
         latency_ms=model_run.latency_ms,
     ))
