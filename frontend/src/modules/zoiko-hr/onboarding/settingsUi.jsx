@@ -2,7 +2,49 @@
  * Shared pieces of the Onboarding Settings page: the section card, and the page-level save registry. Sections that are
  * saved by the page header's "Save changes" / "Discard changes" register themselves with useSettingsSection.
  */
-import { createContext, useContext, useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+
+// ── jumping to a section or field of a settings page ────────────────────────────────────────────────────────────────
+// Plain browser hash changes (no router hooks), so a card works the same inside or outside a router. Going to the hash the
+// page is already on fires no "hashchange", so that case sends this event instead.
+const SECTION_EVENT = "zhr:section";
+
+/** Go to "#id" on the current page (scrolls even when the address already ends in "#id"). */
+export function goToSection(id) {
+  if (typeof window === "undefined" || !id) return;
+  if (window.location.hash === `#${id}`) window.dispatchEvent(new Event(SECTION_EVENT));
+  else window.location.hash = id;
+}
+
+/** The address's hash, and a counter that moves on every jump (also a jump to the same hash). */
+export function useSectionHash() {
+  const read = () => (typeof window !== "undefined" ? window.location.hash : "");
+  const [state, setState] = useState(() => ({ hash: read(), key: 0 }));
+  useEffect(() => {
+    const on = () => setState((s) => ({ hash: read(), key: s.key + 1 }));
+    window.addEventListener("hashchange", on);
+    window.addEventListener("popstate", on);
+    window.addEventListener(SECTION_EVENT, on);
+    return () => {
+      window.removeEventListener("hashchange", on);
+      window.removeEventListener("popstate", on);
+      window.removeEventListener(SECTION_EVENT, on);
+    };
+  }, []);
+  return state;
+}
+
+/** A link to "path#id": on that same page it only jumps to the section; from any other page it navigates there. `as` is the
+ * router Link of the card using it. */
+export function SectionLink({ as: LinkComponent, to, children, onClick, ...rest }) {
+  const [path, id] = String(to).split("#");
+  return (
+    <LinkComponent to={to} {...rest} onClick={(e) => {
+      onClick?.(e);
+      if (id && typeof window !== "undefined" && (!path || window.location.pathname === path)) { e.preventDefault(); goToSection(id); }
+    }}>{children}</LinkComponent>
+  );
+}
 
 export const SettingsSaveContext = createContext(null);
 

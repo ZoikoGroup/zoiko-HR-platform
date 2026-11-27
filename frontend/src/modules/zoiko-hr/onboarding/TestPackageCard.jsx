@@ -10,7 +10,7 @@ import { CheckCircle2, ClipboardCheck, Eye, Loader2, RefreshCw, ShieldAlert } fr
 import { SecondaryButton, StatusPill } from "../recruitment/ui";
 import { getTestPackage, getTestPackagePreview } from "../../../service/onboardingSetupService";
 import { openFile } from "../../../utils/fileViewer";
-import { SettingsCard } from "./settingsUi";
+import { SectionLink, SettingsCard } from "./settingsUi";
 
 const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 
@@ -98,17 +98,23 @@ export default function TestPackageCard() {
                   </div>
                 </div>
                 {(d.settings_gaps.length > 0 || d.missing_clauses.length > 0) && (
-                  <ul className="mt-2 space-y-1 text-xs text-amber-900">
+                  // folded: the same items are listed once, with a link to each field, in Missing details above
+                  <details className="mt-2 text-xs text-amber-900">
+                  <summary className="cursor-pointer font-medium text-amber-800">
+                    {d.settings_gaps.length + d.missing_clauses.length} missing {d.settings_gaps.length + d.missing_clauses.length === 1 ? "item" : "items"} – show
+                  </summary>
+                  <ul className="mt-1 space-y-1">
                     {d.settings_gaps.map((g) => (
                       <li key={g.key}>
-                        {g.settings_path ? <Link to={g.settings_path} className="font-semibold underline">{g.meaning}</Link> : <span className="font-semibold">{g.meaning}</span>}
+                        {g.settings_path ? <SectionLink as={Link} to={g.settings_path} className="font-semibold underline">{g.meaning}</SectionLink> : <span className="font-semibold">{g.meaning}</span>}
                         <span className="text-amber-800"> – {g.source}</span>
                       </li>
                     ))}
                     {d.missing_clauses.map((c) => (
-                      <li key={c.key}><Link to="/zoiko-hr/onboarding/settings#offer-package" className="font-semibold underline">Clause wording: {c.title}</Link></li>
+                      <li key={c.key}><SectionLink as={Link} to={`/zoiko-hr/onboarding/settings#clause-${c.key}`} className="font-semibold underline">Clause wording: {c.title}</SectionLink></li>
                     ))}
                   </ul>
+                  </details>
                 )}
                 {d.per_hire.length > 0 && (
                   <p className="mt-1 text-xs text-gray-500">Typed for each new hire: {d.per_hire.map((g) => g.meaning).join(", ")}.</p>

@@ -19,7 +19,9 @@ import {
   Users,
 } from "lucide-react";
 import DepartmentLayout, { useDepartmentData } from "./DepartmentLayout";
-const formatNumber = (n) => (n == null || !Number.isFinite(Number(n)) ? "0" : Number(n).toLocaleString());
+import { formatOrgMoney } from "../../../utils/money";
+// budgets and spend, in the organization's currency
+const formatNumber = (n) => formatOrgMoney(n == null || !Number.isFinite(Number(n)) ? 0 : Number(n));
 
 function SortIcon({ colKey, currentKey, direction }) {
   if (colKey !== currentKey) {
@@ -246,7 +248,7 @@ export default function DepartmentReports() {
       actions={
         <button
           onClick={handleExport}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm shadow-sm shadow-rose-900/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-sm shadow-blue-900/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
         >
           <Download size={16} />
           <span>Export CSV Report</span>
@@ -405,7 +407,7 @@ export default function DepartmentReports() {
             <thead>
               <tr className="bg-gray-50/75 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 <th
-                  className="px-5 py-3.5 cursor-pointer select-none hover:text-rose-600"
+                  className="px-4 py-3.5 cursor-pointer select-none hover:text-rose-600"
                   onClick={() => toggleSort("name")}
                 >
                   Department Unit{" "}
@@ -415,10 +417,10 @@ export default function DepartmentReports() {
                     direction={sortDir}
                   />
                 </th>
-                <th className="px-4 py-3.5">Code</th>
-                <th className="px-4 py-3.5">Department Head</th>
+                <th className="px-3 py-3.5">Code</th>
+                <th className="px-3 py-3.5">Department Head</th>
                 <th
-                  className="px-4 py-3.5 text-center cursor-pointer select-none hover:text-rose-600"
+                  className="px-3 py-3.5 text-center cursor-pointer select-none hover:text-rose-600"
                   onClick={() => toggleSort("employee_count")}
                 >
                   Staff{" "}
@@ -429,7 +431,7 @@ export default function DepartmentReports() {
                   />
                 </th>
                 <th
-                  className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-rose-600"
+                  className="px-3 py-3.5 text-right cursor-pointer select-none hover:text-rose-600"
                   onClick={() => toggleSort("budget")}
                 >
                   Allocated Envelope{" "}
@@ -440,7 +442,7 @@ export default function DepartmentReports() {
                   />
                 </th>
                 <th
-                  className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-rose-600"
+                  className="px-3 py-3.5 text-right cursor-pointer select-none hover:text-rose-600"
                   onClick={() => toggleSort("spent_budget")}
                 >
                   Expenditure{" "}
@@ -451,7 +453,7 @@ export default function DepartmentReports() {
                   />
                 </th>
                 <th
-                  className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-rose-600"
+                  className="px-3 py-3.5 text-right cursor-pointer select-none hover:text-rose-600"
                   onClick={() => toggleSort("variance")}
                 >
                   Net Variance{" "}
@@ -462,7 +464,7 @@ export default function DepartmentReports() {
                   />
                 </th>
                 <th
-                  className="px-5 py-3.5 cursor-pointer select-none hover:text-rose-600 min-w-[150px]"
+                  className="px-4 py-3.5 cursor-pointer select-none hover:text-rose-600 min-w-[130px]"
                   onClick={() => toggleSort("utilization")}
                 >
                   Utilization{" "}
@@ -507,7 +509,7 @@ export default function DepartmentReports() {
                       className="hover:bg-slate-50/80 transition-colors"
                     >
                       {/* Name */}
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-4">
                         <div className="flex items-center gap-2.5">
                           <Building2
                             size={16}
@@ -527,19 +529,19 @@ export default function DepartmentReports() {
                       </td>
 
                       {/* Code */}
-                      <td className="px-4 py-4 font-mono text-xs font-bold text-gray-700">
+                      <td className="px-3 py-4 font-mono text-xs font-bold text-gray-700">
                         {r.code}
                       </td>
 
                       {/* Head */}
-                      <td className="px-4 py-4 text-xs font-medium text-gray-800">
+                      <td className="px-3 py-4 text-xs font-medium text-gray-800">
                         {r.head_name || r.head || (
                           <span className="text-gray-400 italic">Unassigned</span>
                         )}
                       </td>
 
                       {/* Staff */}
-                      <td className="px-4 py-4 text-center">
+                      <td className="px-3 py-4 text-center">
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">
                           <Users size={11} className="text-slate-500" />
                           {r.employee_count || 0}
@@ -547,17 +549,17 @@ export default function DepartmentReports() {
                       </td>
 
                       {/* Budget */}
-                      <td className="px-4 py-4 text-right font-semibold text-gray-900">
+                      <td className="px-3 py-4 text-right font-semibold text-gray-900">
                         {formatNumber(b)}
                       </td>
 
                       {/* Spent */}
-                      <td className="px-4 py-4 text-right font-medium text-gray-700">
+                      <td className="px-3 py-4 text-right font-medium text-gray-700">
                         {formatNumber(s)}
                       </td>
 
                       {/* Variance */}
-                      <td className="px-4 py-4 text-right">
+                      <td className="px-3 py-4 text-right">
                         <span
                           className={`font-semibold text-xs px-2 py-0.5 rounded-md ${
                             variance >= 0
@@ -570,7 +572,7 @@ export default function DepartmentReports() {
                       </td>
 
                       {/* Utilization Bar */}
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-4">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-xs">
                             <span
@@ -616,18 +618,18 @@ export default function DepartmentReports() {
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="bg-gray-50/90 border-t-2 border-gray-200 font-bold text-xs text-gray-900">
-                  <td className="px-5 py-3.5 uppercase tracking-wider">
+                  <td className="px-4 py-3.5 uppercase tracking-wider">
                     Ledger Total ({filtered.length} units)
                   </td>
-                  <td className="px-4 py-3.5">—</td>
-                  <td className="px-4 py-3.5">—</td>
-                  <td className="px-4 py-3.5 text-center">
+                  <td className="px-3 py-3.5">—</td>
+                  <td className="px-3 py-3.5">—</td>
+                  <td className="px-3 py-3.5 text-center">
                     {filtered.reduce(
                       (acc, r) => acc + (Number(r.employee_count) || 0),
                       0
                     )}
                   </td>
-                  <td className="px-4 py-3.5 text-right font-bold text-sm">
+                  <td className="px-3 py-3.5 text-right font-bold text-sm">
                     {formatNumber(
                       filtered.reduce(
                         (acc, r) => acc + (Number(r.budget) || 0),
@@ -635,7 +637,7 @@ export default function DepartmentReports() {
                       )
                     )}
                   </td>
-                  <td className="px-4 py-3.5 text-right font-bold text-sm">
+                  <td className="px-3 py-3.5 text-right font-bold text-sm">
                     {formatNumber(
                       filtered.reduce(
                         (acc, r) => acc + (Number(r.spent_budget) || 0),
@@ -643,7 +645,7 @@ export default function DepartmentReports() {
                       )
                     )}
                   </td>
-                  <td className="px-4 py-3.5 text-right font-bold text-sm">
+                  <td className="px-3 py-3.5 text-right font-bold text-sm">
                     {formatNumber(
                       filtered.reduce(
                         (acc, r) =>
@@ -654,7 +656,7 @@ export default function DepartmentReports() {
                       )
                     )}
                   </td>
-                  <td className="px-5 py-3.5">—</td>
+                  <td className="px-4 py-3.5">—</td>
                 </tr>
               </tfoot>
             )}

@@ -26,7 +26,7 @@ responsibility.
 Controls:
 
 * `HR_TEMPLATES_TENANT_ATTESTATION_ENABLED` (default **true**) — platform switch for L1/L2.
-* `HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED` (default **false**) — L3 templates cannot be tenant-attested unless enabled.
+* `HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED` (default **true**) — L3 templates (contract, NDA, affidavit) can be tenant-attested by the organisation admin; set it to `false` to refuse that platform-wide.
 * Plan: feature key `hr.documents.tenant_attestation` (per plan through `plan_entitlement_mappings`; unpriced = included today).
 * Organization: `doc_template_settings.tenant_attestation_enabled` (organization admin toggle) and `prefer_tenant_variants`.
 

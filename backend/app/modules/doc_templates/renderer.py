@@ -113,10 +113,10 @@ def layout(inp: RenderInput) -> list[El]:
             out.append(El("checklist", data={"items": block["items"], "state": inp.checklist_state}))
         elif t == "clause":
             body = inp.clause_text(block["key"])
-            if body is None:
-                if block.get("required", True):
-                    raise LookupError(f"CLAUSE_UNRESOLVED:{block['key']}")
-                continue                                   # optional clause not resolved: omitted
+            if body is None and block.get("required", True):
+                raise LookupError(f"CLAUSE_UNRESOLVED:{block['key']}")
+            if not (body or "").strip():
+                continue                                   # optional clause with no wording: omitted, no empty paragraph
             out.append(El("paragraph", [Run(r.text, "clause" if r.kind == "text" else r.kind)
                                         for r in resolver.resolve(body, inp.value_of, inp.clause_text, [], inside_clause=True)],
                           {"style": "normal"}))

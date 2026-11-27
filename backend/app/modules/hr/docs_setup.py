@@ -1237,8 +1237,11 @@ def template_category(filename: str, chunks: list) -> Optional[str]:
 def document_title(filename: str, chunks: list) -> str:
     """A new document's title: the file name (without numbering) in title case, else its own title line."""
     name = _clean_name(filename)
+    # "Code_of_Conduct_Acknowledgement_Template.docx" -> "Code of Conduct Acknowledgement": the words that only describe the
+    # file (template, reference, draft, final, copy, v2) are not part of the document's title
+    name = re.sub(r"(?i)(\s+(templates?|tpl|reference|ref|draft|final|copy|sample|v\d+(\.\d+)*))+$", "", name).strip() or name
     if len(name) >= 3:
-        small = {"and", "of", "for", "the", "to", "in", "on"}
+        small ={"and", "of", "for", "the", "to", "in", "on"}
         acronyms = {"nda", "kpi", "kpis", "dwr", "hr", "it", "id", "pf", "esi", "uan", "pan"}
         words = [w.upper() if w.lower() in acronyms else (w.lower() if i and w.lower() in small else
                  (w if w.isupper() else w.capitalize())) for i, w in enumerate(name.split())]

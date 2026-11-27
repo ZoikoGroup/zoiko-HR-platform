@@ -122,10 +122,10 @@ test("the Designation List follows the settings: sort, page size, salary column,
   const { default: Page } = await import(`../src/modules/zoiko-hr/designations/designation-list.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
   await settle();
-  const titles = () => [...document.querySelectorAll("tbody tr td:nth-child(1)")].map((c) => c.textContent);
+  const titles = () => [...document.querySelectorAll("tbody tr td:nth-child(1)")].map((c) => (c.querySelector("span") || c).textContent);
   assert.deepEqual(titles(), ["Role A", "Role B", "Role C", "Role D", "Role E"], "sorted by title, 5 per page");
   assert.ok(screen.getByText("1–5 of 7"));
-  assert.ok(screen.getAllByText("100 – 200").length > 0, "salary range column");
+  assert.ok(screen.getAllByText(/100 – \D*200/).length > 0, "salary range column (in the organization's currency)");
   assert.equal([...document.querySelectorAll("th")].some((h) => h.textContent === "Employee"), false, "employee column hidden");
   assert.ok(document.querySelector("tbody td.py-1\\.5"), "compact rows");
   fireEvent.click(screen.getByRole("button", { name: "Next" }));

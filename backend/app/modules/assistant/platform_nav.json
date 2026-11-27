@@ -628,7 +628,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
+   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · 0 && ![\"ISSUED\", \"EXECUTED\"].includes(letterState.data?.letter?.status) && ( · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it."
   },
   {
    "section": "PRODUCTS",
@@ -643,7 +643,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
+   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · 0 && ![\"ISSUED\", \"EXECUTED\"].includes(letterState.data?.letter?.status) && ( · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it."
   },
   {
    "section": "PRODUCTS",

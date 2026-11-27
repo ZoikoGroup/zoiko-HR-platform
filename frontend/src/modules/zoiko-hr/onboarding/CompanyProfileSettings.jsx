@@ -16,7 +16,7 @@ import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import { getCompanyProfile, getOnboardingProfiles, prefillCompanyProfile, saveCompanyProfile } from "../../../service/hrService";
 import { COUNTRY_CHOICES } from "../../../utils/fieldRules";
 import SearchableSelect from "../../../components/SearchableSelect";
-import { SettingsCard, useSettingsSection } from "./settingsUi";
+import { SettingsCard, useSectionHash, useSettingsSection } from "./settingsUi";
 import { ImageCard } from "./OfferPackageSettings";
 
 const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
@@ -30,8 +30,8 @@ const GROUPS = [
   ["signatory", "Signatory", PenLine, "The person who signs the documents for the company."],
   ["legal", "Legal & policy defaults", FileText, null],
   ["formatting", "Formatting", Palette, "Paper, spelling, dates and number style of the documents."],
-  ["clauses", "Clause details", FileText, "Values for the merge fields in your clause wording, such as {{speak_up_channel}}. A blank field "
-    + "prints the new hire's own details, the HR contact or standard wording; a document is only held when a field it uses has neither."],
+  ["clauses", "Clause merge-field values", FileText, "Optional values for the {{merge fields}} inside your clause wording, such as "
+    + "{{speak_up_channel}}. Leave a field blank to print the new hire's own details, the HR contact or the standard wording."],
 ];
 const WIDE = new Set(["legal_name", "address_line1", "address_line2", "governing_law_text", "affidavit_stamp_paper_note",
   "compliance_documents", "brands", "task_system_name", "reports_channel_text", "velocity_motto", "velocity_deadline_text"]);
@@ -333,6 +333,15 @@ function EmployerNotice({ value, unit, onChange, error, required }) {
 
 export default function CompanyProfileSettings() {
   const [view, setView] = useState(null);
+  // the clause merge-field values are advanced and optional: folded away unless a link points into them
+  const { hash } = useSectionHash();
+  const [showClauseValues, setShowClauseValues] = useState(false);
+  useEffect(() => {
+    const id = decodeURIComponent((hash || "").slice(1));
+    if (id === "company-profile-clauses" || (id.startsWith("cp-") && (view?.fields || []).some((f) => f.group === "clauses" && `cp-${f.key}` === id))) {
+      setShowClauseValues(true);
+    }
+  }, [hash, view]);
   const [form, setForm] = useState({});
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
@@ -485,7 +494,7 @@ export default function CompanyProfileSettings() {
               </div>
             )}
             <div className="pt-2">
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4">
                 <ImageCard kind="logo" hasImage={!!view?.has_logo} onMessage={setMsg}
                   onChanged={(res) => setView((v) => ({ ...v, has_logo: !!res?.settings?.has_logo }))} />
                 <ImageCard kind="signature" hasImage={!!view?.has_signature} onMessage={setMsg}
@@ -500,8 +509,19 @@ export default function CompanyProfileSettings() {
         const specs = fieldsByGroup(group);
         if (!specs.length) return null;
         return (
-          <SettingsCard key={group} id={`company-profile-${group}`} icon={Icon} title={title} help={help}>
-            {group === "legal" ? legalBody() : (
+          <SettingsCard key={group} id={`company-profile-${group}`} icon={Icon} title={title} help={help}
+            action={group === "clauses" ? (
+              <SecondaryButton onClick={() => setShowClauseValues((v) => !v)} aria-expanded={showClauseValues || specs.some((s) => errors[s.key])}>
+                {showClauseValues || specs.some((s) => errors[s.key]) ? "Hide" : `Show ${specs.length} fields`}
+              </SecondaryButton>
+            ) : undefined}>
+            {group === "legal" ? legalBody()
+              : group === "clauses" && !showClauseValues && !specs.some((s) => errors[s.key]) ? (
+                <p className="text-sm text-gray-500">
+                  {specs.filter((s) => form[s.key] !== undefined && form[s.key] !== null && String(form[s.key]).trim() !== "").length} of {specs.length} filled.
+                  Only needed when your own clause wording uses a merge field.
+                </p>
+              ) : (
               <div className="grid gap-4 sm:grid-cols-2">{specs.map((s) => renderField(s))}</div>
             )}
           </SettingsCard>

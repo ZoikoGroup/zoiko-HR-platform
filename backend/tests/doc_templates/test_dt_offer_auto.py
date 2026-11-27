@@ -125,3 +125,33 @@ def test_readiness_lists_every_missing_prerequisite_at_once_and_clears_when_set_
     assert world.post("a_admin", f"/hr/recruitment/offers/{o2['id']}/approve", json={}).status_code == 200
     r = world.get("a_hr", f"/hr/recruitment/offers/{o2['id']}/letter/readiness").json()
     assert r["ready"] is True, [s for s in r["steps"] if not s["ok"]]
+
+
+def test_preview_letter_prints_no_placeholder_and_readiness_names_each_missing_detail(world):
+    """An optional clause with no wording (probation summary) is left out of the starter preview instead of printing a
+    '[Unreviewed draft placeholder …]'; readiness lists every value the letter would print empty, with where it is filled."""
+    from app.modules.doc_templates import renderer, storage
+    _switch(world, False)
+    o = _offer(world, _candidate(world, name="Pia Preview", email="pia.preview@example.com"), work_country="US", currency="USD")
+    offer = world.db.get(RecruitmentOffer, o["id"])
+    doc = world.db.get(GeneratedDocument, offer.document_id)
+    assert doc.release_mode == "STARTER_PREVIEW"
+    text = " ".join(renderer.pdf_text(storage.get_store().get(doc.pdf_path)).split())
+    assert "placeholder" not in text.lower() and "[" not in text, text
+
+    r = world.get("a_hr", f"/hr/recruitment/offers/{offer.id}/letter/readiness").json()
+    missing = {m["key"]: m for m in r["missing_details"]}
+    assert all(m["label"] and m["where"] and m["level"] in ("required", "recommended") for m in missing.values()), missing
+    assert "employer.signatory_name" not in missing and "offer.conditions" not in missing, "not printed in this letter: never a gap"
+    for m in missing.values():
+        assert m["action"] in ("edit_offer", "setup_offer_letters") or m["href"], m          # every gap says where it is fixed
+    assert not ({"document.date", "offer.reference", "offer.response_deadline"} & set(missing)), "system values are never asked for"
+    assert "candidate.full_name" not in missing and "offer.pay_amount" not in missing, "values the offer already has are not listed"
+
+
+def test_offer_email_failure_says_what_to_fix():
+    from app.modules.doc_templates.notify import delivery_problem
+    assert "rejected the sign-in" in delivery_problem(["(535, b'...authentication rejected')"])
+    assert "could not be reached" in delivery_problem(["timed out"])
+    assert "candidate's e-mail address" in delivery_problem(["550 mailbox unavailable"])
+    assert "SMTP" in delivery_problem([])

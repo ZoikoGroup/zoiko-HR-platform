@@ -32,6 +32,16 @@ import { validateOfferForm, blockKeys, pasteOnly, PERCENT_BLOCKED, PERCENT_PASTE
 const OFFER_FIELDS = ["candidate_name", "position", "engagement_profile_slug", "work_location", "work_pattern", "salary", "equity"];
 const OFFER_FIELD_IDS = { candidate_name: "offer-name", position: "offer-position", engagement_profile_slug: "offer-type", work_location: "offer-location",
   work_pattern: "offer-pattern", salary: "offer-pay", equity: "offer-equity" };
+// a value the offer letter prints -> the offer form field it comes from ("Fill in" on the letter's missing details)
+const LETTER_FIELD_TO_FORM = {
+  "employment.position_title": "offer-position", "employment.department": "offer-department",
+  "employment.manager_name": "offer-manager", "employment.employment_type_label": "offer-employment-type",
+  "employment.start_date": "offer-start-date", "employment.work_location": "offer-location",
+  "employment.work_country_name": "offer-country", "employment.work_pattern": "offer-pattern",
+  "offer.work_arrangement_label": "offer-arrangement", "offer.equity": "offer-equity",
+  "offer.pay_amount": "offer-pay-fields", "offer.currency": "offer-pay-fields", "offer.pay_period_label": "offer-pay-fields",
+  "offer.remuneration_type_label": "offer-pay-fields",
+};
 // a candidate can receive an offer while they are still in the pipeline (not hired, not rejected)
 const OFFER_STAGES = new Set(["applied", "screening", "interview", "offer"]);
 
@@ -671,6 +681,31 @@ export default function OfferManagement({ mode = "all" }) {
     setWorkflowForm((prev) => ({ ...prev, mode: "" }));
   };
 
+  // "Fill in" on the letter's missing details: the offer form opens on the field that prints the missing value
+  const fillLetterDetail = (item) => {
+    const offer = previewOffer;
+    if (!offer) return;
+    if (item.action === "setup_offer_letters") { closePreview(); setSetupCountry(offer.work_country || ""); return; }
+    if (item.action !== "edit_offer") return;
+    closePreview();
+    openEdit(offer);
+    const id = LETTER_FIELD_TO_FORM[item.key];
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = id && document.getElementById(id);
+      tries += 1;
+      if (el || tries > 20) {
+        clearInterval(timer);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const target = /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) ? el : el.querySelector("input, select, textarea");
+        target?.focus({ preventScroll: true });
+        el.classList.add("ring-2", "ring-amber-300", "rounded-xl");
+        setTimeout(() => el.classList.remove("ring-2", "ring-amber-300"), 2000);
+      }
+    }, 100);
+  };
+
   const manageLetter = async (action, successText, { sends = false } = {}) => {
     if (!previewOffer) return;
     setBusyId(previewOffer.id);
@@ -1033,8 +1068,8 @@ export default function OfferManagement({ mode = "all" }) {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Department</label>
-                  <select value={form.department_id} onChange={(e) => setForm((prev) => ({ ...prev, department_id: e.target.value }))} className={field}>
+                  <label htmlFor="offer-department" className={labelCls}>Department</label>
+                  <select id="offer-department" value={form.department_id} onChange={(e) => setForm((prev) => ({ ...prev, department_id: e.target.value }))} className={field}>
                     <option value="">Select department</option>
                     {form.department_id && !departmentNames[form.department_id] && (
                       <option value={form.department_id}>Current department (#{form.department_id})</option>
@@ -1043,8 +1078,8 @@ export default function OfferManagement({ mode = "all" }) {
                   </select>
                 </div>
                 <div>
-                  <label className={labelCls}>Reporting to</label>
-                  <select value={form.reporting_manager_id} onChange={(e) => setForm((prev) => ({ ...prev, reporting_manager_id: e.target.value }))} className={field}>
+                  <label htmlFor="offer-manager" className={labelCls}>Reporting to</label>
+                  <select id="offer-manager" value={form.reporting_manager_id} onChange={(e) => setForm((prev) => ({ ...prev, reporting_manager_id: e.target.value }))} className={field}>
                     <option value="">Select reporting manager</option>
                     {form.reporting_manager_id && !managerNames[form.reporting_manager_id] && (
                       <option value={form.reporting_manager_id}>Current manager (#{form.reporting_manager_id})</option>
@@ -1072,12 +1107,12 @@ export default function OfferManagement({ mode = "all" }) {
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Employment type</label>
-                  <select value={form.employment_type} onChange={(e) => setEmploymentType(e.target.value)} className={field}>
+                  <label htmlFor="offer-employment-type" className={labelCls}>Employment type</label>
+                  <select id="offer-employment-type" value={form.employment_type} onChange={(e) => setEmploymentType(e.target.value)} className={field}>
                     {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
-                <div>
+                <div id="offer-country">
                   <label className={labelCls}>Work country (sets the currency)</label>
                   <CountrySelect regions={regions} value={form.work_country} onChange={(c) => setForm((prev) => setWorkCountry(c, { ...prev, pay: { ...prev.pay, currencyTouched: false } }))} />
                 </div>
@@ -1090,8 +1125,8 @@ export default function OfferManagement({ mode = "all" }) {
                   <OfferFieldError id="offer-location-error">{offerErrors.work_location}</OfferFieldError>
                 </div>
                 <div>
-                  <label className={labelCls}>Working arrangement</label>
-                  <select value={form.work_arrangement} onChange={(e) => setForm((prev) => ({ ...prev, work_arrangement: e.target.value }))} className={field}>
+                  <label htmlFor="offer-arrangement" className={labelCls}>Working arrangement</label>
+                  <select id="offer-arrangement" value={form.work_arrangement} onChange={(e) => setForm((prev) => ({ ...prev, work_arrangement: e.target.value }))} className={field}>
                     <option value="">Select arrangement</option>
                     <option value="onsite">On-site</option>
                     <option value="hybrid">Hybrid</option>
@@ -1106,7 +1141,7 @@ export default function OfferManagement({ mode = "all" }) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 sm:p-4">
+              <div id="offer-pay-fields" className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 sm:p-4">
                 <RemunerationFields regions={regions} value={form.pay} lockedType={lockedType} currencyHint={currencyHint}
                   onChange={(pay) => { setForm((prev) => ({ ...prev, pay })); setOfferErrors(({ salary: _drop, ...rest }) => rest); }} />
                 <OfferFieldError id="offer-pay-error">{offerErrors.salary}</OfferFieldError>
@@ -1123,8 +1158,8 @@ export default function OfferManagement({ mode = "all" }) {
                   </div>
                 )}
                 <div>
-                  <label className={labelCls}>Proposed start date</label>
-                  <input type="date" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} className={field} />
+                  <label htmlFor="offer-start-date" className={labelCls}>Proposed start date</label>
+                  <input id="offer-start-date" type="date" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} className={field} />
                 </div>
                 <div>
                   <label className={labelCls}>Response deadline</label>
@@ -1240,6 +1275,9 @@ export default function OfferManagement({ mode = "all" }) {
                     </button>
                   )}
                 </section>
+                {letterState.readiness?.missing_details?.length > 0 && !["ISSUED", "EXECUTED"].includes(letterState.data?.letter?.status) && (
+                  <LetterMissingDetails items={letterState.readiness.missing_details} onFill={fillLetterDetail} />
+                )}
                 {letterState.readiness && !letterState.data?.letter && (
                   <section className="rounded-xl border border-gray-200 p-4">
                     <h3 className="mb-2 font-semibold text-gray-900">What the letter needs</h3>
@@ -1408,6 +1446,61 @@ function TemplatesView({ templates, use }) {
 }
 
 // ── right-hand detail panel ──────────────────────────────────────────────────────────────────────────────────────────
+/** Every value the offer letter would print empty, named, with where it is filled. Required ones stop the letter being sent. */
+export function LetterMissingDetails({ items, onFill }) {
+  const required = items.filter((i) => i.level === "required");
+  const recommended = items.filter((i) => i.level !== "required");
+  const group = (list, title, note) => list.length > 0 && (
+    <div className="mt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">{title}</p>
+      {note && <p className="text-xs text-amber-800">{note}</p>}
+      <ul className="mt-1.5 space-y-2.5">
+        {list.map((i) => (
+          <li key={i.key} className="flex items-start justify-between gap-3 text-sm">
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-900">{i.label}</span>
+              <span className="block text-xs text-gray-600">In: {i.where}</span>
+            </span>
+            {i.action && onFill ? (
+              <button type="button" onClick={() => onFill(i)} aria-label={`Fill in ${i.label}`}
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                Fill in →
+              </button>
+            ) : i.href ? (
+              <NavLink to={i.href} aria-label={`Fill in ${i.label}`}
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                Fill in →
+              </NavLink>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+  return (
+    <section role="alert" data-testid="offer-letter-missing-details" className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50/70">
+      <div aria-hidden="true" className="h-1 bg-gradient-to-r from-amber-500 via-amber-300 to-transparent" />
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+          <div className="min-w-0">
+            <h3 className="font-semibold text-gray-900">
+              {required.length ? "Information missing from this offer letter" : "Some details would print blank in this offer letter"}
+            </h3>
+            <p className="text-sm text-gray-700">
+              {required.length
+                ? `The letter cannot be sent until ${required.length === 1 ? "this detail is" : `these ${required.length} details are`} filled in. After filling them in, regenerate the letter.`
+                : "The letter can be sent, but these details would be left blank. Fill them in for a complete letter."}
+            </p>
+          </div>
+        </div>
+        {group(required, "Required before sending")}
+        {group(recommended, "Recommended", required.length ? "Otherwise printed as a blank." : "")}
+      </div>
+    </section>
+  );
+}
+
 /** What the offer letter still needs, every prerequisite at once, each with a link to where it is fixed. */
 const SETUP_STEPS = ["entity", "signatory", "pack", "template", "clauses"];
 

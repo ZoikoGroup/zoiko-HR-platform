@@ -15,6 +15,7 @@ import {
 import DesignationLayout from "./DesignationLayout";
 import { getDesignations } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
+import { formatOrgMoney } from "../../../utils/money";
 
 const LEVELS = Array.from({ length: 10 }, (_, i) => `L${i + 1}`);
 
@@ -35,12 +36,8 @@ const bandFor = (level) => {
   return BANDS.find((b) => n != null && n >= b.from && n <= b.to) || OTHER_BAND;
 };
 
-const money = (n) => {
-  if (n == null || !Number.isFinite(n)) return "—";
-  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (Math.abs(n) >= 1_000) return `$${Math.round(n / 1_000)}K`;
-  return `$${Math.round(n)}`;
-};
+// salaries in the organization's currency (compact: £300K), never a fixed "$"
+const money = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : formatOrgMoney(Number(n), { compact: true }));
 
 function StatCard({ title, value, icon: Icon, subtitle }) {
   return (

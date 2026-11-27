@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 import { applyDocsSetup, getDocsSetupSummary, setDocsSetupOptions, undoDocsSetup } from "../../../../service/docsSetupService";
 import { Banner, errorText, formatValue } from "./shared";
 import ReleasePanel from "./ReleasePanel";
+import MissingDetailsCard from "../MissingDetailsCard";
 
 function idempotencyKey(sessionId) {
   const name = `docs-setup-apply-${sessionId}`;
@@ -75,6 +76,8 @@ export default function ApplyStep({ session, onSession }) {
     finally { setBusy(false); }
   };
   const created = summary.created || {};
+  // uploaded as a template, yet it will not become a document of its own (e.g. the platform does not allow it): said plainly
+  const notDocuments = (session.files || []).filter((f) => f.role === "template" && f.mapping?.action === "source_only");
   return (
     <div className="space-y-4">
       {applied ? (
@@ -106,6 +109,15 @@ export default function ApplyStep({ session, onSession }) {
           </div>
         </div>
       )}
+      {notDocuments.length > 0 && (
+        <Banner tone="warn">
+          <span className="font-semibold">{notDocuments.length === 1 ? "1 uploaded template will not become a document" : `${notDocuments.length} uploaded templates will not become documents`}</span>
+          <ul className="mt-1 list-disc pl-5">
+            {notDocuments.map((f) => <li key={f.id}><span className="font-medium">{f.filename}</span>{f.mapping?.note ? ` – ${f.mapping.note}` : " – it is used only as a source of settings."}</li>)}
+          </ul>
+          {!applied && <span className="mt-1 block">To change this, go back to Map documents and choose what each file becomes.</span>}
+        </Banner>
+      )}
       {summary.pending > 0 && !applied && (
         <Banner tone="info">
           {summary.pending === 1 ? "1 suggestion has a value that does not pass a check, so it is left out."
@@ -134,6 +146,8 @@ export default function ApplyStep({ session, onSession }) {
       ) : (
         <div className="space-y-3">
           {!session.undone_at && <ReleasePanel sessionId={session.id} variantIds={created.variants || []} onReleased={() => setReleased(true)} />}
+          {/* once the templates are live, anything they still need is asked for right here, by name, with the documents it holds */}
+          {!session.undone_at && <MissingDetailsCard key={released ? "after-release" : "applied"} />}
           <div className="flex flex-wrap gap-2">
             {/* next step after the setup: Settings › Missing details lists anything the documents still need */}
             <Link to="/zoiko-hr/onboarding/settings#missing-details"

@@ -7,9 +7,10 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, ClipboardList, ExternalLink, Loader2, Save, ScrollText, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, ExternalLink, Loader2, Save, ScrollText, Sparkles } from "lucide-react";
 import { PrimaryButton } from "../recruitment/ui";
 import { getSettingsGaps, saveSettingsGaps } from "../../../service/onboardingSetupService";
+import { SectionLink } from "./settingsUi";
 
 const inputCls = "w-full rounded-xl border bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 const keyOf = (i) => `${i.target}:${i.key}`;
@@ -52,7 +53,29 @@ function Field({ input, value, error, onChange }) {
   );
 }
 
-export default function MissingDetailsCard({ onSaved }) {
+/** One gap in the compact checklist: what is missing, what it holds up, and a link to the one field that fills it. */
+function GapRow({ label, documents, to, optional }) {
+  return (
+    <li className="flex items-start justify-between gap-3 py-2.5">
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-gray-900">{label}{optional && <span className="font-normal text-gray-400"> · optional</span>}</span>
+        <span className="block text-xs text-gray-500">{optional ? "Used by" : "Needed by"}: {documents.join(", ")}</span>
+      </span>
+      {to && (
+        <SectionLink as={Link} to={`#${to}`} aria-label={`Fill in ${label}`} className="mt-0.5 inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+          Fill in<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </SectionLink>
+      )}
+    </li>
+  );
+}
+
+/**
+ * compact (Onboarding Settings): a checklist of what is missing, each item linking to the one field on the page that fills
+ * it – the page already has every input, so none is repeated here. Without compact (the "Set up with AI" wizard, where those
+ * inputs are not on screen): an input for every gap, saved in one go.
+ */
+export default function MissingDetailsCard({ onSaved, compact = false, refreshKey = 0 }) {
   const [data, setData] = useState(null);
   const [values, setValues] = useState({});
   const [wording, setWording] = useState({});
@@ -72,6 +95,13 @@ export default function MissingDetailsCard({ onSaved }) {
     getSettingsGaps().then((r) => live && hydrate(r)).catch((e) => live && setMsg({ tone: "error", text: e?.message || "The missing details could not be checked." }));
     return () => { live = false; };
   }, []);
+  // re-checked after the page saves; the list stays on screen until the new one arrives
+  useEffect(() => {
+    if (!refreshKey) return undefined;
+    let live = true;
+    getSettingsGaps().then((r) => live && hydrate(r)).catch(() => {});
+    return () => { live = false; };
+  }, [refreshKey]);
 
   // one input per setting even when several gaps need it (e.g. the HR e-mail), with every document it unblocks
   const inputs = useMemo(() => {
@@ -142,6 +172,73 @@ export default function MissingDetailsCard({ onSaved }) {
   }
 
   const held = data.documents_total - data.documents_ready;
+  if (compact) {
+    const linksNeeded = data.links || [];
+    // values worked out from other fields (e.g. "registered address on one line"): they clear when those fields are filled, so
+    // they are listed apart, folded, instead of repeating the fields above
+    const derived = required.length ? linksNeeded : [];
+    const direct = required.length ? [] : linksNeeded;
+    const count = required.length + data.clauses.length + direct.length;
+    return (
+      <section id="missing-details" aria-labelledby="missing-details-title"
+        className="relative scroll-mt-24 overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
+        <div aria-hidden="true" className="h-1 bg-gradient-to-r from-amber-400 via-amber-300 to-transparent" />
+        <div className="p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-100" aria-hidden="true">
+                <ClipboardList className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="missing-details-title" className="text-base font-semibold text-gray-900">Missing details</h2>
+                <p className="text-sm text-gray-600">
+                  {held} of {data.documents_total} documents are held until these are filled. Use <span className="font-medium">Fill in</span> to
+                  jump to each field below.
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+              <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />{count} to fill
+            </span>
+          </div>
+          <div className="mt-3 grid gap-x-8 lg:grid-cols-2">
+            {(required.length > 0 || direct.length > 0) && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Company and legal details</h3>
+                <ul className="divide-y divide-gray-100">
+                  {required.map((i) => <GapRow key={keyOf(i)} label={i.label} documents={i.documents} to={i.field_id} />)}
+                  {direct.map((l) => <GapRow key={l.key} label={l.meaning} documents={l.documents}
+                    to={(l.settings_path || "").includes("#") ? l.settings_path.split("#")[1] : "company-profile"} />)}
+                </ul>
+                {derived.length > 0 && (
+                  <details className="mt-1 text-xs text-gray-500">
+                    <summary className="cursor-pointer">{derived.length} more {derived.length === 1 ? "value is" : "values are"} worked out from these fields</summary>
+                    <p className="mt-1">{derived.map((l) => l.meaning).join(" · ")}</p>
+                  </details>
+                )}
+              </div>
+            )}
+            {data.clauses.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Clause wording</h3>
+                <ul className="divide-y divide-gray-100">
+                  {data.clauses.map((c) => <GapRow key={c.key} label={c.title} documents={c.documents} to={c.field_id || "clause-library"} />)}
+                </ul>
+              </div>
+            )}
+          </div>
+          {optional.length > 0 && (
+            <details className="mt-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-gray-700">Optional defaults for every new hire ({optional.length})</summary>
+              <ul className="divide-y divide-gray-100">
+                {optional.map((i) => <GapRow key={keyOf(i)} label={i.label} documents={i.documents} to={i.field_id} optional />)}
+              </ul>
+            </details>
+          )}
+        </div>
+      </section>
+    );
+  }
   return (
     <section id="missing-details" aria-labelledby="missing-details-title"
       className="relative scroll-mt-24 overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">

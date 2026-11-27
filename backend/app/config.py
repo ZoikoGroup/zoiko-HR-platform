@@ -231,7 +231,7 @@ class Settings(BaseSettings):
     # Path to the Tesseract program when it is not on the PATH (blank: the PATH, then its usual install folders)
     TESSERACT_CMD: str = Field(default="", validation_alias="HR_TESSERACT_CMD")
     TEMPLATES_TENANT_ATTESTATION_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_ENABLED")
-    TEMPLATES_TENANT_ATTESTATION_L3_ENABLED: bool = Field(default=False, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED")
+    TEMPLATES_TENANT_ATTESTATION_L3_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED")
     # Candidate e-signature links and the e-mail one-time codes that guard every signature.
     DOC_SIGN_LINK_TTL_DAYS: int = Field(default=7, validation_alias="HR_DOC_SIGN_LINK_TTL_DAYS")
     DOC_SIGN_OTP_TTL_MINUTES: int = Field(default=10, validation_alias="HR_DOC_SIGN_OTP_TTL_MINUTES")

@@ -204,3 +204,57 @@ def test_default_work_location_and_engagement_type_fill_hire_values(world):
     with P.values_cache(world.db):
         values = P.build_values(world.db, hire, P.get_config(world.db, 1))
     assert values["employment.work_location"] == "Remote", "HR's entry for the hire wins over the default"
+
+
+# ── five templates, as an organisation uploads them (numbered Word files) ────────────────────────────────────────────
+NDA = [(1, "Confidentiality and Non-Disclosure Agreement"),
+       "This agreement is made between the Company and [Employee Name] (the receiving party).",
+       "The receiving party will keep all confidential information of the Company secret during and after employment.",
+       "Signed: [Employee Name]"]
+CONDUCT = [(1, "Code of Conduct Acknowledgement"), "Employee Name | [Full Legal Name]",
+           "I confirm that I have read and will follow the Code of Conduct of the Company."]
+IT_ASSET = [(1, "IT Asset, Access and Security Form"), "Employee Name / ID | [Name / ID]",
+            "I confirm receipt of the company laptop and accept the acceptable use rules."]
+
+
+def test_l3_templates_are_allowed_by_default():
+    from app.config import Settings
+    assert Settings.model_fields["TEMPLATES_TENANT_ATTESTATION_L3_ENABLED"].default is True, \
+        "an uploaded contract or NDA becomes the organisation's own version unless the platform switches it off"
+
+
+def test_five_uploaded_templates_all_become_documents_and_generate_filled(world):
+    s = world.post("a_admin", f"{BASE}/sessions").json()
+    sid = s["id"]
+    files = (("01_Offer_of_Employment_Template.docx", OFFER), ("02_Employment_Agreement_Template.docx", CONTRACT),
+             ("03_Confidentiality_NDA_Template.docx", NDA), ("04_Code_of_Conduct_Acknowledgement_Template.docx", CONDUCT),
+             ("05_IT_Asset_Access_Security_Template.docx", IT_ASSET))
+    for name, paras in files:
+        r = world.client.post(f"{BASE}/sessions/{sid}/files", data={"label": "tpl:auto"},
+                              files={"file": (name, _docx(paras), "application/octet-stream")}, headers=world._h("a_admin"))
+        assert r.status_code == 200, (name, r.text)
+    r = world.client.post(f"{BASE}/sessions/{sid}/files", files={"file": ("06_Organisation_Profile_Reference.docx", _docx(PROFILE),
+                                                                         "application/octet-stream")}, headers=world._h("a_admin"))
+    assert r.status_code == 200, r.text
+    s = world.post("a_admin", f"{BASE}/sessions/{sid}/analyse").json()
+    maps = {f["filename"]: (f.get("mapping") or {}) for f in s["files"]}
+    assert maps["02_Employment_Agreement_Template.docx"].get("category") == "employment_contract", maps
+    assert maps["03_Confidentiality_NDA_Template.docx"].get("category") == "nda", maps
+    assert all(maps[n].get("action") in ("variant_of", "new_document") for n, _ in files), maps
+    titles = {maps[n].get("title") for n, _ in files if maps[n].get("action") == "new_document"}
+    assert titles == {"Code of Conduct Acknowledgement", "IT Asset Access Security"}, titles   # no "Template" in titles
+    props = world.get("a_admin", f"{BASE}/sessions/{sid}/proposals").json()
+    for g in props.get("unresolved_conflicts") or []:
+        first = next(p for p in props["items"] if p.get("conflict_group") == g)
+        world.post("a_admin", f"{BASE}/sessions/{sid}/proposals/{first['id']}/decision", json={"decision": "accept"})
+    r = world.post("a_admin", f"{BASE}/sessions/{sid}/apply", headers={"Idempotency-Key": "five"})
+    assert r.status_code == 200, r.text
+    rel = world.post("a_admin", f"{BASE}/sessions/{sid}/approve-release", json={"attestation_accepted": True}).json()
+    assert rel["released"] == rel["total"] == 5, rel
+
+    gaps = fill_missing_details(world)
+    assert gaps["complete"] and gaps["documents_ready"] == gaps["documents_total"] == 5, gaps
+    hire, _ = _new_hire(world, email="five.hire@example.com")
+    fill_hire_values(world, hire)
+    texts = dict(assert_all_issued_clean(world, hire, expected=5))
+    assert any("Nora Newstarter" in t for t in texts.values()), texts

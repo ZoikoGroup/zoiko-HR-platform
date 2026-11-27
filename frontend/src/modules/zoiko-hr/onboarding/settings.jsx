@@ -28,7 +28,7 @@ import CompanyProfileSettings from "./CompanyProfileSettings";
 import OnboardingProfilesSettings from "./OnboardingProfilesSettings";
 import { PrimaryButton, SecondaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
-import { SettingsCard, SettingsSaveContext } from "./settingsUi";
+import { SettingsCard, SettingsSaveContext, useSectionHash } from "./settingsUi";
 import { DocsSetupHero, QuickJump, SectionHeader, useScrollSpy } from "./settingsDecor";
 import WelcomeMessageEditor, { DEFAULT_PLACEHOLDERS, SIGNATURE_MAX, WELCOME_MAX, unknownPlaceholders } from "./WelcomeMessageEditor";
 
@@ -109,11 +109,11 @@ const PAGE_NAV = [
     { href: "#company-profile", label: "Company profile" },
     { href: "#company-profile-legal", label: "Legal & policy defaults" },
     { href: "#onboarding-profiles", label: "Engagement & role profiles" },
-    { href: "#custom-fields", label: "Your document fields" },
     { href: "#package-documents", label: "Documents in your package" },
     { href: "#countersign", label: "Employer countersignature" },
+    { href: "#custom-fields", label: "Your document fields" },
+    { href: "#offer-package", label: "Terms & clause wording" },
     { href: "#test-package", label: "Test your package" },
-    { href: "#offer-package", label: "Offer package & clauses" },
     { href: "#portal-forms", label: "Forms new hires fill in" },
     { href: "#finance-viewers", label: "Finance viewers" },
   ] },
@@ -130,9 +130,9 @@ const SPY_IDS = PAGE_NAV.flatMap((part) => [part.href, ...part.children.map((c) 
 const QUICK_JUMP = [
   { href: "#docs-setup", label: "Set up docs" }, { href: "#missing-details", label: "Missing details" },
   { href: "#company-profile", label: "Company profile" },
-  { href: "#onboarding-profiles", label: "Profiles" }, { href: "#custom-fields", label: "Your fields" },
-  { href: "#package-documents", label: "Package" }, { href: "#test-package", label: "Test package" },
-  { href: "#offer-package", label: "Clauses" }, { href: "#automation", label: "Automation" },
+  { href: "#onboarding-profiles", label: "Profiles" }, { href: "#package-documents", label: "Package" },
+  { href: "#offer-package", label: "Clause wording" }, { href: "#test-package", label: "Test package" },
+  { href: "#automation", label: "Automation" },
 ];
 
 /** A labelled on/off row: the text on the left, the switch on the right. */
@@ -227,6 +227,7 @@ export default function OnboardingSettings() {
   const [welcomeDefaults, setWelcomeDefaults] = useState({ message: "", signature: "", placeholders: DEFAULT_PLACEHOLDERS });
   const activeSection = useScrollSpy(SPY_IDS);
   const [valuesKey, setValuesKey] = useState(0);        // bumped after Missing details saves: the cards it changed reload
+  const [checkKey, setCheckKey] = useState(0);          // bumped after a page save: the status and Missing details re-check
 
   useEffect(() => {
     let live = true;
@@ -239,20 +240,29 @@ export default function OnboardingSettings() {
     ? categoryView.categories.filter((c) => c.active).map((c) => ({ value: c.key, label: c.label }))
     : DEFAULT_CATEGORIES;
 
-  // a link such as ".../settings#company-profile-clauses" (from the package panel) opens on that section once the
-  // sections have rendered (they load their own data, so the target may appear a moment later)
+  // a link such as ".../settings#company-profile-clauses" (from the package panel or a setup-status tile) opens on that
+  // section once the sections have rendered (they load their own data, so the target may appear a moment later). Runs on
+  // every navigation, so a tile clicked on this page (same page, new hash – or the same hash again) scrolls too.
+  const location = useSectionHash();
   useEffect(() => {
-    const id = typeof window !== "undefined" ? decodeURIComponent(window.location.hash.slice(1)) : "";
+    const id = decodeURIComponent((location.hash || "").slice(1));
     if (!id) return undefined;
     let tries = 0;
     const timer = setInterval(() => {
       const el = document.getElementById(id);
       tries += 1;
-      if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); clearInterval(timer); }
-      else if (tries > 40) clearInterval(timer);
+      if (el) {
+        const field = /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
+        el.scrollIntoView({ behavior: "smooth", block: field ? "center" : "start" });
+        if (field) setTimeout(() => el.focus({ preventScroll: true }), 400);   // "Fill in" puts the cursor in the field
+        // a short highlight shows which section the link opened
+        el.classList.add("ring-2", "ring-blue-300", "ring-offset-2");
+        setTimeout(() => el.classList.remove("ring-2", "ring-blue-300", "ring-offset-2"), 1600);
+        clearInterval(timer);
+      } else if (tries > 40) clearInterval(timer);
     }, 150);
     return () => clearInterval(timer);
-  }, []);
+  }, [location.hash, location.key]);
 
   // sections saved by the header buttons (the company profile) register here
   const registry = useRef({});
@@ -371,6 +381,7 @@ export default function OnboardingSettings() {
     } finally {
       setSaving(false);
     }
+    setCheckKey((k) => k + 1);
     setBanner(failed.length
       ? { type: "error", text: `Not saved: ${failed.join(", ")}. Fix the highlighted fields and save again.` }
       : { type: "success", text: "Settings saved. They apply to new hires and documents created from now on." });
@@ -467,15 +478,20 @@ export default function OnboardingSettings() {
             <DocsSetupHero setupStatus={setupStatus} profileComplete={profileComplete} path={DOCS_SETUP_PATH} />
           )}
 
-          <SetupStatusCard key={`status-${valuesKey}`} />
-          <MissingDetailsCard onSaved={() => setValuesKey((k) => k + 1)} />
+          {/* 1. where you stand, and what is still missing (each item links to its field below) */}
+          <SetupStatusCard key={`status-${valuesKey}`} refreshKey={checkKey} />
+          <MissingDetailsCard key={`gaps-${valuesKey}`} compact refreshKey={checkKey} />
+          {/* 2. who the employer is, and the kinds of people it engages */}
           <CompanyProfileSettings key={`profile-${valuesKey}`} />
           <OnboardingProfilesSettings />
-          <CustomFieldsSettings />
+          {/* 3. which documents go out, who signs them, and what they print */}
           <PackageDocumentsSettings />
           <CountersignSettings />
-          <TestPackageCard />
+          <CustomFieldsSettings />
           <OfferPackageSettings key={`package-${valuesKey}`} />
+          {/* 4. check it all works before a real hire gets it */}
+          <TestPackageCard />
+          {/* 5. what new hires fill in, and who sees their bank details */}
           <PortalFormsSettings />
           <FinanceViewersSetting />
 

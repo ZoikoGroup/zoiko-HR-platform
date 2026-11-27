@@ -4,9 +4,10 @@
  * A progress ring shows the required steps done; each step is a tile with its state.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { ArrowRight, CheckCircle2, Circle, CircleAlert, RefreshCw, Rocket } from "lucide-react";
+import { Link } from "react-router-dom";
 import { getSetupStatus } from "../../../service/onboardingSetupService";
+import { SectionLink } from "./settingsUi";
 
 /** A circular progress indicator (percent 0–100). */
 export function ProgressRing({ percent, size = 64, stroke = 7, done = false }) {
@@ -44,7 +45,7 @@ function Skeleton() {
   );
 }
 
-export default function SetupStatusCard({ compact = false }) {
+export default function SetupStatusCard({ compact = false, refreshKey = 0 }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
 
@@ -61,6 +62,13 @@ export default function SetupStatusCard({ compact = false }) {
     getSetupStatus().then((s) => live && setStatus(s)).catch((e) => live && setError(e?.message || "Setup status unavailable."));
     return () => { live = false; };
   }, []);
+  // re-checked after the page saves; the tiles stay on screen until the new check arrives
+  useEffect(() => {
+    if (!refreshKey) return undefined;
+    let live = true;
+    getSetupStatus({ fresh: true }).then((s) => live && setStatus(s)).catch(() => {});
+    return () => { live = false; };
+  }, [refreshKey]);
 
   if (error) {
     if (compact) return null;            // the dashboard simply leaves the card out
@@ -109,7 +117,7 @@ export default function SetupStatusCard({ compact = false }) {
       <ol className="relative mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {steps.map((s, i) => (
           <li key={s.key}>
-            <Link to={s.path}
+            <SectionLink as={Link} to={s.path}
               className={`group flex h-full items-start gap-2.5 rounded-xl border p-3 transition hover:-translate-y-0.5 hover:shadow-md ${
                 s.done ? "border-emerald-100 bg-white/90" : s.required ? "border-amber-200 bg-amber-50/40" : "border-gray-100 bg-white/90"}`}>
               <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold ${
@@ -123,7 +131,7 @@ export default function SetupStatusCard({ compact = false }) {
                 <span className="block text-xs leading-5 text-gray-600">{s.detail}</span>
               </span>
               <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-gray-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" aria-hidden="true" />
-            </Link>
+            </SectionLink>
           </li>
         ))}
       </ol>

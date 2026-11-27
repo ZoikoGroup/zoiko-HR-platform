@@ -89,18 +89,19 @@ def _input(target: str, key: str, profile: dict, cfg: dict, spec: dict) -> Optio
         if f is None:
             return None
         return {"target": "profile", "key": key, "label": f["label"], "kind": f["kind"], "options": f.get("options"),
-                "hint": f.get("hint"), "value": profile.get(key)}
+                "hint": f.get("hint"), "value": profile.get(key), "field_id": f"cp-{key}"}
     if target == "package":
         label, hint = PACKAGE_LABELS.get(key, (key.replace("_", " ").capitalize(), None))
         return {"target": "package", "key": key, "label": label, "kind": "text", "options": None, "hint": hint,
-                "value": cfg.get(key)}
+                "value": cfg.get(key), "field_id": f"op-{key}"}
     return None
 
 
 def _clause_token_input(token: str, profile: dict) -> dict:
     from app.modules.hr import onboarding_clause_tokens as T
     return {"target": "clause_token", "key": token, "label": T.label(token), "kind": "text", "options": None,
-            "hint": "Used inside your clause wording", "value": profile.get(T.profile_key(token))}
+            "hint": "Used inside your clause wording", "value": profile.get(T.profile_key(token)),
+            "field_id": f"cp-{T.profile_key(token)}"}
 
 
 def gaps(db, organization_id: int) -> dict:
@@ -130,7 +131,7 @@ def gaps(db, organization_id: int) -> dict:
                 if d["title"] not in it["documents"]:
                     it["documents"].append(d["title"])
             for c in d["missing_clauses"]:
-                cl = clauses.setdefault(c["key"], {"key": c["key"], "title": c["title"], "documents": [],
+                cl = clauses.setdefault(c["key"], {"key": c["key"], "title": c["title"], "documents": [], "field_id": f"clause-{c['key']}",
                                                     "drafting_note": (C.CLAUSES.get(c["key"]) or ("", ""))[1]})
                 if d["title"] not in cl["documents"]:
                     cl["documents"].append(d["title"])

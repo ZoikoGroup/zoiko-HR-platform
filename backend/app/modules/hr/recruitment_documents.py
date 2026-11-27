@@ -359,6 +359,94 @@ LETTER_FIX_LINKS = {
 }
 
 
+def _letter_entity(db, actor, offer: RecruitmentOffer):
+    """The employer printed on a starter offer letter: the offer's legal entity, else the organisation itself."""
+    from types import SimpleNamespace
+    entity = preflight.resolve_entity(db, actor.organization_id, None, offer.employer_entity_id)
+    if entity is not None:
+        return entity
+    organization = actor.organization
+    return SimpleNamespace(
+        id=None,
+        legal_name=getattr(organization, "organization_name", None) or getattr(organization, "display_name", None) or "Employer name not set",
+        trading_name=None, country=(offer.work_country or "").upper(), region=getattr(organization, "state", None),
+        city=getattr(organization, "city", None), postal_code=None,
+        address_lines=[getattr(organization, "address", None)] if getattr(organization, "address", None) else [],
+        registration_number=None, registration_type=None, logo_file=None)
+
+
+# where HR fills each kind of offer-letter value (first matching prefix wins)
+# where HR fills each kind of offer-letter value (first matching prefix wins). action: "edit_offer" opens this offer's form on
+# the field, "setup_offer_letters" opens "Set up offer letters" (legal entity and signatory); else href is a page to open.
+OFFER_FIELD_SOURCES = (
+    ("candidate.", "Candidate profile", "candidate", None),
+    ("employment.", "This offer", "edit_offer", None),
+    ("offer.", "This offer", "edit_offer", None),
+    ("employer.signatory", "Set up offer letters (authorised signatory)", "setup_offer_letters", None),
+    ("employer.hr_contact", "Your user profile (you prepare the letter)", None, "/organization-admin/organization"),
+    ("employer.", "Set up offer letters (employing legal entity)", "setup_offer_letters", None),
+)
+# filled by the system when the letter is generated, never asked for
+OFFER_SYSTEM_FIELDS = {"document.date", "offer.reference", "offer.response_deadline", "document.number"}
+
+
+def _printed_fields(blocks) -> tuple[set, set]:
+    """(fields the letter prints, optional fields whose sentence is simply left out when empty)."""
+    import re
+    printed, guarded = set(), set()
+    for block in blocks or []:
+        for k in ("text",):
+            printed |= set(re.findall(r"\{\{\s*([a-z_]+\.[a-z_.]+)\s*\}\}", str(block.get(k) or "")))
+        printed |= set(block.get("fields") or [])
+        for k in ("rows_from", "items_from"):
+            if block.get(k):
+                printed.add(block[k])
+        for item in block.get("items") or []:
+            printed |= set(re.findall(r"\{\{\s*([a-z_]+\.[a-z_.]+)\s*\}\}", str(item)))
+        cond = block.get("include_when") or {}
+        if cond.get("field") and cond.get("op") == "present":
+            guarded.add(cond["field"])
+    return printed, guarded
+
+
+def offer_letter_missing_details(db, actor, offer: RecruitmentOffer, canonical_id: Optional[str]) -> list:
+    """Every value the offer letter prints that is still empty for this offer, with its label and where HR fills it. Only
+    values the letter actually prints are listed (a value the template names but never prints is not a gap). Required values
+    block sending; recommended ones would otherwise print as a blank. Read-only."""
+    from app.modules.doc_templates import fields, starters
+    from app.modules.hr.models import RecruitmentCandidate
+    if not canonical_id or not offer.candidate_id:
+        return []
+    starter = starters.latest(db, canonical_id)
+    candidate = db.get(RecruitmentCandidate, offer.candidate_id)
+    if not starter or candidate is None:
+        return []
+    contract = starter.get("field_contract") or {}
+    printed, guarded = _printed_fields(starter.get("blocks") or starter.get("content"))
+    ctx = fields.FieldContext(db=db, organization=actor.organization, subject_type="candidate", subject=candidate,
+                              entity=_letter_entity(db, actor, offer), requester=actor, canonical_id=canonical_id,
+                              source=offer, language="en", sample=False)
+    out = []
+    for level, keys in (("required", contract.get("required") or []), ("recommended", contract.get("optional") or [])):
+        for key in keys:
+            if key in OFFER_SYSTEM_FIELDS or key in guarded or key not in fields.REGISTRY:
+                continue
+            if key not in printed or fields.REGISTRY[key].type in ("signature", "image"):
+                continue
+            try:
+                value = ctx.raw(key)
+            except Exception:                           # a source that cannot be read counts as missing
+                value = None
+            if value not in (None, "", [], {}):
+                continue
+            where, action, href = next(((w, a, h) for prefix, w, a, h in OFFER_FIELD_SOURCES if key.startswith(prefix)),
+                                       ("This offer", "edit_offer", None))
+            if action == "candidate":
+                action, href = None, f"/zoiko-hr/recruitment/candidates/{candidate.id}"
+            out.append({"key": key, "label": fields.REGISTRY[key].label, "level": level, "where": where,
+                        "action": action, "href": href})
+    return out
+
 def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     """Everything an offer letter needs, each checked on its own (the engine's preflight stops at the first problem, so HR
     would otherwise fix one thing at a time). Read-only; nothing is generated or recorded."""
@@ -475,7 +563,9 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
         final = r.as_dict()
         if final.get("outcome") != "ALLOW":
             step("final", "Final check", False, "; ".join(final.get("reasons") or []) or "The engine refused the letter.")
+    missing_details = offer_letter_missing_details(db, actor, offer, cid)
     return {"offer_id": offer.id, "canonical_id": cid, "ready": all(s["ok"] for s in steps), "steps": steps,
+            "missing_details": missing_details,
             "work_country": offer.work_country, "auto_setup_available": auto_setup_available,
             "draft_preview_available": draft_preview_available,
             "draft_preview_countries": sorted(DRAFT_PREVIEW_COUNTRIES)}
@@ -530,14 +620,7 @@ def generate_unreviewed_offer_draft(db, actor, offer: RecruitmentOffer, canonica
     if existing is not None and existing.status in OFFER_IN_PROGRESS:
         return existing
     country = offer.work_country.upper()
-    entity = preflight.resolve_entity(db, actor.organization_id, None, offer.employer_entity_id)
-    if entity is None:
-        organization = actor.organization
-        entity = SimpleNamespace(
-            legal_name=getattr(organization, "organization_name", None) or getattr(organization, "display_name", None) or "Employer name not set",
-            trading_name=None, country=country, region=getattr(organization, "state", None), city=getattr(organization, "city", None),
-            postal_code=None, address_lines=[getattr(organization, "address", None)] if getattr(organization, "address", None) else [],
-            registration_number=None, registration_type=None, logo_file=None)
+    entity = _letter_entity(db, actor, offer)
     if sendable and getattr(entity, "legal_name", None) == "Employer name not set":
         raise HTTPException(409, "Set your organization's name before sending an offer letter.")
 
@@ -580,13 +663,16 @@ def generate_unreviewed_offer_draft(db, actor, offer: RecruitmentOffer, canonica
         elif key in mandatory and sendable:
             raise HTTPException(409, {"code": "OFFER_STARTER_CLAUSE_MISSING",
                                       "message": f"The selected offer template has no ready starter text for required clause '{key}'."})
-        else:
+        elif key in mandatory:
             clauses[key] = SimpleNamespace(text=f"[Unreviewed draft placeholder: jurisdiction-specific clause '{key}' is not configured.]")
+        # an optional clause with no wording is left out of the letter (never a placeholder)
     if sendable:
         missing = fields.required_missing(ctx, list((starter.get("field_contract") or {}).get("required") or []))
         if missing:
             raise HTTPException(422, {"code": "OFFER_FIELDS_MISSING",
-                                      "message": "Complete the required offer fields before sending: " + ", ".join(missing)})
+                                      "message": "The offer letter cannot be sent yet. Fill in: "
+                                                 + ", ".join(fields.REGISTRY[k].label if k in fields.REGISTRY else k for k in missing) + ".",
+                                      "missing": missing})
     inp = doc_service.build_input(ctx, blocks=starter.get("content") or [], clauses=clauses,
                                   required_clause_keys=mandatory, number=number, title=definition.title,
                                   sensitivity=definition.sensitivity, letterhead_info=doc_service.letterhead(entity, actor.organization),

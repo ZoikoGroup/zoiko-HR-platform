@@ -39,6 +39,7 @@ import GenerateDocumentButton from "../../../components/documents/GenerateDocume
 import AssignPeopleDialog, { PeopleMultiPicker } from "./AssignPeopleDialog";
 import { formatDate } from "../../../utils/dateTime";
 import { DEFAULT_DESIGNATION_SETTINGS, normalizeDesignationSettings, sortDesignations } from "../../../utils/designationSettings";
+import { formatOrgMoney } from "../../../utils/money";
 
 // Where a designation came from. Rows created before this was tracked have no source.
 const SOURCE_LABELS = {
@@ -63,7 +64,29 @@ const initialForm = {
   status: "active",
 };
 
+/** True on phone-width screens (below Tailwind's md), where the list shows cards instead of the wide table. */
+function useNarrowScreen() {
+  const query = "(max-width: 767px)";
+  const get = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+  const [narrow, setNarrow] = useState(get);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia(query);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
+  return narrow;
+}
+
+/** "£400,000 – £700,000" in the organization's currency; "?" for a missing end. */
+function salaryRange(item) {
+  const one = (v) => (v != null && v !== "" ? formatOrgMoney(Number(v)) : "?");
+  return `${one(item.min_salary)} – ${one(item.max_salary)}`;
+}
+
 export default function DesignationList() {
+  const narrow = useNarrowScreen();
   const [records, setRecords] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [holders, setHolders] = useState(null);        // people holding the designation open in the detail panel
@@ -478,6 +501,45 @@ export default function DesignationList() {
 
       {/* Designation Ledger Table */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden">
+        {narrow ? (
+        <ul className="divide-y divide-gray-100" aria-label="Designations">
+          {loading && records.length === 0 && <li className="px-4 py-10 text-center text-sm text-gray-400" role="status">Loading designations...</li>}
+          {!loading && visible.length === 0 && (
+            <li className="px-4 py-10 text-center text-sm text-gray-500">
+              {records.length === 0 ? "No designations yet. Tap \"Add Designation\" to add one." : "No designations match your search or filter."}
+            </li>
+          )}
+          {visible.map((item) => (
+            <li key={item.id} className="px-4 py-3.5">
+              <button type="button" onClick={() => openDetail(item)} className="block w-full text-left">
+                <span className="flex items-start justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-gray-900">{item.title}</span>
+                    <span className="block text-xs text-gray-500">{item.department_name || "No department"}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {item.level && <span className="rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">{item.level}</span>}
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${item.status === "active" ? "border border-emerald-200/60 bg-emerald-50 text-emerald-700" : "border border-gray-200 bg-gray-100 text-gray-600"}`}>{item.status || "active"}</span>
+                  </span>
+                </span>
+                {(settings.show_salary_range && (item.min_salary != null || item.max_salary != null)) && (
+                  <span className="mt-1 block text-xs tabular-nums text-gray-700">{salaryRange(item)}</span>
+                )}
+                {settings.show_employee_count && !!item.employees_count && (
+                  <span className="mt-0.5 block text-xs text-gray-600">{peopleCount(item.employees_count)}</span>
+                )}
+              </button>
+              <div className="mt-2 flex gap-1">
+                <button type="button" onClick={(e) => handleOpenEdit(item, e)} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50">Edit</button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setAssigning(item); }} disabled={!canAssign(item)} aria-label={`Assign ${item.title} to employees`}
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:text-gray-300">Assign</button>
+                <button type="button" onClick={(e) => handleDelete(item.id, e)} disabled={item.employees_count > 0}
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:text-gray-300">Delete</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100">
             <thead className="bg-gray-50/80">
@@ -491,15 +553,14 @@ export default function DesignationList() {
                 {settings.show_employee_count && (
                   <th className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Employees</th>
                 )}
-                <th className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Source</th>
                 <th className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="sticky right-0 z-[1] shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.25)] bg-gray-50 px-5 py-3.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
               {loading && records.length === 0 ? (
                 <tr>
-                  <td colSpan={6 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-5 py-12 text-center text-sm text-gray-400" role="status">
+                  <td colSpan={5 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-5 py-12 text-center text-sm text-gray-400" role="status">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
                       <span>Loading designations...</span>
@@ -508,7 +569,7 @@ export default function DesignationList() {
                 </tr>
               ) : visible.length === 0 ? (
                 <tr>
-                  <td colSpan={6 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-5 py-12 text-center text-sm text-gray-500">
+                  <td colSpan={5 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-5 py-12 text-center text-sm text-gray-500">
                     {records.length === 0
                       ? "No designations yet. Click \"Add Designation\" or upload employees with a Designation column."
                       : "No designations match your search or filter."}
@@ -522,7 +583,17 @@ export default function DesignationList() {
                   onClick={() => openDetail(item)}
                   className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                 >
-                  <td className={`${cell} text-sm font-semibold text-gray-900`}>{item.title}</td>
+                  <td className={`${cell} min-w-[13rem] text-sm`} title={item.created_by_name ? `Created by ${item.created_by_name}` : undefined}>
+                    <span className="block font-semibold text-gray-900">{item.title}</span>
+                    {/* where it came from sits under the title (it had a column of its own, which pushed Actions off the card) */}
+                    <span className="mt-0.5 block text-[11px] font-medium text-gray-500">{sourceLabel(item.source)}</span>
+                    {item.created_at ? (
+                      <span className="block max-w-[15rem] truncate text-[11px] text-gray-400">
+                        {formatDate(item.created_at)}
+                        {item.created_by_name ? ` · ${item.created_by_name}` : ""}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className={`${cell} text-sm text-gray-600`}>
                     {item.department_name ? (
                       <span className="inline-flex items-center gap-1.5 text-gray-700">
@@ -543,9 +614,9 @@ export default function DesignationList() {
                     )}
                   </td>
                   {settings.show_salary_range && (
-                    <td className={`${cell} text-sm font-mono text-gray-700`}>
+                    <td className={`${cell} whitespace-nowrap text-sm tabular-nums text-gray-700`}>
                       {item.min_salary != null || item.max_salary != null
-                        ? `${item.min_salary != null ? Number(item.min_salary).toLocaleString() : "?"} – ${item.max_salary != null ? Number(item.max_salary).toLocaleString() : "?"}`
+                        ? salaryRange(item)
                         : "—"}
                     </td>
                   )}
@@ -561,15 +632,6 @@ export default function DesignationList() {
                       )}
                     </td>
                   )}
-                  <td className={`${cell} text-xs text-gray-500`} title={item.created_by_name ? `Created by ${item.created_by_name}` : undefined}>
-                    <span className="block font-medium text-gray-700">{sourceLabel(item.source)}</span>
-                    {item.created_at ? (
-                      <span className="text-gray-400 text-[11px]">
-                        {formatDate(item.created_at)}
-                        {item.created_by_name ? ` · ${item.created_by_name}` : ""}
-                      </span>
-                    ) : null}
-                  </td>
                   <td className={`${cell} text-sm`}>
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${
@@ -581,7 +643,7 @@ export default function DesignationList() {
                       {item.status || "active"}
                     </span>
                   </td>
-                  <td className={`${cell} whitespace-nowrap text-right text-sm`}>
+                  <td className={`${cell} sticky right-0 z-[1] shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.25)] whitespace-nowrap bg-white text-right text-sm group-hover:bg-slate-50`}>
                     <div className="inline-flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
@@ -616,6 +678,7 @@ export default function DesignationList() {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Pagination Toolbar */}
         {filtered.length > pageSize && (

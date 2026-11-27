@@ -201,11 +201,11 @@ export default function DesignationLayout({
                 <BadgeCheck className="h-5 w-5 sm:h-6 sm:w-6 stroke-[2.2]" />
               </span>
               <div className="min-w-0 flex-1">
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white truncate">
+                <h1 className="text-xl sm:text-2xl lg:text-[28px] font-bold tracking-tight text-white truncate">
                   {title}
                 </h1>
                 {subtitle && (
-                  <p className="text-xs sm:text-sm text-slate-300/90 line-clamp-2 sm:line-clamp-none mt-0.5">
+                  <p className="mt-0.5 sm:mt-1 text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed line-clamp-2 sm:line-clamp-none">
                     {subtitle}
                   </p>
                 )}
@@ -216,7 +216,7 @@ export default function DesignationLayout({
           </div>
 
           {/* Unified White Folder Navigation Tabs */}
-          <div className="mt-4 flex items-end gap-1.5 overflow-x-auto border-b border-transparent pt-1 scrollbar-none -mb-px">
+          <nav aria-label="Designations tabs" className="mt-4 flex items-end gap-1.5 overflow-x-auto border-b border-transparent pt-1 scrollbar-none -mb-px">
             {DESIGNATION_NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               return (
@@ -225,7 +225,7 @@ export default function DesignationLayout({
                   to={item.href}
                   end={item.href === "/zoiko-hr/designations"}
                   className={({ isActive }) =>
-                    `group relative flex items-center gap-2 whitespace-nowrap rounded-t-xl px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs font-semibold transition-all duration-200 ${
+                    `group relative flex items-center gap-2 whitespace-nowrap rounded-t-xl px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
                       isActive
                         ? "bg-slate-50 text-slate-900 shadow-[0_-2px_8px_rgba(0,0,0,0.12)] -mb-px z-10"
                         : "text-slate-300/80 hover:bg-white/10 hover:text-white"
@@ -250,7 +250,7 @@ export default function DesignationLayout({
                 </NavLink>
               );
             })}
-          </div>
+          </nav>
         </div>
       </header>
 

@@ -22,7 +22,9 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import DepartmentLayout, { useDepartmentData } from "./DepartmentLayout";
-const formatNumber = (n) => (n == null || !Number.isFinite(Number(n)) ? "0" : Number(n).toLocaleString());
+import { formatOrgMoney } from "../../../utils/money";
+// budgets and spend, in the organization's currency
+const formatNumber = (n) => formatOrgMoney(n == null || !Number.isFinite(Number(n)) ? 0 : Number(n));
 
 function TreeNode({
   node,
@@ -422,7 +424,7 @@ export default function DepartmentStructure() {
               </p>
               <NavLink
                 to="/zoiko-hr/departments/list"
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 text-white rounded-lg text-xs font-semibold hover:bg-rose-700 transition-colors"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors"
               >
                 Add Primary Unit
               </NavLink>
