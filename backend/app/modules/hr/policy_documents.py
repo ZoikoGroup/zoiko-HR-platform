@@ -376,15 +376,28 @@ def _active_variants(db, organization_id: int, canonical_id: str) -> list[Templa
 def library(db, actor) -> list[dict]:
     access.require_hr(actor)
     from app.modules.doc_templates import governance
+    from sqlalchemy import or_
     out = []
+    ids = list(POLICY_IDS)
+    # three queries for every policy together (one set per policy made the library ~45 round trips)
+    defs = {d.canonical_id: d for d in db.query(TemplateDefinition).filter(TemplateDefinition.canonical_id.in_(ids)).all()}
+    variants_by: dict = {}
+    for v in (db.query(TemplateVariant).filter(TemplateVariant.canonical_id.in_(ids), TemplateVariant.status == "ACTIVE",
+                                               or_(TemplateVariant.owner_organization_id == actor.organization_id,
+                                                   TemplateVariant.owner_organization_id.is_(None)))
+              .order_by(TemplateVariant.id).all()):
+        variants_by.setdefault(v.canonical_id, []).append(v)
+    dists_by: dict = {}
+    for x in (db.query(PolicyDistribution).filter(PolicyDistribution.organization_id == actor.organization_id,
+                                                  PolicyDistribution.canonical_id.in_(ids))
+              .order_by(PolicyDistribution.id.desc()).all()):
+        dists_by.setdefault(x.canonical_id, []).append(x)
+    months = work_settings.get(db, actor.organization_id, "policies.review_months") or 12
     for cid in POLICY_IDS:
-        d = db.get(TemplateDefinition, cid)
-        variants = _active_variants(db, actor.organization_id, cid)
-        dists = (db.query(PolicyDistribution).filter(PolicyDistribution.organization_id == actor.organization_id,
-                                                     PolicyDistribution.canonical_id == cid)
-                 .order_by(PolicyDistribution.id.desc()).all())
+        d = defs.get(cid)
+        variants = variants_by.get(cid, [])
+        dists = dists_by.get(cid, [])
         current = next((x for x in dists if x.status == "PUBLISHED"), None)
-        months = work_settings.get(db, actor.organization_id, "policies.review_months") or 12
         out.append({
             "canonical_id": cid, "title": POLICY_TITLES[cid], "implemented": bool(d and d.implemented),
             "active_versions": [{"variant_id": v.id, "version": v.version, "release_mode": v.release_mode, "pack_id": v.pack_id,
@@ -426,12 +439,22 @@ def my_policies(db, user) -> list[dict]:
     from app.modules.employee.models import Employee
     me = db.get(Employee, user.id)
     out = []
+    ids = list(POLICY_IDS)
+    # two queries for every policy together (two per policy before)
+    dists_by: dict = {}
+    for d in (db.query(PolicyDistribution).filter(PolicyDistribution.canonical_id.in_(ids), PolicyDistribution.status == "PUBLISHED",
+                                                  PolicyDistribution.organization_id == user.organization_id)
+              .order_by(PolicyDistribution.id).all()):
+        dists_by.setdefault(d.canonical_id, []).append(d)
+    mine_by: dict = {}
+    for x in (db.query(GeneratedDocument).filter(GeneratedDocument.organization_id == user.organization_id,
+                                                 GeneratedDocument.canonical_id.in_(ids), GeneratedDocument.subject_type == "employee",
+                                                 GeneratedDocument.subject_id == user.id, GeneratedDocument.status.in_(RECEIVED))
+              .order_by(GeneratedDocument.id.desc()).all()):
+        mine_by.setdefault(x.canonical_id, []).append(x)
     for cid in POLICY_IDS:
-        dists = _published(db, user.organization_id, cid)
-        mine = (db.query(GeneratedDocument).filter(GeneratedDocument.organization_id == user.organization_id,
-                                                   GeneratedDocument.canonical_id == cid, GeneratedDocument.subject_type == "employee",
-                                                   GeneratedDocument.subject_id == user.id, GeneratedDocument.status.in_(RECEIVED))
-                .order_by(GeneratedDocument.id.desc()).all())
+        dists = dists_by.get(cid, [])
+        mine = mine_by.get(cid, [])
         current = next((d for d in reversed(dists) if audience_includes(me, d.audience) or any(x.distribution_id == d.id for x in mine)), None)
         if current is None:
             continue

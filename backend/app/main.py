@@ -385,6 +385,11 @@ from app.core.privacy.middleware import PrivacyContextMiddleware  # noqa: E402
 app.add_middleware(PrivacyContextMiddleware)
 from app.core.privacy import tenant_scope as _tenant_scope  # noqa: E402
 _tenant_scope.install()          # every tenant-plane query is limited to the caller's organization by the session itself
+# Repeated reads of settings/templates/plan rows inside one GET request hit the database once (app/core/request_read_cache.py).
+# Installed after the tenant scope so the cached statement is the final, tenant-limited one.
+from app.core import request_read_cache as _read_cache  # noqa: E402
+_read_cache.install()
+app.add_middleware(_read_cache.RequestReadCacheMiddleware)
 if _QUERY_STATS:
     # Outermost layer, so every query of the request (entitlement checks included) is counted. Dev only.
     app.add_middleware(_query_stats.QueryStatsMiddleware)

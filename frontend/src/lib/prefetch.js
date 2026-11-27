@@ -61,6 +61,30 @@ const dataPrefetchers = {
   },
 };
 
+// Recruitment and onboarding pages read their figures through useInsights / useCachedLoad (hooks/useCachedLoad.js):
+// warming the same keys means the click shows them at once.
+const insights = (section) => async () => {
+  const [{ primeCachedLoad }, hr] = await Promise.all([import("../hooks/useCachedLoad"), import("../service/hrService")]);
+  return primeCachedLoad(`recruitment-insights:${section}`, () => hr.getRecruitmentInsights(section));
+};
+Object.assign(dataPrefetchers, {
+  "/zoiko-hr/recruitment": insights("dashboard"),
+  "/zoiko-hr/recruitment/candidates": insights("candidates"),
+  "/zoiko-hr/recruitment/interviews": insights("interviews"),
+  "/zoiko-hr/recruitment/offers": insights("offers"),
+  "/zoiko-hr/recruitment/job-requisitions": insights("requisitions"),
+  "/zoiko-hr/onboarding/new-hires": insights("onboarding"),
+  "/zoiko-hr/onboarding/pre-onboarding": insights("onboarding"),
+  "/zoiko-hr/onboarding/documents": insights("onboarding"),
+  "/zoiko-hr/onboarding": async () => {
+    const [{ primeCachedLoad }, hr] = await Promise.all([import("../hooks/useCachedLoad"), import("../service/hrService")]);
+    return Promise.all([
+      primeCachedLoad("onboarding-dashboard", () => hr.getOnboardingDashboard()),
+      primeCachedLoad("recruitment-insights:onboarding", () => hr.getRecruitmentInsights("onboarding")),
+    ]);
+  },
+});
+
 /** Start what a click on this link will need: its code, and its first data where that is known. Safe to call often. */
 export function prefetchRoute(href) {
   try {

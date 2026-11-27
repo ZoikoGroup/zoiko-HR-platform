@@ -1,6 +1,7 @@
 
 import { humanizeValidationError } from "../utils/validationMessage.js";
 import { queryClient } from "../lib/queryClient.js";
+import { clearCachedLoads } from "../hooks/useCachedLoad";
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "zoiko_access_token";
@@ -45,7 +46,7 @@ export function setSession({ accessToken, refreshToken, user } = {}) {
   if (user) {
     let previous = null;
     try { previous = getStoredUser()?.id ?? null; } catch { previous = null; }
-    if (previous === null || previous !== user.id) queryClient.clear();
+    if (previous === null || previous !== user.id) { queryClient.clear(); clearCachedLoads(); }
   }
   if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken);
   if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
@@ -55,14 +56,14 @@ export function setSession({ accessToken, refreshToken, user } = {}) {
 
 export function clearSession() {
   sharedGets.clear();
-  queryClient.clear();               // signing out (or an invalid session) leaves no cached data behind
+  queryClient.clear(); clearCachedLoads();               // signing out (or an invalid session) leaves no cached data behind
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
 function notifySessionInvalid(reason) {
-  queryClient.clear();
+  queryClient.clear(); clearCachedLoads();
   if (sessionInvalidNotified) return;
   sessionInvalidNotified = true;
   if (typeof window !== "undefined") {
@@ -261,13 +262,20 @@ async function refreshAccessToken() {
 // Reference lists that many pages load at once (every performance/assets/recruitment page asks for the same
 // 200 employees). Identical GETs in flight share one request, and the answer is reused for a few seconds.
 // Any write, login or logout clears it, so a page never shows data older than the user's own last change.
-const SHARED_GET = /^\/hr\/(employees|departments|designations|attendance\/shifts)(\?|$)/;
+const SHARED_GET = /^\/(hr\/(employees|departments|designations|attendance\/shifts|regions)|billing\/me\/entitlements)(\?|$)/;
 const SHARED_GET_TTL_MS = 10000;
 const sharedGets = new Map(); // key -> { promise, expires }
+// Any other GET: identical requests in flight at the same moment (several cards of one page asking for the same thing)
+// share one network call. Nothing is kept once the answer arrives, so a later call always asks the server again.
+const inflightGets = new Map(); // key -> promise
 
 export function clearApiCache() {
   sharedGets.clear();
+  inflightGets.clear();
+  clearCachedLoads();          // pages showing saved answers (hooks/useCachedLoad.js) ask again after any write
 }
+
+const copyOf = (data) => (data && typeof data === "object" ? structuredClone(data) : data);
 
 function sharedKey(path, opts) {
   const query = opts?.params
@@ -279,8 +287,17 @@ function sharedKey(path, opts) {
 function cachedGet(path, opts) {
   const request = () => apiRequest(path, { ...opts, method: "GET" });
   // a caller-supplied abort signal means "this answer may be thrown away": never share those
-  if (opts?.signal || !SHARED_GET.test(path)) return request();
+  if (opts?.signal) return request();
   const key = sharedKey(path, opts);
+  if (!SHARED_GET.test(path)) {
+    const pending = inflightGets.get(key);
+    if (pending) return pending.then(copyOf);
+    const promise = request();
+    inflightGets.set(key, promise);
+    const done = () => { if (inflightGets.get(key) === promise) inflightGets.delete(key); };
+    promise.then(done, done);
+    return promise.then(copyOf);
+  }
   const hit = sharedGets.get(key);
   if (hit && hit.expires > Date.now()) return hit.promise.then((data) => (data && typeof data === "object" ? structuredClone(data) : data));
   const promise = request();
