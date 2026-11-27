@@ -22,16 +22,11 @@ import {
   FileText,
 } from "lucide-react";
 import DepartmentLayout, { useDepartmentData } from "./DepartmentLayout";
-const formatNumber = (n, { compact = false } = {}) => {
-  if (n == null || !Number.isFinite(Number(n))) return "0";
-  const num = Number(n);
-  if (compact) {
-    if (Math.abs(num) >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-    if (Math.abs(num) >= 1_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  }
-  return num.toLocaleString();
-};
+// budgets and spend, in the organization's currency (compact: £2.5M)
+const formatNumber = (n, { compact = false } = {}) =>
+  formatOrgMoney(n == null || !Number.isFinite(Number(n)) ? 0 : Number(n), { compact });
 import { formatDate } from "../../../utils/dateTime";
+import { formatOrgMoney } from "../../../utils/money";
 
 function MetricCard({ title, value, subtitle, icon: Icon, tone = "blue", badge, trend }) {
   const tones = {
@@ -68,21 +63,19 @@ function MetricCard({ title, value, subtitle, icon: Icon, tone = "blue", badge, 
     <div className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              {title}
-            </span>
+          <span className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+            {title}
+          </span>
+          <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+            {value}
             {badge && (
-              <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${style.pill}`}>
+              <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-normal ring-1 ring-inset ${style.pill}`}>
                 {badge}
               </span>
             )}
-          </div>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            {value}
           </p>
           {subtitle && (
-            <p className="mt-1 text-xs font-medium text-slate-500 truncate">
+            <p className="mt-1 text-xs font-medium text-slate-500">
               {subtitle}
             </p>
           )}
@@ -268,7 +261,7 @@ export default function DepartmentDashboard() {
       ) : (
         <div className="space-y-6">
           {/* Top 6 KPI Metric Cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 min-[1800px]:grid-cols-6">
             <MetricCard
               title="Total Units"
               value={stats.total}
@@ -385,7 +378,7 @@ export default function DepartmentDashboard() {
                 </div>
                 <NavLink
                   to="/zoiko-hr/departments/reports"
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
                 >
                   Full Report <ChevronRight className="h-3.5 w-3.5" />
                 </NavLink>
@@ -484,7 +477,7 @@ export default function DepartmentDashboard() {
                 </div>
                 <NavLink
                   to="/zoiko-hr/departments/structure"
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
                 >
                   View Hierarchy <ChevronRight className="h-3.5 w-3.5" />
                 </NavLink>
@@ -551,7 +544,7 @@ export default function DepartmentDashboard() {
                 </div>
                 <NavLink
                   to="/zoiko-hr/departments/list"
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
                 >
                   Manage Leaders <ChevronRight className="h-3.5 w-3.5" />
                 </NavLink>

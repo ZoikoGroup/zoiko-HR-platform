@@ -44,7 +44,7 @@ in `control_status.md`.
 11. **Zoiko Legal / Product: approve the TENANT_ATTESTED release mode** (`docs/templates/release_modes.md`): organizations
     adopt starter content under their own responsibility, with author ≠ reviewer ≠ releaser and the attestation wording
     "We have reviewed this template for use in {country} and accept responsibility for its content." Defaults: on for
-    L1/L2 (`HR_TEMPLATES_TENANT_ATTESTATION_ENABLED=true`), off for L3 (`HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED=false`).
+    L1/L2 (`HR_TEMPLATES_TENANT_ATTESTATION_ENABLED=true`), on for L3 too (`HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED=true`, default since 2026-11-27; set false to refuse).
 
 12. **Zoiko Legal: approve treating the HR-DOC governance records as system records** (registers and evidence produced by
     the engine, outside the jurisdiction-pack regime).

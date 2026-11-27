@@ -420,8 +420,9 @@ def issue(db, doc: GeneratedDocument, actor, *, system_trigger: Optional[str] = 
         state.transition(db, doc, "CANCELLED", actor_id=actor.id, event_type="delivery_failed",
                          detail={"channel": "candidate_link"})
         db.commit()
+        reason = notify.delivery_problem(getattr(doc, "_delivery_errors", None))
         raise HTTPException(502, {"code": "OFFER_EMAIL_DELIVERY_FAILED",
-                                  "message": "The offer letter was not sent because email delivery failed. Check the email configuration and try again."})
+                                  "message": "The offer letter was not sent because the email could not be delivered. " + reason})
     db.commit()
     notify.event(db, "document.issued", doc)
     hooks.dispatch(db, "issued", doc)

@@ -198,7 +198,7 @@ def _setup_status(db, organization_id: int) -> dict:
     steps.append({"key": "company", "title": "Company profile", "done": comp["complete"], "required": True,
                   "detail": "Complete" if comp["complete"] else f"{len(comp['missing'])} required detail(s) missing: "
                   + ", ".join(m["label"] for m in comp["missing"][:4]) + ("…" if len(comp["missing"]) > 4 else ""),
-                  "path": base + ("company-profile" if comp["complete"] else "missing-details")})
+                  "path": base + "company-profile"})
 
     roles = [p for p in PR.role_profiles(db, organization_id) if p.get("slug")]
     engs = [p for p in PR.engagement_profiles(db, organization_id) if p.get("slug")]

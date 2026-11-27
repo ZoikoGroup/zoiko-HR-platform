@@ -27,7 +27,7 @@
 |---|---|---|
 | `HR_TEMPLATES_ENABLED` | `true` | release gate R6: `false` stops all new generation everywhere; reading, downloading, signing and acknowledging continue |
 | `HR_TEMPLATES_TENANT_ATTESTATION_ENABLED` | `true` | allow TENANT_ATTESTED release for L1/L2 |
-| `HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED` | `false` | allow TENANT_ATTESTED release for L3 |
+| `HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED` | `true` | allow TENANT_ATTESTED release for L3 (the org admin attests contracts and NDAs uploaded in Set up with AI); set `false` to keep L3 on the Zoiko version |
 | `HR_GENERATED_DOCS_DIR` | `$UPLOAD_BASE_DIR/generated_documents` | where PDFs/HTML/drawn signatures are stored |
 | `HR_DOC_SIGN_LINK_TTL_DAYS` | `7` | candidate signing link lifetime |
 | `HR_DOC_SIGN_OTP_TTL_MINUTES` | `10` | signing code lifetime |

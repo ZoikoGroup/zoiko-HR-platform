@@ -13,13 +13,10 @@ import {
 } from "lucide-react";
 import DesignationLayout from "./DesignationLayout";
 import { getDesignationReport } from "../../../service/hrService";
+import { formatOrgMoney } from "../../../utils/money";
 
-const money = (n) => {
-  if (n == null || !Number.isFinite(n) || n === 0) return "$0";
-  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (Math.abs(n) >= 1_000) return `$${Math.round(n / 1_000)}K`;
-  return `$${Math.round(n)}`;
-};
+// salaries in the organization's currency (compact: £300K), never a fixed "$"
+const money = (n) => formatOrgMoney(n == null || !Number.isFinite(Number(n)) ? 0 : Number(n), { compact: true });
 
 const csvCell = (v) => {
   const s = v == null ? "" : String(v);

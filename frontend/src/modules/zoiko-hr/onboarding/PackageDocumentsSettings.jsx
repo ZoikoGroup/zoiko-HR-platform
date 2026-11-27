@@ -274,7 +274,7 @@ export default function PackageDocumentsSettings() {
                 <li key={r.category} draggable onDragStart={() => setDragging(i)} onDragOver={(e) => e.preventDefault()}
                   onDrop={() => { if (dragging !== null) move(dragging, i); setDragging(null); }}
                   className={`rounded-2xl border p-3 sm:p-4 ${r.enabled ? "border-gray-200 bg-white" : "border-gray-200 bg-gray-50"}`}>
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+                  <div className="flex flex-col gap-3">
                     <div className="flex min-w-0 flex-1 items-start gap-2">
                       <GripVertical className="mt-0.5 hidden h-4 w-4 shrink-0 cursor-grab text-gray-300 sm:block" aria-hidden="true" />
                       <div className="min-w-0">
@@ -288,7 +288,7 @@ export default function PackageDocumentsSettings() {
                         {d.mandatory && <p className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500"><Lock className="h-3.5 w-3.5" />Always sent: {d.mandatory_reason}</p>}
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_12rem_13rem] sm:items-start">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[5rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-center sm:pl-6">
                       <label className={`inline-flex items-center gap-2 text-sm ${d.mandatory ? "text-gray-400" : "text-gray-700"}`}>
                         <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={r.enabled} disabled={d.mandatory}
                           aria-label={`Send ${d.title}`} onChange={(e) => set(r.category, { enabled: e.target.checked })} />

@@ -37,8 +37,10 @@ import {
   normalizeDepartmentSettings,
 } from "../../../utils/departmentSettings";
 import { fieldProblem } from "../../../utils/fieldRules";
-const formatNumber = (n) => (n == null || !Number.isFinite(Number(n)) ? "0" : Number(n).toLocaleString());
+// budgets and spend, in the organization's currency
+const formatNumber = (n) => formatOrgMoney(n == null || !Number.isFinite(Number(n)) ? 0 : Number(n));
 import EmployeePicker from "../learning/EmployeePicker";
+import { formatOrgMoney } from "../../../utils/money";
 
 function SortIcon({ column, current, direction }) {
   if (column !== current) {
@@ -380,7 +382,7 @@ export default function DepartmentList() {
       actions={
         <button
           onClick={() => handleOpenCreateModal()}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm shadow-sm shadow-rose-900/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-sm shadow-blue-900/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
         >
           <Plus size={16} className="stroke-[2.5]" />
           <span>Add Department</span>
@@ -573,7 +575,7 @@ export default function DepartmentList() {
               <button
                 type="button"
                 onClick={() => handleOpenCreateModal()}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
               >
                 <Plus size={16} /> Add First Department
               </button>
@@ -596,7 +598,6 @@ export default function DepartmentList() {
                       direction={sortDirection}
                     />
                   </th>
-                  <th className="px-4 py-3.5">Code / ID</th>
                   <th className="px-4 py-3.5">Hierarchy Path</th>
                   <th className="px-4 py-3.5">Head of Dept</th>
                   <th
@@ -622,7 +623,7 @@ export default function DepartmentList() {
                     />
                   </th>
                   <th className="px-4 py-3.5 text-center">Status</th>
-                  <th className="px-5 py-3.5 text-right">Actions</th>
+                  <th className="sticky right-0 z-[1] shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.25)] bg-gray-50 px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
@@ -649,26 +650,19 @@ export default function DepartmentList() {
                             <p className="font-semibold text-gray-900 truncate">
                               {r.name}
                             </p>
-                            {r.establishment_year && (
-                              <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-                                <Calendar size={11} /> Est. {r.establishment_year}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Code / Dept Code */}
-                      <td className="px-4 py-4">
-                        <div className="space-y-0.5">
-                          <span className="inline-block px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200/60">
-                            {r.code}
-                          </span>
-                          {r.department_code && r.department_code !== r.code && (
-                            <p className="text-[11px] font-mono text-blue-600">
-                              {r.department_code}
+                            {/* code and ID sit with the name (they had a column of their own, which pushed Actions off the card) */}
+                            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-400">
+                              {r.code && (
+                                <span className="rounded-md border border-rose-200/60 bg-rose-50 px-1.5 py-px font-mono text-[11px] font-bold text-rose-700">{r.code}</span>
+                              )}
+                              {r.department_code && r.department_code !== r.code && (
+                                <span className="font-mono text-[11px] text-blue-600">{r.department_code}</span>
+                              )}
+                              {r.establishment_year && (
+                                <span className="flex items-center gap-1"><Calendar size={11} /> Est. {r.establishment_year}</span>
+                              )}
                             </p>
-                          )}
+                          </div>
                         </div>
                       </td>
 
@@ -776,8 +770,8 @@ export default function DepartmentList() {
                         </span>
                       </td>
 
-                      {/* Actions */}
-                      <td className="px-5 py-4 text-right">
+                      {/* Actions: stay in view while a narrow screen scrolls the columns before them */}
+                      <td className="sticky right-0 z-[1] shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.25)] bg-white px-5 py-4 text-right group-hover:bg-slate-50">
                         <div className="inline-flex items-center justify-end gap-1">
                           <button
                             type="button"
@@ -796,6 +790,7 @@ export default function DepartmentList() {
                             aria-label={`${
                               r.is_active ? "Deactivate" : "Activate"
                             } ${r.name}`}
+                            title={r.is_active ? "Deactivate" : "Activate"}
                             className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
                               r.is_active
                                 ? "text-gray-500 hover:text-amber-700 hover:bg-amber-50"
@@ -807,7 +802,7 @@ export default function DepartmentList() {
                             ) : (
                               <Power size={13} />
                             )}
-                            <span>{r.is_active ? "Deactivate" : "Activate"}</span>
+                            <span className="hidden 2xl:inline">{r.is_active ? "Deactivate" : "Activate"}</span>
                           </button>
                         </div>
                       </td>
@@ -1294,7 +1289,7 @@ export default function DepartmentList() {
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-5 py-2.5 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-sm shadow-rose-900/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                  className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-900/20 transition-all flex items-center gap-2 disabled:opacity-50"
                 >
                   {isSaving && <Loader2 size={14} className="animate-spin" />}
                   <span>

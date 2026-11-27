@@ -8,6 +8,7 @@
  *   a watermarked draft and is never sent to a new hire. Zoiko HR does not write legal clauses for you.
  */
 import { useEffect, useMemo, useState } from "react";
+import { useSectionHash } from "./settingsUi";
 import { CheckCircle2, ChevronDown, Download, FileText, ImagePlus, Loader2, Save, Scale, ShieldAlert, Trash2 } from "lucide-react";
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import { deleteOfferPackageLogo, deleteOfferPackageSignature, getOfferPackageLogo, getOfferPackageSettings, getOfferPackageSignature,
@@ -171,6 +172,15 @@ export default function OfferPackageSettings() {
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [msg, setMsg] = useState(null);
+  // a link to "#clause-<key>" (from Missing details or Test your package) opens that clause; the page scrolls to it
+  const { hash } = useSectionHash();
+  useEffect(() => {
+    const m = /^#clause-(.+)$/.exec(decodeURIComponent(hash || ""));
+    if (!m) return undefined;
+    setOpen(m[1]);
+    const t = setTimeout(() => document.getElementById(`cl-${m[1]}`)?.focus({ preventScroll: true }), 700);
+    return () => clearTimeout(t);
+  }, [hash]);
 
   const hydrate = (res) => {
     setData(res);
@@ -230,15 +240,11 @@ export default function OfferPackageSettings() {
         <div className="flex min-w-0 items-start gap-3">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-hidden="true"><FileText className="h-5 w-5" /></span>
           <div className="min-w-0">
-            <h2 id="offer-package-title" className="text-base font-semibold text-gray-900">Offer package documents</h2>
-            <p className="text-sm text-gray-500">What your onboarding documents print, and the clause wording your counsel approved.</p>
+            <h2 id="offer-package-title" className="text-base font-semibold text-gray-900">Document terms & clause wording</h2>
+            <p className="text-sm text-gray-500">The terms and the counsel-approved clause wording your onboarding documents print.</p>
             <p className="mt-1 text-xs text-gray-500">
-              You can change anything here at any time. Changes apply to documents generated from now on (new employees, and
-              documents not sent yet). Documents already sent to an employee are final and are never changed.
-            </p>
-            <p className="mt-1 text-xs font-medium text-blue-700">
-              Company details, signatory, branding, paper size and date format are set in the Company Profile above. They are the only
-              company information printed in the documents.
+              Changes apply to documents generated from now on; documents already sent are never changed. Company details, logo,
+              signature and formatting are in the Company profile.
             </p>
           </div>
         </div>
@@ -258,11 +264,8 @@ export default function OfferPackageSettings() {
             </div>
           )}
 
-          <ImageCard kind="logo" hasImage={!!data.settings.has_logo} onMessage={setMsg}
-            onChanged={(res) => setData((d) => ({ ...d, settings: { ...d.settings, has_logo: !!res?.settings?.has_logo } }))} />
-          <ImageCard kind="signature" hasImage={!!data.settings.has_signature} onMessage={setMsg}
-            onChanged={(res) => setData((d) => ({ ...d, settings: { ...d.settings, has_signature: !!res?.settings?.has_signature } }))} />
-
+          <div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-900">Document terms</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             {TEXT_FIELDS.map(([key, label, hint]) => (
               <div key={key}>
@@ -271,18 +274,17 @@ export default function OfferPackageSettings() {
                   onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))} />
               </div>
             ))}
-            <div className="grid grid-cols-2 gap-3 sm:col-span-2 sm:grid-cols-6">
-              <div>
-                <label htmlFor="op-response_days" className={labelCls}>Days to respond</label>
-                <input id="op-response_days" type="number" min={1} max={60} className={inputCls} value={form.response_days ?? 7}
-                  onChange={(e) => setForm((p) => ({ ...p, response_days: e.target.value }))} />
-              </div>
+            <div>
+              <label htmlFor="op-response_days" className={labelCls}>Days the new hire has to respond</label>
+              <input id="op-response_days" type="number" min={1} max={60} className={inputCls} value={form.response_days ?? 7}
+                onChange={(e) => setForm((p) => ({ ...p, response_days: e.target.value }))} />
             </div>
+          </div>
           </div>
 
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900"><Scale className="h-4 w-4 text-gray-500" />Counsel clause library</h3>
+              <h3 id="clause-library" className="flex scroll-mt-24 items-center gap-2 text-sm font-semibold text-gray-900"><Scale className="h-4 w-4 text-gray-500" />Clause wording</h3>
               {missingRequired.length
                 ? <StatusPill tone="amber" icon={ShieldAlert}>{missingRequired.length} required clause(s) without wording</StatusPill>
                 : <StatusPill tone="green" icon={CheckCircle2}>All required clauses supplied</StatusPill>}
@@ -297,7 +299,7 @@ export default function OfferPackageSettings() {
                 const done = (v.text || "").trim() || v.not_applicable;
                 const isOpen = open === c.key;
                 return (
-                  <li key={c.key}>
+                  <li key={c.key} id={`clause-${c.key}`} className="scroll-mt-24">
                     <button type="button" onClick={() => setOpen(isOpen ? "" : c.key)} aria-expanded={isOpen}
                       className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50">
                       <span className="min-w-0">
@@ -348,7 +350,7 @@ export default function OfferPackageSettings() {
           </div>
 
           <div className="flex justify-end">
-            <PrimaryButton icon={Save} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save offer package settings"}</PrimaryButton>
+            <PrimaryButton icon={Save} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save terms & clause wording"}</PrimaryButton>
           </div>
         </div>
       )}

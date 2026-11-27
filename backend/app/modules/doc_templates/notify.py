@@ -122,11 +122,28 @@ def candidate_link(db, doc: GeneratedDocument, candidate, raw_token: str, expire
     from app.services import email_service
     url = app_url(f"/sign/{raw_token}")
     errors = [] if wait else None
-    return _safe(lambda: email_service.send_candidate_document_sign_email(
+    sent = _safe(lambda: email_service.send_candidate_document_sign_email(
         candidate.email, (getattr(candidate, "name", None) or getattr(candidate, "candidate_name", None) or "there").split()[0],
         organization_name, doc.document_number, fmt_day(expires_at), url, fmt_day(doc.due_by), db=db,
         organization_id=doc.organization_id, wait=wait, error_out=errors), doc.id, "candidate link",
         attempts=1 if wait else EMAIL_ATTEMPTS)
+    doc._delivery_errors = list(errors or [])           # why it failed, for the message HR sees (not stored)
+    return sent
+
+
+def delivery_problem(errors) -> str:
+    """The delivery error in words HR can act on."""
+    text = " ".join(str(e) for e in (errors or [])).lower()
+    if "535" in text or "authentication" in text or "username and password" in text:
+        return ("The mail server rejected the sign-in of the sending mailbox (SMTP_USERNAME / SMTP_PASSWORD). Update the "
+                "mailbox password in the email settings, then send again.")
+    if "not configured" in text or "smtp_host" in text or "no smtp" in text:
+        return "Email sending is not set up on this server (SMTP settings are missing). Set them, then send again."
+    if any(k in text for k in ("timed out", "timeout", "connection refused", "unreachable", "getaddrinfo", "network")):
+        return "The mail server could not be reached (SMTP_HOST / SMTP_PORT, or the network). Check them, then send again."
+    if any(k in text for k in ("550", "553", "recipient", "mailbox unavailable", "invalid address")):
+        return "The mail server refused the candidate's e-mail address. Check the address on the candidate, then send again."
+    return "Check the email (SMTP) settings, then send again."
 
 
 def sign_code(db, doc: GeneratedDocument, email: str, first_name: str, code: str) -> bool:
