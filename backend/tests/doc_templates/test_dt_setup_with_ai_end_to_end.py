@@ -24,6 +24,9 @@ def _on(monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, "ONBOARDING_DOCS_SETUP", True)
     monkeypatch.setattr(settings, "ONBOARDING_DOCS_SETUP_ORGS", "")
+    # the employment agreement (L3) only becomes the organisation's version when the platform allows organisation-approved
+    # high-risk templates; the default is off (CI has no .env), so set it here rather than depend on the local .env
+    monkeypatch.setattr(settings, "TEMPLATES_TENANT_ATTESTATION_L3_ENABLED", True)
     monkeypatch.setattr(DS, "ai_status", lambda db, org: {"on": False, "reason": "off in tests"})
     DS._RATE.clear()
 
