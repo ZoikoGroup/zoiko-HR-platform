@@ -127,13 +127,22 @@ def load_starters(db, only: Optional[str] = None) -> list:
     return added
 
 
+_REVISION_BY_CHECKSUM: dict = {}     # (canonical id, checksum) -> revision: a loaded starter's revision never changes
+
+
 def starter_revision(db, category: str) -> Optional[int]:
     """The template_starters revision that matches the current starter file (None before it is loaded)."""
     s = starter_for(category)
     if s is None or db is None:
         return None
+    key = (s["canonical_id"], starter_checksum(category))
+    if key in _REVISION_BY_CHECKSUM:
+        return _REVISION_BY_CHECKSUM[key]
     from app.modules.doc_templates.models import TemplateStarter
     row = (db.query(TemplateStarter.revision).filter(TemplateStarter.canonical_id == s["canonical_id"],
-                                                     TemplateStarter.checksum == starter_checksum(category))
+                                                     TemplateStarter.checksum == key[1])
            .order_by(TemplateStarter.revision.desc()).first())
-    return row[0] if row else None
+    if row is None:
+        return None                  # not loaded yet: asked again next time
+    _REVISION_BY_CHECKSUM[key] = row[0]
+    return row[0]

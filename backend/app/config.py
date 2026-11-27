@@ -244,6 +244,8 @@ class Settings(BaseSettings):
     DOCS_SETUP_OCR_LANGUAGES: str = Field(default="eng+hin", validation_alias="HR_DOCS_SETUP_OCR_LANGUAGES")
     # Path to the Tesseract program when it is not on the PATH (blank: the PATH, then its usual install folders)
     TESSERACT_CMD: str = Field(default="", validation_alias="HR_TESSERACT_CMD")
+    # Request-scoped read cache for settings/template/plan rows during GET requests (app/core/request_read_cache.py)
+    REQUEST_READ_CACHE: bool = Field(default=True, validation_alias="HR_REQUEST_READ_CACHE")
     TEMPLATES_TENANT_ATTESTATION_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_ENABLED")
     TEMPLATES_TENANT_ATTESTATION_L3_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED")
     # Candidate e-signature links and the e-mail one-time codes that guard every signature.

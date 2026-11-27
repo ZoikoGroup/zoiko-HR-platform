@@ -5,7 +5,6 @@
  *  - totals, monthly trend, department split, completion split and the true upcoming count from
  *    GET /hr/onboarding/dashboard (getOnboardingDashboard), as before.
  */
-import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { getOnboardingDashboard } from "../../../service/hrService";
 import {
@@ -18,6 +17,7 @@ import { monthLabel, barPercent, completionParts } from "../../../utils/onboardi
 import { Avatar, Card, EmptyState, KpiCard, PersonCell, SecondaryButton, StatusPill, TONES, relativeTime, td, th, useInsights } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 import SetupStatusCard from "./SetupStatusCard";
+import { useCachedLoad } from "../../../hooks/useCachedLoad";
 
 const DEPARTMENT_COLORS = [
   "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-[#0A1128]",
@@ -265,31 +265,15 @@ function AttentionNeeded({ data, loading }) {
 const SUBTITLE = "Overview of onboarding activities and metrics.";
 
 export default function OnboardingDashboard() {
-  const [dashboard, setDashboard] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [reloads, setReloads] = useState(0);
+  // shown at once when coming back to the dashboard, refreshed behind it (hooks/useCachedLoad.js)
+  const board = useCachedLoad("onboarding-dashboard", () =>
+    getOnboardingDashboard().catch((err) => { throw new Error(err?.message || "Failed to load dashboard"); }));
+  const dashboard = board.data;
+  const loading = board.loading;
+  const error = board.error || null;
   const insights = useInsights("onboarding");
 
-  useEffect(() => {
-    let mounted = true;
-    const fetch = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await getOnboardingDashboard();
-        if (mounted) setDashboard(data);
-      } catch (err) {
-        if (mounted) setError(err.message || "Failed to load dashboard");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    fetch();
-    return () => { mounted = false; };
-  }, [reloads]);
-
-  const refresh = () => { setReloads((n) => n + 1); insights.reload(); };
+  const refresh = () => { board.reload(); insights.reload(); };
   const actions = (
     <>
       <SecondaryButton icon={RefreshCw} onClick={refresh}>Refresh</SecondaryButton>
