@@ -47,14 +47,17 @@ def _role_of(db: Session, employee_id) -> str | None:
     return getattr(role, "value", role)
 
 
-def record(db: Session, turn, outcome: str, answer_type=None) -> None:
+def record(db: Session, turn, outcome: str, answer_type=None, provider_error: bool = False) -> None:
     """Add the event for a finished turn to the current transaction (the caller commits). Never raises."""
     try:
         with db.begin_nested():
             role = _role_of(db, turn.employee_id)
             page = platform_guide.screen_for_route(getattr(turn, "page_route", None), role)
-            run = (db.query(ChatModelRun).filter(ChatModelRun.turn_id == turn.id)
-                   .order_by(ChatModelRun.id.desc()).first())
+            runs = db.query(ChatModelRun).filter(ChatModelRun.turn_id == turn.id).order_by(ChatModelRun.id).all()
+            run = runs[-1] if runs else None
+            metrics = getattr(turn, "_copilot_metrics", None) or {}
+            p_tok = [r.prompt_tokens for r in runs if r.prompt_tokens is not None]
+            c_tok = [r.completion_tokens for r in runs if r.completion_tokens is not None]
             created = getattr(turn, "created_at", None)
             latency = int((dt.datetime.utcnow() - created).total_seconds() * 1000) if created else None
             db.add(CopilotEvent(
@@ -66,6 +69,9 @@ def record(db: Session, turn, outcome: str, answer_type=None) -> None:
                 latency_ms=latency if latency is not None and latency >= 0 else None,
                 provider=getattr(run, "provider", None), model=getattr(run, "model_name", None),
                 handed_off=False,
+                first_token_ms=metrics.get("first_token_ms"),
+                prompt_tokens=sum(p_tok) if p_tok else None, completion_tokens=sum(c_tok) if c_tok else None,
+                fallback_used=bool(metrics.get("fallback")), provider_error=bool(provider_error),
             ))
             db.flush()
     except Exception as exc:                                     # noqa: BLE001 — analytics must never break an answer
@@ -143,3 +149,76 @@ def weekly_summary(db: Session, organization_id: int | None = None, days: int = 
         "top_unanswered": [{"intent": i, "screen": s, "count": n} for (i, s), n in unanswered.most_common(top)],
         "top_thumbs_down": [{"intent": i, "screen": s, "count": n} for (i, s), n in disliked.most_common(top)],
     }
+
+
+# ── M1-17 monitoring ─────────────────────────────────────────────────────────────────────────────────────────────────
+def _prices() -> dict:
+    import json
+    from app.config import settings
+    try:
+        return {k: (float(v[0]), float(v[1])) for k, v in json.loads(settings.COPILOT_PRICES_USD_PER_MTOK).items()}
+    except Exception:                                            # noqa: BLE001 — a bad setting must not stop the report
+        logger.warning("HR_COPILOT_PRICES_USD_PER_MTOK is not valid JSON {model: [input, output]}; spend not estimated")
+        return {}
+
+
+def estimated_spend_usd(events) -> tuple[float, int, int, list[str]]:
+    """(estimated USD, prompt tokens, completion tokens, models with tokens but no price)."""
+    prices, total, p_sum, c_sum, unpriced = _prices(), 0.0, 0, 0, set()
+    for e in events:
+        p, c = e.prompt_tokens or 0, e.completion_tokens or 0
+        p_sum, c_sum = p_sum + p, c_sum + c
+        if not (p or c):
+            continue
+        price = prices.get(e.model or "")
+        if price is None:
+            unpriced.add(e.model or "unknown")
+            continue
+        total += p / 1e6 * price[0] + c / 1e6 * price[1]
+    return round(total, 4), p_sum, c_sum, sorted(unpriced)
+
+
+def health(db: Session, hours: int = 24, now: dt.datetime | None = None) -> dict:
+    """Copilot health over the last `hours`, across every organization, with the alerts that are firing.
+
+    Error rate (failed answers), p95 time to first word, model-provider errors, fallbacks to the backup model and the
+    estimated token spend, each against its HR_COPILOT_ALERT_* threshold."""
+    from app.config import settings
+    now = now or dt.datetime.utcnow()
+    since = now - dt.timedelta(hours=hours)
+    events = db.query(CopilotEvent).filter(CopilotEvent.created_at >= since, CopilotEvent.created_at < now).all()
+    total = len(events)
+    failed = [e for e in events if e.outcome == FAILED]
+    provider_errors = sum(1 for e in events if e.provider_error)
+    with_model = [e for e in events if e.model]
+    fallbacks = sum(1 for e in with_model if e.fallback_used)
+    first_words = [e.first_token_ms for e in events if e.first_token_ms is not None]
+    spend, p_tok, c_tok, unpriced = estimated_spend_usd(events)
+    m = {
+        "from": since.isoformat(timespec="minutes"), "to": now.isoformat(timespec="minutes"), "answers": total,
+        "error_rate_pct": round(100 * len(failed) / total, 1) if total else None,
+        "provider_errors": provider_errors,
+        "fallbacks": fallbacks,
+        "fallback_rate_pct": round(100 * fallbacks / len(with_model), 1) if with_model else None,
+        "first_word_ms": {"p50": _percentile(first_words, 50), "p95": _percentile(first_words, 95),
+                          "answers_measured": len(first_words)},
+        "tokens": {"prompt": p_tok, "completion": c_tok},
+        "estimated_spend_usd": spend, "unpriced_models": unpriced,
+    }
+    enough = total >= settings.COPILOT_ALERT_MIN_ANSWERS
+    alerts = []
+    if enough and m["error_rate_pct"] is not None and m["error_rate_pct"] > settings.COPILOT_ALERT_ERROR_RATE_PCT:
+        alerts.append(f"error rate {m['error_rate_pct']}% > {settings.COPILOT_ALERT_ERROR_RATE_PCT}%")
+    p95 = m["first_word_ms"]["p95"]
+    if len(first_words) >= settings.COPILOT_ALERT_MIN_ANSWERS and p95 is not None             and p95 > settings.COPILOT_ALERT_P95_FIRST_WORD_MS:
+        alerts.append(f"p95 time to first word {p95} ms > {settings.COPILOT_ALERT_P95_FIRST_WORD_MS} ms")
+    if provider_errors > settings.COPILOT_ALERT_PROVIDER_ERRORS:
+        alerts.append(f"{provider_errors} model-provider errors > {settings.COPILOT_ALERT_PROVIDER_ERRORS}")
+    if enough and m["fallback_rate_pct"] is not None and m["fallback_rate_pct"] > settings.COPILOT_ALERT_FALLBACK_RATE_PCT:
+        alerts.append(f"fallback rate {m['fallback_rate_pct']}% > {settings.COPILOT_ALERT_FALLBACK_RATE_PCT}%")
+    if spend * (24 / hours) > settings.COPILOT_ALERT_DAILY_SPEND_USD:
+        alerts.append(f"estimated spend ${round(spend * 24 / hours, 2)}/day > ${settings.COPILOT_ALERT_DAILY_SPEND_USD}/day")
+    if unpriced:
+        alerts.append(f"no price set for {', '.join(unpriced)}: spend is under-estimated (HR_COPILOT_PRICES_USD_PER_MTOK)")
+    m["alerts"] = alerts
+    return m

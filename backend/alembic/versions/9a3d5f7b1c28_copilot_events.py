@@ -1,4 +1,4 @@
-"""copilot analytics: copilot_events, one row per assistant answer, no text and no person (M1-16)
+"""copilot analytics: copilot_events, one row per assistant answer, no text and no person (M1-16, M1-17)
 
 Revision ID: 9a3d5f7b1c28
 Revises: 4e8b2c6a9d17
@@ -34,6 +34,12 @@ def upgrade() -> None:
         sa.Column("feedback", sa.String(length=10), nullable=True),
         sa.Column("feedback_code", sa.String(length=30), nullable=True),
         sa.Column("handed_off", sa.Boolean(), nullable=False, server_default=sa.false()),
+        # M1-17 monitoring: time to first word, token use, backup-model fallbacks, provider failures
+        sa.Column("first_token_ms", sa.Integer(), nullable=True),
+        sa.Column("prompt_tokens", sa.Integer(), nullable=True),
+        sa.Column("completion_tokens", sa.Integer(), nullable=True),
+        sa.Column("fallback_used", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("provider_error", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
         sa.PrimaryKeyConstraint("id"),
     )

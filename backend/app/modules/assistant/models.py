@@ -518,6 +518,12 @@ class CopilotEvent(Base):
     feedback        = Column(String(10), nullable=True)    # up | down (the asker's thumbs)
     feedback_code   = Column(String(30), nullable=True)    # incorrect | outdated | not_enough_detail | other
     handed_off      = Column(Boolean, nullable=False, default=False)   # a Talk-to-HR ticket was raised from it
+    # M1-17 monitoring
+    first_token_ms  = Column(Integer, nullable=True)       # time to the first visible word of a streamed answer
+    prompt_tokens   = Column(Integer, nullable=True)       # summed over every model call for the answer
+    completion_tokens = Column(Integer, nullable=True)
+    fallback_used   = Column(Boolean, nullable=False, default=False)   # the main model failed; the backup answered
+    provider_error  = Column(Boolean, nullable=False, default=False)   # the model provider failed: no answer
 
 
 class ChatIdempotencyKey(Base):

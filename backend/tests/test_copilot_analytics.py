@@ -136,3 +136,96 @@ def test_a_drafted_booking_is_recorded_as_book_leave(db):
     an.record(db, _turn(9, intent=None), an.ACTION, AnswerType.ACTION)
     db.commit()
     assert db.query(CopilotEvent).one().intent == "book_leave"
+
+
+# ── M1-17 monitoring ─────────────────────────────────────────────────────────────────────────────────────────────────
+def _chunk(text=None, usage=None, x_groq_usage=None):
+    delta = SimpleNamespace(content=text)
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)] if text is not None or usage is None else [],
+                           usage=usage, x_groq=SimpleNamespace(usage=x_groq_usage) if x_groq_usage else None)
+
+
+def test_the_stream_reports_first_word_tokens_and_fallback(monkeypatch):
+    from app.config import settings
+    from app.modules.assistant import llm_client
+    usage = SimpleNamespace(prompt_tokens=1200, completion_tokens=80)
+    calls = []
+
+    class _Completions:
+        def create(self, **kwargs):
+            calls.append(kwargs["model"])
+            if kwargs["model"] == settings.GROQ_MODEL:
+                raise RuntimeError("primary model down")
+            return iter([_chunk("Hello "), _chunk("there"), _chunk("", x_groq_usage=usage)])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+    monkeypatch.setattr(llm_client, "_get_client", lambda: client)
+    events = list(llm_client.stream_text_and_metadata([{"role": "user", "content": "hi"}]))
+    run = events[-1][3]
+    assert calls == [settings.GROQ_MODEL, settings.GROQ_FALLBACK_MODEL]
+    assert run.fallback is True and run.model == settings.GROQ_FALLBACK_MODEL
+    assert (run.prompt_tokens, run.completion_tokens) == (1200, 80)
+    assert run.first_token_ms is not None and run.first_token_ms >= 0
+
+
+def test_usage_is_read_from_either_place():
+    from app.modules.assistant import llm_client
+    u = SimpleNamespace(prompt_tokens=10, completion_tokens=2)
+    assert llm_client.stream_usage(_chunk(usage=u)) == (10, 2)
+    assert llm_client.stream_usage(_chunk("x", x_groq_usage=u)) == (10, 2)
+    assert llm_client.stream_usage(_chunk("x")) == (None, None)
+
+
+def test_monitoring_fields_are_recorded(db):
+    for tok in ((1000, 50), (200, 10)):                            # two model calls for one answer: tokens are summed
+        db.add(ChatModelRun(turn_id=20, provider="groq", model_name="openai/gpt-oss-120b", purpose="generate",
+                            prompt_tokens=tok[0], completion_tokens=tok[1]))
+    db.commit()
+    turn = _turn(20)
+    turn._copilot_metrics = {"first_token_ms": 640, "fallback": True}
+    an.record(db, turn, an.ANSWERED, AnswerType.GROUNDED)
+    an.record(db, _turn(21), an.FAILED, provider_error=True)
+    db.commit()
+    a, b = db.query(CopilotEvent).order_by(CopilotEvent.turn_id).all()
+    assert (a.first_token_ms, a.prompt_tokens, a.completion_tokens, a.fallback_used) == (640, 1200, 60, True)
+    assert (b.outcome, b.provider_error) == ("failed", True)
+
+
+def _events(db, rows, now):
+    for i, (outcome, ftm, fallback, perr, p_tok, c_tok, model) in enumerate(rows):
+        db.add(CopilotEvent(organization_id=ORG, turn_id=100 + i, outcome=outcome, first_token_ms=ftm,
+                            fallback_used=fallback, provider_error=perr, prompt_tokens=p_tok, completion_tokens=c_tok,
+                            model=model, created_at=now - dt.timedelta(hours=1)))
+    db.commit()
+
+
+def test_a_healthy_day_raises_no_alert(db, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "COPILOT_ALERT_MIN_ANSWERS", 5)
+    now = dt.datetime.utcnow()
+    _events(db, [("answered", 400, False, False, 2000, 100, "openai/gpt-oss-120b")] * 10, now)
+    h = an.health(db, now=now)
+    assert h["alerts"] == [] and h["answers"] == 10 and h["error_rate_pct"] == 0.0
+    # 10 x (2000 in at $0.15/M + 100 out at $0.60/M) = $0.0036
+    assert h["estimated_spend_usd"] == pytest.approx(0.0036, abs=1e-6)
+
+
+def test_each_alert_fires_on_its_threshold(db, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "COPILOT_ALERT_MIN_ANSWERS", 5)
+    monkeypatch.setattr(settings, "COPILOT_ALERT_PROVIDER_ERRORS", 1)
+    monkeypatch.setattr(settings, "COPILOT_ALERT_DAILY_SPEND_USD", 0.001)
+    now = dt.datetime.utcnow()
+    _events(db, [("answered", 4000, True, False, 5000, 500, "openai/gpt-oss-120b")] * 6
+                + [("failed", None, False, True, None, None, None)] * 3
+                + [("answered", 300, False, False, 100, 10, "some/new-model")], now)
+    alerts = " | ".join(an.health(db, now=now)["alerts"])
+    for expected in ("error rate", "p95 time to first word", "model-provider errors", "fallback rate",
+                     "estimated spend", "no price set for some/new-model"):
+        assert expected in alerts, expected
+
+
+def test_rates_do_not_alert_on_a_handful_of_answers(db):
+    now = dt.datetime.utcnow()
+    _events(db, [("failed", None, False, False, None, None, None)], now)     # 1 answer, 100% errors: not yet a signal
+    assert an.health(db, now=now)["alerts"] == []

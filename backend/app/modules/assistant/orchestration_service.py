@@ -722,13 +722,13 @@ def _finalize(db: Session, turn: ChatTurn, answer_text: str, answer_type: Answer
     return turn
 
 
-def _fail(db: Session, turn: ChatTurn, message: str) -> ChatTurn:
+def _fail(db: Session, turn: ChatTurn, message: str, provider_error: bool = False) -> ChatTurn:
     turn.status = TurnStatus.FAILED
     turn.error_message = message
     audit_service.record(db, turn.organization_id, "turn_failed", "chat_turn", turn.id, turn.employee_id,
                           {"error": message})
     from app.modules.assistant import analytics_service
-    analytics_service.record(db, turn, analytics_service.FAILED)
+    analytics_service.record(db, turn, analytics_service.FAILED, provider_error=provider_error)
     db.commit()
     db.refresh(turn)
     return turn
@@ -1178,6 +1178,13 @@ def _record_model_run(db: Session, turn: ChatTurn, model_run) -> None:
         latency_ms=model_run.latency_ms,
     ))
     db.flush()
+    # M1-17 monitoring: the first answer's time to first word, and whether any call fell back to the backup model.
+    # Kept on the in-memory turn until _finalize records the turn's copilot event.
+    metrics = getattr(turn, "_copilot_metrics", None) or {}
+    if getattr(model_run, "first_token_ms", None) is not None and "first_token_ms" not in metrics:
+        metrics["first_token_ms"] = model_run.first_token_ms
+    metrics["fallback"] = bool(metrics.get("fallback") or getattr(model_run, "fallback", False))
+    turn._copilot_metrics = metrics
 
 
 # "How do I ... / where do I start?" answered from the platform's own screens (navigation_guide). Same trust,
@@ -1264,7 +1271,7 @@ def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
         answer_text, metadata, model_run = yield from _stream_answer(messages)
     except Exception as e:
         logger.warning("Platform guide generation failed for turn %s: %s", turn.id, e)
-        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
+        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly.", provider_error=True))
         return
     _record_model_run(db, turn, model_run)
     if metadata is None or not answer_text or guardrails.check_output_disclosure(answer_text):
@@ -1365,7 +1372,7 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
     except Exception as e:
         # A genuine provider/network failure — the service really is down.
         logger.warning("Generation failed for turn %s: %s", turn.id, e)
-        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
+        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly.", provider_error=True))
         return
     _record_model_run(db, turn, model_run)
 
@@ -1541,7 +1548,7 @@ def _stream_attachment_qa(db: Session, turn: ChatTurn, employee):
                 _, answer_text, metadata, model_run = event
     except Exception as e:
         logger.warning("Generation failed for attachment turn %s: %s", turn.id, e)
-        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
+        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly.", provider_error=True))
         return
 
     db.add(ChatModelRun(

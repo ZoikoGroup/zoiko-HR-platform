@@ -1,0 +1,31 @@
+name: Copilot monitor
+
+# M1-17: a daily health check of the AI copilot on production — error rate, p95 time to first word, model-provider
+# errors, fallbacks to the backup model, estimated token spend — against the HR_COPILOT_ALERT_* thresholds.
+# Read-only: it runs backend/scripts/copilot_monitor.py on the server, over copilot_events (no message text, no
+# person). An alert fails this run, and GitHub e-mails a failed scheduled run to the people watching the repository's
+# Actions. The report is in the run's log either way.
+on:
+  schedule:
+    - cron: "30 3 * * *"        # 03:30 UTC = 09:00 IST, every day
+  workflow_dispatch:
+
+concurrency:
+  group: copilot-monitor
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the copilot health check on the server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GCP_SSH_HOST }}
+          username: ${{ secrets.GCP_SSH_USER }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/zoiko-hr-backend/app/backend
+            source venv/bin/activate
+            python scripts/copilot_monitor.py --hours 24

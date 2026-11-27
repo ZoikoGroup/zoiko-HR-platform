@@ -182,6 +182,20 @@ class Settings(BaseSettings):
     ASSISTANT_USE_SPEC_DOCS: bool = Field(default=False, validation_alias="HR_ASSISTANT_USE_SPEC_DOCS")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
+    # ── Copilot monitoring (M1-17, scripts/copilot_monitor.py) ──────────────
+    # USD per 1M tokens as [input, output] per model, for the ESTIMATED daily spend. Defaults: Groq list prices as
+    # reported by third-party trackers in Nov 2026 — check console.groq.com/pricing and override here when they change.
+    COPILOT_PRICES_USD_PER_MTOK: str = Field(
+        default='{"openai/gpt-oss-120b": [0.15, 0.60], "openai/gpt-oss-20b": [0.075, 0.30]}',
+        validation_alias="HR_COPILOT_PRICES_USD_PER_MTOK")
+    # Alert thresholds over the last 24 hours. Rates only alert once there are COPILOT_ALERT_MIN_ANSWERS answers.
+    COPILOT_ALERT_MIN_ANSWERS: int = Field(default=20, validation_alias="HR_COPILOT_ALERT_MIN_ANSWERS")
+    COPILOT_ALERT_ERROR_RATE_PCT: float = Field(default=5.0, validation_alias="HR_COPILOT_ALERT_ERROR_RATE_PCT")
+    COPILOT_ALERT_P95_FIRST_WORD_MS: int = Field(default=2500, validation_alias="HR_COPILOT_ALERT_P95_FIRST_WORD_MS")
+    COPILOT_ALERT_FALLBACK_RATE_PCT: float = Field(default=10.0, validation_alias="HR_COPILOT_ALERT_FALLBACK_RATE_PCT")
+    COPILOT_ALERT_PROVIDER_ERRORS: int = Field(default=5, validation_alias="HR_COPILOT_ALERT_PROVIDER_ERRORS")
+    COPILOT_ALERT_DAILY_SPEND_USD: float = Field(default=5.0, validation_alias="HR_COPILOT_ALERT_DAILY_SPEND_USD")
+
     # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────
     # EMAIL_REAL_ONLY refuses placeholder and disposable addresses wherever an account or contact address is entered.
     # EMAIL_DNS_CHECK also asks DNS whether the domain can receive mail (an inconclusive lookup never blocks anyone).
