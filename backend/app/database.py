@@ -105,9 +105,11 @@ else:
     engine_kwargs["connect_args"]["keepalives_interval"] = int(os.getenv("HR_DB_KEEPALIVE_INTERVAL", "10"))
     engine_kwargs["connect_args"]["keepalives_count"] = int(os.getenv("HR_DB_KEEPALIVE_COUNT", "3"))
     engine_kwargs.update({
-        # pool_pre_ping: verify with SELECT 1 on every checkout. Cheap and the
-        # single best defense against stale pooled connections.
-        "pool_pre_ping": True,
+        # pool_pre_ping: verify with SELECT 1 on every checkout. Cheap next to the database and the single best defense
+        # against stale pooled connections, but a full extra round trip per request against a distant one (a laptop on a
+        # cloud database: ~0.2 s each). HR_DB_POOL_PRE_PING=false turns it off; TCP keepalives and pool_recycle still
+        # retire dead connections.
+        "pool_pre_ping": os.getenv("HR_DB_POOL_PRE_PING", "true").strip().lower() not in ("0", "false", "no", "off"),
         # Per worker process: total connections = workers x (pool_size + max_overflow). Keep that under the
         # database's connection limit (Neon: use the pooled "-pooler" host for larger values).
         "pool_size": int(os.getenv("HR_DB_POOL_SIZE", "5")),

@@ -189,13 +189,27 @@ def _pack_ok(db, v: TemplateVariant) -> bool:
     return p is not None and p.status == "ACTIVE"
 
 
+def _org_variants(db, organization_id: int, canonical_id: str) -> list:
+    """The organisation's variants of one template, newest first. All of the organisation's variants are read in one query
+    per request (a settings page asks for every package document in turn)."""
+    from app.core.request_read_cache import memo
+    by_canonical = memo(("org_variants", organization_id, id(db)), lambda: _group_variants(
+        db.query(TemplateVariant).filter(TemplateVariant.owner_organization_id == organization_id)
+        .order_by(TemplateVariant.version.desc()).all()))
+    return by_canonical.get(canonical_id, [])
+
+
+def _group_variants(rows) -> dict:
+    out: dict = {}
+    for v in rows:
+        out.setdefault(v.canonical_id, []).append(v)
+    return out
+
+
 def released_variant(db, organization_id: int, canonical_id: str, country: Optional[str] = None) -> Optional[TemplateVariant]:
     """The organisation's released (ACTIVE, in effect, active pack) version of a package template; the pack for `country`
     first. Platform-owned rows are never package content (the platform default is the starter)."""
-    vs = (db.query(TemplateVariant).filter(TemplateVariant.canonical_id == canonical_id,
-                                           TemplateVariant.owner_organization_id == organization_id,
-                                           TemplateVariant.status == LIVE, TemplateVariant.language == "en")
-          .order_by(TemplateVariant.version.desc()).all())
+    vs = [v for v in _org_variants(db, organization_id, canonical_id) if v.status == LIVE and v.language == "en"]
     vs = [v for v in vs if _live(v) and _pack_ok(db, v)]
     if not vs:
         return None
@@ -268,9 +282,7 @@ def content_for_source(db, category: str, source: Optional[dict]) -> Optional[li
 # ── "Customise this document" and the state of each document's template ──────────────────────────────────────────────
 def variant_state(db, organization_id: int, canonical_id: str) -> dict:
     """What the settings row says: Using the standard template / Your version vN – released / Draft in review."""
-    vs = (db.query(TemplateVariant).filter(TemplateVariant.canonical_id == canonical_id,
-                                           TemplateVariant.owner_organization_id == organization_id)
-          .order_by(TemplateVariant.version.desc()).all())
+    vs = _org_variants(db, organization_id, canonical_id)
     live = next((v for v in vs if _live(v) and _pack_ok(db, v)), None)
     working = next((v for v in vs if v.status in ("IN_DRAFT", "LEGAL_REVIEW", "LEGAL_APPROVED", "RELEASE_TESTED")), None)
     if live is not None:

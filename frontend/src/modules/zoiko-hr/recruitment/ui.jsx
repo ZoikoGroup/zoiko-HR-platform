@@ -8,6 +8,7 @@ import { NavLink } from "react-router-dom";
 import { getStoredUser } from "../../../service/api";
 import { ArrowDownRight, ArrowUpRight, Briefcase, SlidersHorizontal, Calendar, ChevronDown, ChevronRight, FileCheck2, LayoutDashboard, Search, Send,
   Users, X } from "lucide-react";
+import { useCachedLoad } from "../../../hooks/useCachedLoad";
 
 export const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment", icon: LayoutDashboard },
@@ -502,17 +503,10 @@ export function money(amount, currency) {
 // ── data ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** Loads GET /hr/recruitment/insights?section=… ; `reload()` after any change that moves a number. */
 export function useInsights(section) {
-  const [state, setState] = useState({ data: null, loading: true, error: "" });
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let live = true;
-    setState((s) => ({ ...s, loading: true, error: "" }));
+  // shown at once when coming back to a recruitment/onboarding page, refreshed behind it (hooks/useCachedLoad.js)
+  return useCachedLoad(`recruitment-insights:${section}`, () =>
     // loaded lazily: pages that only use the layout (and tests that replace hrService) do not need this call
     import("../../../service/hrService")
       .then((m) => (typeof m.getRecruitmentInsights === "function" ? m.getRecruitmentInsights(section) : null))
-      .then((data) => live && setState({ data, loading: false, error: "" }))
-      .catch((e) => live && setState({ data: null, loading: false, error: e?.message || "Insights could not be loaded." }));
-    return () => { live = false; };
-  }, [section, tick]);
-  return { ...state, reload: () => setTick((t) => t + 1) };
+      .catch((e) => { throw new Error(e?.message || "Insights could not be loaded."); }));
 }
