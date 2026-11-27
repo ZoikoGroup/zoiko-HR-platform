@@ -1,0 +1,6 @@
+{
+  "employee": {"email": "ada.tenanta@zoikogroup.com", "password": "Synthetic#Passw0rd1"},
+  "manager":  {"email": "manager.tenanta@zoikogroup.com", "password": "Synthetic#Passw0rd1"},
+  "hr_admin": {"email": "hr.tenanta@zoikogroup.com", "password": "Synthetic#Passw0rd1"},
+  "admin":    {"email": "admin.tenanta@zoikogroup.com", "password": "Synthetic#Passw0rd1"}
+}
