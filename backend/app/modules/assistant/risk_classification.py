@@ -30,7 +30,9 @@ HARD_BLOCK = "hard_block"
 SOFT_FLAG = "soft_flag"
 
 SELF_HARM_RE = re.compile(
-    r"\b(suicid\w*|kill myself|end my life|self[- ]?harm|hurt myself|want to die|no reason to live|"
+    # -ing forms too: "I feel like ending my life" slipped through (found by the M1-15 evaluation)
+    r"\b(suicid\w*|kill(ing)? myself|end(ing)? (my|my own) life|end(ing)? it all|self[- ]?harm\w*|"
+    r"hurt(ing)? myself|want(ed)? to die|no reason to live|"
     r"don'?t want to (live|be here)(\s+anymore)?|not want(ing)? to live)\b",
     re.IGNORECASE,
 )

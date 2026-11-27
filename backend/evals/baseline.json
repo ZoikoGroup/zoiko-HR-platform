@@ -1,0 +1,26 @@
+{
+  "offline": {
+    "overall": 99.2,
+    "dimensions": {
+      "correct_refusals": 100.0,
+      "correct_routing": 100.0,
+      "correct_screen": 97.0,
+      "no_invented_screens": 100.0
+    },
+    "cases": 63,
+    "recorded": "20261127T062933Z"
+  },
+  "live": {
+    "overall": 91.6,
+    "dimensions": {
+      "correct_refusals": 100.0,
+      "correct_screen": 97.0,
+      "groundedness": 75.0,
+      "no_invented_screens": 94.5
+    },
+    "cases": 63,
+    "recorded": "20261127T065424Z",
+    "environment": "local: synthetic TENANT-A (Enterprise plan), no policies or platform guide loaded, model openai/gpt-oss-120b",
+    "note": "Model answers vary between runs; compare live runs against the same environment only."
+  }
+}
