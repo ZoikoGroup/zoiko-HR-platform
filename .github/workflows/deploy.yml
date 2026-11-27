@@ -115,6 +115,26 @@ jobs:
             deactivate
             sudo systemctl restart zoiko-hr-backend
 
+            # Health check: the deploy only succeeds if the restarted backend answers /super-admin/health (which also
+            # runs SELECT 1 against the database) within 90s. Without this a backend that crashes on start-up, or
+            # can't reach the database, still showed a green deploy. The port is read from the systemd unit
+            # (uvicorn --port / gunicorn --bind), default 8000.
+            PORT=$(systemctl cat zoiko-hr-backend 2>/dev/null | grep -oE -- '(--port[= ]+|--bind[= ]+[^ :]*:|-b +[^ :]*:)[0-9]+' | grep -oE '[0-9]+$' | head -1)
+            HEALTH_URL="http://127.0.0.1:${PORT:-8000}/super-admin/health"
+            echo "Waiting for $HEALTH_URL"
+            healthy=false
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 5 "$HEALTH_URL" > /dev/null 2>&1; then healthy=true; break; fi
+              sleep 3
+            done
+            if [ "$healthy" != "true" ]; then
+              echo "::error::Backend did not become healthy within 90s after restart"
+              sudo systemctl status zoiko-hr-backend --no-pager -l | head -20 || true
+              sudo journalctl -u zoiko-hr-backend -n 60 --no-pager || true
+              exit 1
+            fi
+            echo "Backend healthy"
+
             if [ "$CI_BUILD" = "true" ] && [ -f /tmp/zoiko-frontend-release/index.html ]; then
               # prebuilt by CI: swap the files in
               sudo rm -rf /var/www/zoiko-hr-platform/html/*
