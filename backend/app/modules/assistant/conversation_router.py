@@ -121,7 +121,8 @@ def create_turn(
     text = payload.text.strip()
     turn = conversation_service.create_and_process_turn(db, conversation, current_user, text,
                                                           subject_employee_id=payload.subject_employee_id,
-                                                          attachment_id=payload.attachment_id)
+                                                          attachment_id=payload.attachment_id,
+                                                          page_route=payload.page_route)
     return conversation_service.serialize_turn(db, turn)
 
 
@@ -224,5 +225,7 @@ def submit_feedback(
     db.add(feedback)
     audit_service.record(db, organization_id, "feedback_submitted", "chat_feedback", None, current_user.id,
                           {"turn_id": turn.id, "rating": payload.rating})
+    from app.modules.assistant import analytics_service       # M1-16: thumbs onto the answer's event
+    analytics_service.mark_feedback(db, organization_id, turn.id, payload.rating, payload.reason_code)
     db.commit()
     return SuccessResponse(message="Thanks for the feedback.")

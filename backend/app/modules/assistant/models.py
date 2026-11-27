@@ -142,6 +142,8 @@ class ChatTurn(Base):
     employee_id     = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
     sequence_no     = Column(Integer, nullable=False)
     user_input_text = Column(Text, nullable=False)
+    # M1-13: the app route the asker had open (a hint for "this page" questions; validated in TurnCreate)
+    page_route      = Column(String(200), nullable=True)
     intent          = Column(String(50), nullable=True)
     status          = Column(Enum(TurnStatus), default=TurnStatus.ACCEPTED, nullable=False)
     error_message   = Column(Text, nullable=True)
@@ -489,6 +491,39 @@ class ChatFeedback(Base):
     reason_code = Column(String(30), nullable=True)  # incorrect|outdated|not_enough_detail|other
     comment     = Column(Text, nullable=True)
     created_at  = Column(DateTime, server_default=func.now())
+
+
+class CopilotEvent(Base):
+    """One row per finished assistant answer, for copilot analytics (M1-16).
+
+    Deliberately holds NO message text and NO person: no question, no answer, no employee id — only what kind of
+    question it was (intent), where it was asked (the menu screen, never the raw route with record ids), how it
+    ended (outcome), how long it took, which model answered, and the asker's thumbs up/down. turn_id is a plain
+    integer, not a foreign key: these rows outlive the conversation itself (retention deletes chat turns)."""
+    __tablename__ = "copilot_events"
+    __table_args__ = (Index("ix_copilot_events_org_created", "organization_id", "created_at"),)
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    turn_id         = Column(Integer, nullable=True, index=True)
+    created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    asker_role      = Column(String(20), nullable=True)    # employee | manager | hr_admin | admin
+    intent          = Column(String(50), nullable=True)    # e.g. navigation_guide, policy_qa:leave_attendance
+    page_screen     = Column(String(200), nullable=True)   # menu href of the open screen, if any (M1-13)
+    outcome         = Column(String(20), nullable=False)   # answered | general_guidance | no_answer | refused | action | failed
+    answer_type     = Column(String(20), nullable=True)
+    latency_ms      = Column(Integer, nullable=True)       # question received -> answer finished
+    provider        = Column(String(30), nullable=True)    # empty for answers built without a model
+    model           = Column(String(100), nullable=True)
+    feedback        = Column(String(10), nullable=True)    # up | down (the asker's thumbs)
+    feedback_code   = Column(String(30), nullable=True)    # incorrect | outdated | not_enough_detail | other
+    handed_off      = Column(Boolean, nullable=False, default=False)   # a Talk-to-HR ticket was raised from it
+    # M1-17 monitoring
+    first_token_ms  = Column(Integer, nullable=True)       # time to the first visible word of a streamed answer
+    prompt_tokens   = Column(Integer, nullable=True)       # summed over every model call for the answer
+    completion_tokens = Column(Integer, nullable=True)
+    fallback_used   = Column(Boolean, nullable=False, default=False)   # the main model failed; the backup answered
+    provider_error  = Column(Boolean, nullable=False, default=False)   # the model provider failed: no answer
 
 
 class ChatIdempotencyKey(Base):

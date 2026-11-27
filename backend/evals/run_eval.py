@@ -56,12 +56,12 @@ class LiveClient:
             self.tokens[role] = r.json()["access_token"]
         return self.tokens[role]
 
-    def ask(self, role: str, question: str) -> dict:
+    def ask(self, role: str, question: str, page: str | None = None) -> dict:
         """One fresh conversation per question, so no case sees another's history."""
         headers = {"Authorization": f"Bearer {self._token(role)}"}
         conv = self.http.post("/assistant/conversations", json={"title": "eval"}, headers=headers)
         conv.raise_for_status()
-        turn = self.http.post(f"/assistant/conversations/{conv.json()['id']}/turns", json={"text": question},
+        turn = self.http.post(f"/assistant/conversations/{conv.json()['id']}/turns", json={"text": question, "page_route": page},
                               headers=headers)
         turn.raise_for_status()
         data = turn.json()
@@ -89,7 +89,7 @@ def run(layer: str, cases: list[dict], base_url: str | None) -> list[scoring.Cas
             continue
         started = time.monotonic()
         try:
-            turn = client.ask(case["role"], case["q"])
+            turn = client.ask(case["role"], case["q"], case.get("page"))
             res = scoring.check_live(case, turn)
         except Exception as exc:                                 # noqa: BLE001 — a failed call is a failed case
             res = scoring.CaseResult(case["id"], case["category"], {"answered": False}, {"error": repr(exc)[:300]})
@@ -137,6 +137,9 @@ def main() -> None:
         if not r.passed:
             failed = [d for d, ok in r.checks.items() if not ok]
             print(f"  FAIL {r.id}: {', '.join(failed)}  {json.dumps({k: v for k, v in r.detail.items() if k != 'answer'})[:200]}")
+    warned = [(r.id, r.detail["warning_other_role_screens"]) for r in results if r.detail.get("warning_other_role_screens")]
+    for case_id, names in warned:
+        print(f"  WARN {case_id}: names another role's screen: {', '.join(names)} (check the answer says whose it is)")
     print(f"Results: {out}")
 
     if args.save_baseline:
@@ -149,7 +152,7 @@ def main() -> None:
         print(f"Baseline saved for {layer}.")
         return
 
-    problems = [] if args.only else scoring.compare(summary, scoring.load_baseline(layer))
+    problems = [] if args.only else scoring.compare(summary, scoring.load_baseline(layer), per_dimension=(layer == "offline"))
     for p in problems:
         print(f"::error::{p}")
     sys.exit(1 if problems else 0)

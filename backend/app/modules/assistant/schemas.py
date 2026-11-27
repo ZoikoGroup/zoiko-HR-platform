@@ -4,10 +4,11 @@ modules/assistant/schemas.py
 Pydantic request/response schemas for the assistant API.
 """
 
+import re
 from datetime import date, datetime
 from typing import Optional, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SuccessResponse(BaseModel):
@@ -52,6 +53,18 @@ class TurnCreate(BaseModel):
     # ATTACHMENT_QA: answer from this attachment's extracted text only —
     # ownership/conversation membership re-checked server-side.
     attachment_id: Optional[int] = None
+    # M1-13: the app route the asker has open ("/zoiko-hr/offboarding/cases"), so "what does this page do?" works.
+    # A hint only: the server maps it to a screen and uses it only if that screen is in the asker's own menu.
+    # Anything that isn't a plain path is dropped, never an error.
+    page_route: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("page_route")
+    @classmethod
+    def _plain_route(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        path = value.split("?", 1)[0].split("#", 1)[0].strip()
+        return path if re.fullmatch(r"/[A-Za-z0-9/_\-]{0,199}", path) else None
 
 
 class SourceRef(BaseModel):

@@ -13,9 +13,12 @@ export const listTurns = (conversationId) => api.get(`/assistant/conversations/$
 // returns, so it gets more than the default 20s request budget.
 const TURN_TIMEOUT_MS = 60000;
 
-export const createTurn = (conversationId, text, subjectEmployeeId, attachmentId) =>
+// pageRoute: the app page the person has open (M1-13), so "What does this page do?" works. Only a hint: the server
+// uses it only when that screen is in the person's own menu.
+export const createTurn = (conversationId, text, subjectEmployeeId, attachmentId, pageRoute) =>
   api.post(`/assistant/conversations/${conversationId}/turns`, {
     text, subject_employee_id: subjectEmployeeId || undefined, attachment_id: attachmentId || undefined,
+    page_route: pageRoute || undefined,
   }, { timeoutMs: TURN_TIMEOUT_MS });
 export const getTurn = (turnId) => api.get(`/assistant/turns/${turnId}`);
 

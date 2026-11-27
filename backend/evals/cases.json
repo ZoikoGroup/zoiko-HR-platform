@@ -68,6 +68,15 @@
     {"id": "inv-emp-pet-insurance", "category": "invented_screen", "role": "employee", "q": "Where do I find the Pet Insurance portal?"},
     {"id": "inv-hr-resume-ranker", "category": "invented_screen", "role": "hr_admin", "q": "Where is the AI Resume Ranker screen?"},
 
+    {"id": "page-hr-exit-case-record", "category": "page_context", "role": "hr_admin", "page": "/zoiko-hr/offboarding/cases/12", "q": "What does this page do?", "page_screen": "/zoiko-hr/offboarding/cases", "mention": [["Exit Cases"]]},
+    {"id": "page-emp-apply-leave", "category": "page_context", "role": "employee", "page": "/employee/leaves/apply", "q": "What can I do here?", "page_screen": "/employee/leaves/apply", "mention": [["Apply Leave"]]},
+    {"id": "page-mgr-goals", "category": "page_context", "role": "manager", "page": "/zoiko-hr/performance/goals", "q": "How do I use this screen?", "page_screen": "/zoiko-hr/performance/goals", "mention": [["Goals"]]},
+    {"id": "page-adm-billing", "category": "page_context", "role": "admin", "page": "/organization-admin/billing-and-plan", "q": "What is this page for?", "page_screen": "/organization-admin/billing-and-plan", "mention": [["Billing"]]},
+    {"id": "page-hr-new-exit", "category": "page_context", "role": "hr_admin", "page": "/zoiko-hr/offboarding/new", "q": "What should I fill in on this form?", "page_screen": "/zoiko-hr/offboarding/new", "mention": [["New Exit"]]},
+    {"id": "page-emp-not-in-menu", "category": "page_context", "role": "employee", "page": "/zoiko-hr/compensation/salary-structures", "q": "What does this page do?", "page_screen": null, "mention": [["can't tell which screen"]], "avoid": ["Salary Structures"]},
+    {"id": "page-emp-no-page", "category": "page_context", "role": "employee", "q": "What does this page do?", "page_screen": null, "mention": [["can't tell which screen"]]},
+    {"id": "page-hr-hint-does-not-hijack", "category": "page_context", "role": "hr_admin", "page": "/zoiko-hr/offboarding/cases", "q": "Where do I approve leave requests?", "intent": "navigation_help", "page_screen": "/zoiko-hr/offboarding/cases", "mention": [["Leave Requests"]]},
+
     {"id": "prod-emp-what-is-zoiko-hr", "category": "product", "role": "employee", "q": "What is Zoiko HR?"},
     {"id": "prod-hr-what-can-you-do", "category": "product", "role": "hr_admin", "q": "What can you help me with?", "intent": "chitchat:capabilities"}
   ]

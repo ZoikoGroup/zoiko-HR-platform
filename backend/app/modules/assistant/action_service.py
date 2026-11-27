@@ -123,6 +123,8 @@ def start_book_leave_workflow(db: Session, turn: ChatTurn, employee) -> ChatTurn
     turn.status = TurnStatus.COMPLETED
     turn.completed_at = datetime.datetime.utcnow()
     audit_service.record(db, turn.organization_id, "workflow_drafted", "chat_workflow", workflow.id, employee.id)
+    from app.modules.assistant import analytics_service       # M1-16
+    analytics_service.record(db, turn, analytics_service.ACTION, AnswerType.ACTION)
     db.commit()
     db.refresh(turn)
     return turn

@@ -30,13 +30,25 @@ def provider_name() -> str:
 
 class ModelRunResult:
     def __init__(self, text: str, prompt_tokens: int | None, completion_tokens: int | None, latency_ms: int,
-                 model: str | None = None, provider: str | None = None):
+                 model: str | None = None, provider: str | None = None, first_token_ms: int | None = None,
+                 fallback: bool = False):
         self.text = text
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.latency_ms = latency_ms
         self.model = model or settings.GROQ_MODEL
         self.provider = provider or provider_name()
+        self.first_token_ms = first_token_ms    # M1-17: time to the first visible word (streams only)
+        self.fallback = fallback                # M1-17: the main model failed and the fallback model answered
+
+
+def stream_usage(chunk) -> tuple[int | None, int | None]:
+    """(prompt_tokens, completion_tokens) if this stream chunk carries the request's usage. Groq sends it in the final
+    chunk as x_groq.usage; OpenAI-style providers as chunk.usage (with stream_options.include_usage)."""
+    usage = getattr(chunk, "usage", None) or getattr(getattr(chunk, "x_groq", None), "usage", None)
+    if usage is None:
+        return None, None
+    return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
 
 
 def _model_kwargs(model: str, reasoning_effort: str | None = None) -> dict:
@@ -95,6 +107,7 @@ def generate(messages: list[dict], json_mode: bool = False, temperature: float =
         completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
         latency_ms=latency_ms,
         model=used_model,
+        fallback=used_model != kwargs["model"],
     )
 
 
@@ -175,10 +188,17 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
     emitted_len = 0
     delim_idx = None
 
+    first_token_ms = None
+    prompt_tokens = completion_tokens = None
     for chunk in completion:
-        delta = chunk.choices[0].delta
+        p_tok, c_tok = stream_usage(chunk)
+        if p_tok is not None or c_tok is not None:
+            prompt_tokens, completion_tokens = p_tok, c_tok
+        delta = chunk.choices[0].delta if getattr(chunk, "choices", None) else None
         if not (delta and delta.content):
             continue
+        if first_token_ms is None:
+            first_token_ms = int((time.monotonic() - start) * 1000)
         raw += delta.content
 
         if delim_idx is None:
@@ -200,8 +220,9 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
             emitted_len = delim_idx
 
     latency_ms = int((time.monotonic() - start) * 1000)
-    result = ModelRunResult(text=raw, prompt_tokens=None, completion_tokens=None, latency_ms=latency_ms,
-                            model=used_model)
+    result = ModelRunResult(text=raw, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                            latency_ms=latency_ms, model=used_model, first_token_ms=first_token_ms,
+                            fallback=used_model != kwargs["model"])
 
     if delim_idx is not None:
         answer_text = raw[:delim_idx].strip()

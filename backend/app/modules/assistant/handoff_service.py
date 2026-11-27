@@ -94,6 +94,8 @@ def create_handoff(db: Session, organization_id: int, employee_id: int, conversa
     db.add(handoff)
     db.flush()
     audit_service.record(db, organization_id, "handoff_created", "chat_handoff", handoff.id, employee_id)
+    from app.modules.assistant import analytics_service       # M1-16: the answer led to a Talk-to-HR ticket
+    analytics_service.mark_handoff(db, organization_id, turn_id)
     db.commit()
     db.refresh(handoff)
 

@@ -82,6 +82,7 @@ export default function ConversationView({
   const [topicsOpen, setTopicsOpen] = useState(false);
   const conversationScrollRef = useRef(0);
   const scrollRef = useRef(null);
+  const panelsRef = useRef(null);
   const stickToBottomRef = useRef(true);
 
   // Scroll contract (wireframe §3.2): follow new content unless the user has
@@ -99,6 +100,14 @@ export default function ConversationView({
     if (stickToBottomRef.current) scrollToBottom();
     else setShowLatest(true);
   }, [turns, streamingText, topicsOpen, scrollToBottom]);
+
+  // A support request or the ticket list was just opened: bring it into view at the bottom of the conversation.
+  useEffect(() => {
+    if (!supportRequestOpen && !myTicketsOpen) return;
+    requestAnimationFrame(() => {
+      panelsRef.current?.scrollIntoView({ block: "end", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    });
+  }, [supportRequestOpen, myTicketsOpen]);
 
   const openTopics = () => {
     conversationScrollRef.current = scrollRef.current?.scrollTop ?? 0;
@@ -226,17 +235,6 @@ export default function ConversationView({
         <div className={`h-full overflow-y-auto overscroll-contain py-5 ${gutter}`} ref={scrollRef} onScroll={onScroll}>
           <SystemBanner capabilities={capabilities} errorMessage={degradedMessage} onRestrictionLifted={refreshCapabilities} />
 
-          {supportRequestOpen && (
-            <HandoffPanel
-              conversationId={conversationId}
-              turnId={null}
-              defaultSummary=""
-              onClose={() => setSupportRequestOpen(false)}
-              checkOnMount
-            />
-          )}
-
-          {myTicketsOpen && <MyTicketsPanel onClose={() => setMyTicketsOpen(false)} />}
 
           {loadingConversation && (
             <div className="flex h-full items-center justify-center text-[var(--zhr-text-muted)]" role="status">
@@ -395,6 +393,22 @@ export default function ConversationView({
                 />
               </div>
             ))}
+          </div>
+
+          {/* Support request and My tickets open BELOW the latest message, where the person is looking — at the top
+              of a long conversation they were off screen and had to be scrolled up to. */}
+          <div ref={panelsRef}>
+            {supportRequestOpen && (
+              <HandoffPanel
+                conversationId={conversationId}
+                turnId={null}
+                defaultSummary=""
+                onClose={() => setSupportRequestOpen(false)}
+                checkOnMount
+              />
+            )}
+
+            {myTicketsOpen && <MyTicketsPanel onClose={() => setMyTicketsOpen(false)} />}
           </div>
         </div>
 

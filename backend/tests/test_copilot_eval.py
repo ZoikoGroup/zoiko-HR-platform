@@ -86,6 +86,8 @@ def test_a_drop_of_more_than_three_points_fails():
     assert scoring.compare({"overall": 87.5, "dimensions": {"correct_screen": 92.0}}, base) == []
     assert scoring.compare({"overall": 86.9, "dimensions": {"correct_screen": 95.0}}, base)
     assert scoring.compare({"overall": 90.0, "dimensions": {"correct_screen": 91.9}}, base)
+    # live runs compare the overall score only (a ~20-case dimension moves ~5 points on one varying answer)
+    assert scoring.compare({"overall": 90.0, "dimensions": {"correct_screen": 91.9}}, base, per_dimension=False) == []
 
 
 def test_a_policy_answer_is_said_once():
@@ -97,9 +99,23 @@ def test_a_policy_answer_is_said_once():
     once = _live("pol-emp-remote-work", "Your organization hasn't published a policy on this, so here's general "
                                         "guidance: ...", answer_type="partial")
     assert once.checks[scoring.GROUNDED] and once.checks[scoring.PLAIN]
+    lead_in = _live("pol-emp-maternity", "There's no specific maternity-leave policy published. General guidance: it "
+                                         "depends on local law. Open Documents → Company Policies.", answer_type="partial")
+    assert lead_in.checks[scoring.GROUNDED]                     # a one-line lead-in is not a doubled answer
 
 
 def test_no_such_screen_is_not_labelled_no_reliable_answer():
     answer = "Zoiko HR doesn’t have a screen called “Wellness Hub.” Ask your HR team."
     assert not _live("inv-emp-wellness-hub", answer, answer_type="no_answer").checks[scoring.GROUNDED]
     assert _live("inv-emp-wellness-hub", answer, answer_type="grounded").passed
+
+
+def test_another_roles_screen_names_are_reported():
+    assert scoring.other_role_screen_names("Check your balance on the Leave Dashboard.", "employee") == ["Leave Dashboard"]
+    assert scoring.other_role_screen_names("Open Leaves → Apply Leave.", "employee") == []
+    assert scoring.other_role_screen_names("Check the Leave Dashboard.", "manager") == []
+
+
+def test_arrows_between_steps_are_not_menu_paths():
+    assert scoring.invented_segments("The flow: start a New Exit → approve any Resignation → recover assets.") == []
+    assert scoring.invented_segments("Open Offboarding → Control Center.") == ["Control Center"]

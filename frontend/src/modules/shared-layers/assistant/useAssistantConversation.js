@@ -143,7 +143,8 @@ export function useAssistantConversation(active = true) {
     setTurns((prev) => [...prev, placeholder]);
 
     try {
-      const turn = await createTurn(conversationId, messageText, scope?.id, attachmentId);
+      const turn = await createTurn(conversationId, messageText, scope?.id, attachmentId,
+        typeof window !== "undefined" ? window.location.pathname : undefined);
       setTurns((prev) => prev.map((t) => (t === placeholder ? turn : t)));
       refreshConversations();
 

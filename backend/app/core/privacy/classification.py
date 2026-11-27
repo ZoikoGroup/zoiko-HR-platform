@@ -99,6 +99,8 @@ TABLES: dict[str, Level] = {
     "chat_audit_events": L.PLATFORM_META, "chat_idempotency_keys": L.PLATFORM_META, "chat_operational_controls": L.PLATFORM_META,
     "chat_safety_events": L.PLATFORM_META, "chat_action_evidence": L.PERSONAL_CONFIDENTIAL,
     "chat_privacy_requests": L.PERSONAL_CONFIDENTIAL,
+    # copilot analytics (M1-16): one row per answer with NO text and NO person — intent, screen, outcome, timing, thumbs
+    "copilot_events": L.PLATFORM_META,
     # document template engine (app/modules/doc_templates). Template content is not personal data; generated documents,
     # their evidence and their snapshots are. One-time signing codes are secrets (only hashes are stored).
     "employer_entities": L.PERSONAL_BASIC, "authorised_signatories": L.PERSONAL_BASIC,
