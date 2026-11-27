@@ -1,12 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LifeBuoy, CheckCircle2, Clock, X } from "lucide-react";
 import { createHandoff, getMyOpenHandoff } from "../../../service/assistantService";
+
+// " (opened 27 Nov)" when the ticket's date is known.
+function openedOn(createdAt) {
+  const d = createdAt ? new Date(createdAt) : null;
+  return d && !Number.isNaN(d.getTime()) ? ` (opened ${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })})` : "";
+}
 
 export default function HandoffPanel({ conversationId, turnId, defaultSummary, onClose, reason = "user_requested", checkOnMount = false }) {
   const [summary, setSummary] = useState(defaultSummary || "");
   const [ticket, setTicket] = useState(null);
   const [busy, setBusy] = useState(false);
   const [checkingExisting, setCheckingExisting] = useState(checkOnMount);
+  const resultRef = useRef(null);
+
+  // The ticket result ("already open" or "case created") is what the person needs to read next: keep it in view,
+  // wherever in the conversation the panel sits.
+  useEffect(() => {
+    if (!ticket) return;
+    const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => resultRef.current?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" }));
+  }, [ticket]);
 
   // Only checked up front when the panel was opened by deliberate action
   // (the menu's "Support request"), not when it auto-appears under a
@@ -34,15 +49,15 @@ export default function HandoffPanel({ conversationId, turnId, defaultSummary, o
 
   if (ticket) {
     return (
-      <div className={`mt-3 flex items-start gap-2 rounded-2xl border p-3 text-xs font-semibold ${
+      <div ref={resultRef} role="status" className={`mt-3 flex items-start gap-2 rounded-2xl border p-3 text-xs font-semibold ${
         ticket.already_open ? "border-amber-100 bg-amber-50 text-amber-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"
       }`}>
         {ticket.already_open ? <Clock className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
         <span>
           {ticket.already_open ? (
-            <>You already have an open ticket — reference {ticket.ticket_reference}. HR is still working on it; you'll be able to open a new ticket once this one is resolved.</>
+            <>You already have an open ticket — reference <strong>{ticket.ticket_reference}</strong>{openedOn(ticket.created_at)}. HR is still working on it, so a new ticket wasn't opened — you can open another once this one is resolved. You can follow it under My tickets in the menu.</>
           ) : (
-            <>Case created — reference {ticket.ticket_reference}. HR will follow up with you.</>
+            <>Case created — reference <strong>{ticket.ticket_reference}</strong>. HR will follow up with you.</>
           )}
         </span>
       </div>
