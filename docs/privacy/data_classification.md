@@ -239,7 +239,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `chat_turns` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`
 - **PERSONAL_BASIC**: `conversation_id`
-- **PERSONAL_CONFIDENTIAL**: `employee_id`, `sequence_no`, `user_input_text`, `intent`, `status`, `error_message`, `completed_at`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `sequence_no`, `user_input_text`, `page_route`, `intent`, `status`, `error_message`, `completed_at`
 
 ## `chat_workflow_confirmations` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 6)
 - **PLATFORM_META**: `id`

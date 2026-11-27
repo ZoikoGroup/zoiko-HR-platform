@@ -121,7 +121,8 @@ def create_turn(
     text = payload.text.strip()
     turn = conversation_service.create_and_process_turn(db, conversation, current_user, text,
                                                           subject_employee_id=payload.subject_employee_id,
-                                                          attachment_id=payload.attachment_id)
+                                                          attachment_id=payload.attachment_id,
+                                                          page_route=payload.page_route)
     return conversation_service.serialize_turn(db, turn)
 
 

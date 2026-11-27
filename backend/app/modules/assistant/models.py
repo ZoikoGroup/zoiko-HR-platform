@@ -142,6 +142,8 @@ class ChatTurn(Base):
     employee_id     = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
     sequence_no     = Column(Integer, nullable=False)
     user_input_text = Column(Text, nullable=False)
+    # M1-13: the app route the asker had open (a hint for "this page" questions; validated in TurnCreate)
+    page_route      = Column(String(200), nullable=True)
     intent          = Column(String(50), nullable=True)
     status          = Column(Enum(TurnStatus), default=TurnStatus.ACCEPTED, nullable=False)
     error_message   = Column(Text, nullable=True)

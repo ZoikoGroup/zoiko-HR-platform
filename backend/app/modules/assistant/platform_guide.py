@@ -99,6 +99,35 @@ def visible_to(screen: dict, role: str | None) -> bool:
     return (role if role in _ROLES else "employee") in screen["roles"]
 
 
+def screen_for_route(route: str | None, role: str | None) -> dict | None:
+    """The screen an app route belongs to, for "what does this page do?" (M1-13) — only if it is in this role's menu.
+
+    An exact href wins; otherwise the longest href the route sits under (a detail page such as
+    /zoiko-hr/offboarding/cases/12 belongs to Exit Cases). The route comes from the browser, so it is only a hint:
+    a screen outside the asker's menu is never returned, and nothing is said about it."""
+    if not route:
+        return None
+    route = route.rstrip("/") or "/"
+    best = None
+    for screen in screens():
+        href = screen["href"].rstrip("/")
+        # below a screen only when the next part is a record or a mode of it (/cases/12, /cases/new): an unmapped
+        # page under /zoiko-hr is NOT the Zoiko HR dashboard
+        detail = route.startswith(href + "/") and bool(_DETAIL_SEGMENT.fullmatch(route[len(href) + 1:].split("/")[0]))
+        if route == href or detail:
+            if best is None or len(href) > len(best["href"].rstrip("/")):
+                best = screen
+    return best if best and visible_to(best, role) else None
+
+
+_DETAIL_SEGMENT = re.compile(r"\d+|[0-9a-fA-F-]{8,}|new|edit|view|details?|create", re.IGNORECASE)
+
+
+def page_line(screen: dict, plan_states: dict | None = None) -> str:
+    """The current page for the model: its menu path, route and what the page itself says it is for."""
+    return _line(screen, 600, plan_states)
+
+
 # Menu words too generic to identify a screen on their own ("How do I report harassment?" is not the Reports page).
 _WEAK = frozenset("report reports dashboard request requests history list detail details management overview "
                   "analytic analytics structure my action change changes update updates edit add create new system "

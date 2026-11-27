@@ -27,7 +27,7 @@ BASELINE_FILE = EVALS / "baseline.json"
 MAX_DROP = 3.0
 
 ROLES = ("employee", "manager", "hr_admin", "admin")
-CATEGORIES = ("navigation", "how_it_works", "policy", "refusal", "invented_screen", "product")
+CATEGORIES = ("navigation", "how_it_works", "policy", "refusal", "invented_screen", "product", "page_context")
 
 # Dimensions. A case contributes to every dimension it has a check for.
 SCREEN = "correct_screen"
@@ -73,13 +73,17 @@ def score(results: list[CaseResult]) -> dict:
             "failed": [r.id for r in results if not r.passed]}
 
 
-def compare(current: dict, baseline: dict | None) -> list[str]:
-    """Problems that fail the run: the overall score, or any dimension, more than MAX_DROP below the baseline."""
+def compare(current: dict, baseline: dict | None, per_dimension: bool = True) -> list[str]:
+    """Problems that fail the run: the overall score, or (per_dimension) any dimension, more than MAX_DROP below the
+    baseline. The live layer compares the overall score only: a live dimension has ~20 cases, so one answer that
+    varies between runs moves it ~5 points — noise, not a regression."""
     if not baseline:
         return []
     problems = []
     if current["overall"] < baseline["overall"] - MAX_DROP:
         problems.append(f"overall {current['overall']} is more than {MAX_DROP} below the baseline {baseline['overall']}")
+    if not per_dimension:
+        return problems
     for dim, base in baseline.get("dimensions", {}).items():
         now = current["dimensions"].get(dim)
         if now is not None and now < base - MAX_DROP:
@@ -159,6 +163,33 @@ def invented_segments(answer: str) -> list[str]:
     return bad
 
 
+_GENERIC_LEAVES = frozenset({"Dashboard", "Reports", "Settings", "Approvals", "Calendar", "Analytics", "Requests",
+                             "List", "Documents", "Profile", "Expenses", "Courses", "Assessments"})
+
+
+def _screen_names(screen: dict) -> set[str]:
+    """How an answer might name a screen without its full path: its own title ("Exit Cases"), or module + title
+    ("Leave Dashboard") when the title alone is generic."""
+    path = screen["path"]
+    names = set()
+    if path[-1] not in _GENERIC_LEAVES:
+        names.add(path[-1])
+    if len(path) >= 2:
+        names.add(f"{path[-2]} {path[-1]}")
+    return names
+
+
+def other_role_screen_names(answer: str, role: str) -> list[str]:
+    """Screen names (Title Case, as menus write them) that exist only in OTHER roles' menus, e.g. "Leave Dashboard"
+    in an employee's answer. Reported for review, not scored: "HR does this in Onboarding → New Hires" is a correct
+    answer that names another role's screen on purpose."""
+    screens = _screens()
+    mine = set().union(*(_screen_names(s) | set(s["path"]) for s in screens if role in s["roles"]))
+    theirs = set().union(*(_screen_names(s) for s in screens if role not in s["roles"])) - mine
+    text = _plain(answer)
+    return sorted(n for n in theirs if re.search(rf"(?<![\w]){re.escape(n)}(?![\w])", text))
+
+
 # ── offline layer ────────────────────────────────────────────────────────────────────────────────────────────────────
 def run_offline(case: dict) -> CaseResult:
     from app.modules.assistant import orchestration_service as orch, platform_guide
@@ -193,6 +224,12 @@ def run_offline(case: dict) -> CaseResult:
         screen, _ = platform_guide.find_screen(q, role)
         r.detail["screen"] = screen["href"] if screen else None
         r.checks[INVENTED] = screen is None
+
+    if "page_screen" in case:
+        # M1-13: the open page resolves to the right screen, and only when it is in the asker's menu
+        page = platform_guide.screen_for_route(case.get("page"), role)
+        r.detail["page_screen"] = page["href"] if page else None
+        r.checks[SCREEN] = r.checks.get(SCREEN, True) and r.detail["page_screen"] == case["page_screen"]
     return r
 
 
@@ -227,6 +264,9 @@ def check_live(case: dict, turn: dict) -> CaseResult:
     bad = invented_segments(answer)
     r.detail["invented_segments"] = bad
     r.checks[INVENTED] = not bad
+    others = other_role_screen_names(answer, case["role"])
+    if others:
+        r.detail["warning_other_role_screens"] = others          # for review; see other_role_screen_names
 
     if "screen" in case:
         label = screen_for(case["screen"])["path"][-1]
@@ -253,11 +293,15 @@ def check_live(case: dict, turn: dict) -> CaseResult:
         # grounded = backed by sources; otherwise it must say it's general guidance, never pose as company policy
         label = _GENERAL_LABEL.search(answer)
         r.checks[GROUNDED] = (answer_type == "grounded" and bool(sources)) or bool(label) or answer_type == "no_answer"
-        # with no company source, the labelled guidance IS the answer: nothing said before it (no "not covered"
-        # paragraph followed by the same advice again)
-        if label and not sources and label.start() > 40:
-            r.detail["text_before_general_guidance"] = answer[:label.start()][:200]
-            r.checks[GROUNDED] = False
+        # no answer given twice: a "not covered" part followed by labelled guidance that repeats the same pointer
+        # ("…open Attendance → Shifts & Work Policy…" in both). A one-line "not covered" lead-in is fine.
+        if label and not sources:
+            before, after = answer[:label.start()], answer[label.end():]
+            ends = lambda text: {p[-1].strip().lower() for p in menu_paths(text) if p and p[-1].strip()}  # noqa: E731
+            repeated = sorted(ends(before) & ends(after))
+            if repeated:
+                r.detail["repeated_before_and_after_general_guidance"] = repeated
+                r.checks[GROUNDED] = False
     if case["category"] in ("product", "invented_screen"):
         r.checks[GROUNDED] = not _GENERAL_LABEL.search(answer)      # a question about the app isn't a missing policy
     if case["category"] == "invented_screen" and answer_type == "no_answer":

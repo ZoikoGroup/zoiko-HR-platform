@@ -76,7 +76,8 @@ def delete_conversation(db: Session, organization_id: int, employee_id: int, con
 
 
 def create_and_process_turn(db: Session, conversation: ChatConversation, employee, text: str,
-                             subject_employee_id: int | None = None, attachment_id: int | None = None) -> ChatTurn:
+                             subject_employee_id: int | None = None, attachment_id: int | None = None,
+                             page_route: str | None = None) -> ChatTurn:
     """Step 1 of orchestration (create the turn row), then either routes to
     the action engine (for action-triggering intents) or runs the standard
     answer pipeline. `subject_employee_id` (WF-09 manager scope) is
@@ -98,6 +99,7 @@ def create_and_process_turn(db: Session, conversation: ChatConversation, employe
         employee_id=employee.id,
         sequence_no=next_seq,
         user_input_text=text,
+        page_route=page_route,
         status=TurnStatus.ACCEPTED,
     )
     db.add(turn)

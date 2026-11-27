@@ -331,6 +331,25 @@ _SCREEN_NAME_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 _POLICY_WORD_RE = re.compile(r"\bpolic(y|ies)\b|\bhandbook\b|\brules?\b", re.IGNORECASE)
+# M1-13: a question about the screen the asker has open ("What does this page do?", "What can I do here?").
+_THIS_PAGE_RE = re.compile(
+    r"\b(this|current|the current)\s+(page|screen|tab|view|form|section|dashboard|board|report)\b"
+    r"|\bwhat\s+(can|should)\s+i\s+do\s+here\b|\bwhat\s+is\s+(this|here)\b\s*\??\s*$"
+    r"|\bhow\s+do\s+i\s+use\s+(this|it)\b(?!\s+\w+\s+\w+)|\bwhere\s+am\s+i\b",
+    re.IGNORECASE,
+)
+
+
+def _current_page(turn, employee) -> dict | None:
+    """The screen the asker has open, if the client sent one AND it is in the asker's own menu (re-checked here:
+    the route is only a hint, and never reveals a screen outside the menu)."""
+    role = getattr(getattr(employee, "role", None), "value", getattr(employee, "role", None))
+    return platform_guide.screen_for_route(getattr(turn, "page_route", None), role)
+
+
+# No example screen name: any name would be in some roles' menus and not others'.
+_NO_PAGE_MESSAGE = ("I can't tell which screen you have open. Ask about it by the name shown at the top of the page, "
+                    "or tell me what you're trying to do.")
 # The platform guide's answer for a screen that doesn't exist ("Zoiko HR doesn’t have a screen called …").
 _SCREEN_ABSENT_RE = re.compile(
     r"\bZoiko HR (doesn['’]t|does not) (currently )?(have|include|offer)\b.{0,60}"
@@ -581,6 +600,9 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
     db.flush()
 
     intent = classify_intent(turn.user_input_text)
+    # "What does this page do?" is about the screen the asker has open (M1-13), not a policy question
+    if intent in ("policy_qa", "navigation_help") and _THIS_PAGE_RE.search(turn.user_input_text):
+        intent = "navigation_help"
 
     # Follow-ups ("what about part-timers?", "and for sick leave?") only make
     # sense with the earlier turns: resolve them into a standalone question
@@ -940,6 +962,19 @@ def _answer_navigation_help(db: Session, turn: ChatTurn, employee=None) -> ChatT
     it is for, filtered to the asker's menu), so the answer is the software's
     real way of doing the task, not the nearest screen name."""
     role = getattr(getattr(employee, "role", None), "value", getattr(employee, "role", None))
+    if _THIS_PAGE_RE.search(turn.user_input_text):
+        # about the open screen: never the nearest name match for the words "this page"
+        page = _current_page(turn, employee)
+        if page is None:
+            return _finalize(db, turn, _NO_PAGE_MESSAGE, AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+        if guardrails.is_generation_enabled(db, turn.organization_id, employee_id=getattr(employee, "id", None)):
+            turn.intent = "navigation_guide"
+            turn.status = TurnStatus.GENERATING
+            db.commit()
+            db.refresh(turn)
+            return turn
+        return _finalize(db, turn, f"You're on {' → '.join(page['path'])}. " + (page.get("about") or "").split(" · ")[0],
+                         AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
     screen, visible = platform_guide.find_screen(turn.user_input_text, role)
     if screen and visible and not _SETUP_RE.search(turn.user_input_text):
         plan_states = _unavailable_plan_features(db, getattr(turn, "organization_id", None),
@@ -1173,6 +1208,9 @@ PLATFORM_GUIDE_PROMPT = BASE_SYSTEM_PROMPT.split("[GROUNDING]")[0] + """[PLATFOR
   Never say the named screen "is accessed through", "is part of" or "is the same as" another screen, and never
   describe where it might be outside Zoiko HR. Then, only if a real screen in the catalog does that job, name it by
   its full path as the place to go instead.
+- <current_page>, when present, is the screen the user has open. If the question is about "this page", "this
+  screen" or "here", answer about that screen: name it by its full path, say what it is for and what they can do
+  there, using only its page text. Otherwise it is just a hint about context: answer the question they asked.
 """ + "\n[CONFIDENTIALITY]" + BASE_SYSTEM_PROMPT.split("[CONFIDENTIALITY]")[1].replace(
     "cited_fragment_ids must only contain ids that appear in the <evidence id=\"...\"> tags given to you.",
     "cited_fragment_ids must be [] — screens are platform information, not cited evidence.",
@@ -1205,8 +1243,10 @@ def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
     text = turn.user_input_text
     history = context_service.history_block(context_service.recent_history(db, turn))
     others = platform_guide.other_roles_for(text, role)
+    page = _current_page(turn, employee)
     parts = [
         history,
+        ("<current_page>\n" + platform_guide.page_line(page) + "\n</current_page>") if page else "",
         f"<screens_catalog role=\"{role}\">\n"
         + platform_guide.catalog_for(text, role, plan_states=_unavailable_plan_features(
             db, turn.organization_id, platform_guide.plan_features(role)))
@@ -1235,6 +1275,18 @@ def _stream_navigation_guide(db: Session, turn: ChatTurn, employee):
     yield ("done", _finalize(db, turn, _plain_identifiers(answer_text),
                              AnswerType.GROUNDED if found else AnswerType.NO_ANSWER,
                              ConfidenceState.SUPPORTED if found else ConfidenceState.NO_RELIABLE_ANSWER))
+
+
+GENERAL_GUIDANCE_LABEL = "Your organization hasn't published a policy on this, so here's general guidance:"
+_GENERAL_LABEL_RE = re.compile(r"hasn['’]t published a policy|general guidance", re.IGNORECASE)
+
+
+def _with_general_label(text: str) -> str:
+    """General guidance with its label, added in front when the model left it out (never twice)."""
+    text = (text or "").strip()
+    if not text or _GENERAL_LABEL_RE.search(text[:200]):
+        return text
+    return f"{GENERAL_GUIDANCE_LABEL} {text}"
 
 
 def _merge_general_guidance(not_found_text: str, guidance: str, cited_ids) -> str:
@@ -1361,6 +1413,14 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
 
     if general and answer_type != AnswerType.NO_ANSWER:
         # general guidance is never presented as a grounded company answer
+        answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
+        # ...and always says so: the prompt asks for the opening label, but the model sometimes drops it (seen in the
+        # M1-15 evaluation: "What is the notice period when I resign?"), and unlabelled advice reads as company policy
+        answer_text = _with_general_label(answer_text)
+    elif not general and not cited_ids and answer_type in (AnswerType.GROUNDED, AnswerType.PARTIAL):
+        # An answer that cites no company document is not company policy, however it is worded ("There's no single
+        # company-wide probation length — it's set case by case…" was stated as fact with nothing cited): label it.
+        answer_text = _with_general_label(answer_text)
         answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
 
     if not general and answer_type == AnswerType.NO_ANSWER and "general guidance" in (answer_text or "").lower():

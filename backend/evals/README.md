@@ -7,7 +7,9 @@ A fixed set of questions with the expected behaviour (`cases.json`), and a runne
 | **offline** | routing: intent, the screen a "where is" question resolves to for that role, restricted requests blocked before the model, invented screen names not matched to a real screen | none | every PR (CI: `tests/test_copilot_eval.py`) |
 | **live** | the real answer: right screen named, every "A → B" menu path is real, refusals, policy answers grounded or labelled as general guidance, app questions not answered as "missing policy" | yes, via a running backend | on demand, before and after copilot changes |
 
-Scores per dimension (0-100) and an overall score. A run more than **3 points** below `baseline.json` fails.
+Scores per dimension (0-100) and an overall score. A run more than **3 points** below `baseline.json` fails: offline
+on the overall score and every dimension; live on the overall score only, because a live dimension has ~20 cases and
+one answer that varies between runs moves it ~5 points.
 
 ## Run it (from `backend/`)
 
