@@ -6,6 +6,9 @@ Every deploy that runs a migration first writes a backup on the production serve
 - **Where:** `~/zoiko-hr-backups/` for the deploy user on the VM (or `$BACKUP_DIR`), one file per deploy:
   `<UTC time>_<commit sha>.dump`, `pg_dump` custom format.
 - **How long:** 7 days (`KEEP_DAYS`).
+- **pg_dump:** installed automatically by the deploy the first time a backup is needed
+  (`postgresql-client-<db version>`, from the official PostgreSQL repository if Ubuntu's doesn't have it).
+  This needs the deploy user to have passwordless `sudo`; if not, the deploy log names the one command an admin runs.
 - **Who can read it:** the deploy user only (the folder is `700` and each file `600`). It contains personal data:
   never copy it to a laptop or a chat.
 

@@ -39,15 +39,74 @@ def test_no_pending_migrations_means_no_backup(monkeypatch, pg_url, capsys):
     assert "no backup needed" in capsys.readouterr().out
 
 
-def test_pending_migrations_without_pg_dump_stop_the_deploy(monkeypatch, pg_url, capsys):
+def _pending(monkeypatch, major=16):
     monkeypatch.setattr(pb, "pending_migrations", lambda url: ({"abc"}, {"def"}))
-    monkeypatch.setattr(pb, "server_major", lambda url: 16)
-    monkeypatch.setattr(pb.shutil, "which", lambda name: None)
+    monkeypatch.setattr(pb, "server_major", lambda url: major)
     monkeypatch.setattr(sys, "argv", ["predeploy_backup.py"])
+
+
+def test_auto_install_off_and_no_pg_dump_stops_the_deploy(monkeypatch, pg_url, capsys):
+    _pending(monkeypatch)
+    monkeypatch.setenv("AUTO_INSTALL_PG_CLIENT", "false")
+    monkeypatch.setattr(pb, "find_pg_tools", lambda major: (None, None))
+    monkeypatch.setattr(pb, "install_pg_client", lambda major: pytest.fail("must not install when turned off"))
     with pytest.raises(SystemExit) as exit_info:
         pb.main()
     assert exit_info.value.code == 1
     assert "postgresql-client-16" in capsys.readouterr().out
+
+
+def test_missing_pg_dump_is_installed_then_the_backup_runs(monkeypatch, pg_url, tmp_path):
+    _pending(monkeypatch, major=17)
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    found = iter([(None, None), ("/usr/lib/postgresql/17/bin/pg_dump", "/usr/lib/postgresql/17/bin/pg_restore")])
+    monkeypatch.setattr(pb, "find_pg_tools", lambda major: next(found))
+    installed = []
+    monkeypatch.setattr(pb, "install_pg_client", lambda major: installed.append(major))
+    ran = []
+
+    def fake_run(cmd, **kwargs):
+        ran.append(cmd[0])
+        if cmd[0].endswith("pg_dump"):
+            pathlib.Path(next(a for a in cmd if a.startswith("--file=")).split("=", 1)[1]).write_bytes(b"PGDMP")
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+    monkeypatch.setattr(pb.subprocess, "run", fake_run)
+    pb.main()
+    assert installed == [17]
+    assert ran == ["/usr/lib/postgresql/17/bin/pg_dump", "/usr/lib/postgresql/17/bin/pg_restore"]
+    assert len(list(tmp_path.glob("*.dump"))) == 1
+
+
+def test_install_needing_a_password_stops_with_clear_advice(monkeypatch, capsys):
+    monkeypatch.setattr(pb.shutil, "which", lambda name: "/usr/bin/apt-get")
+    monkeypatch.setattr(pb, "_sudo", lambda *cmd, **kw: type("R", (), {"returncode": 1, "stderr": "sudo: a password is required"})())
+    with pytest.raises(SystemExit):
+        pb.install_pg_client(16)
+    out = capsys.readouterr().out
+    assert "without a password" in out and "postgresql-client-16" in out
+
+
+def test_install_falls_back_to_the_postgresql_repository(monkeypatch):
+    monkeypatch.setattr(pb.shutil, "which", lambda name: "/usr/bin/apt-get")
+    calls = []
+
+    def fake_sudo(*cmd, **kw):
+        calls.append(cmd)
+        first_try = cmd[:2] == ("apt-get", "install") and "postgresql-client-17" in cmd and len(
+            [c for c in calls if "postgresql-client-17" in c]) == 1
+        return type("R", (), {"returncode": 100 if first_try else 0, "stderr": ""})()
+    monkeypatch.setattr(pb, "_sudo", fake_sudo)
+    pb.install_pg_client(17)
+    assert any("apt.postgresql.org.sh" in c[0] for c in calls)
+    assert calls[-1][-1] == "postgresql-client-17"
+
+
+def test_an_old_pg_dump_is_not_used_for_a_newer_server(monkeypatch):
+    monkeypatch.setattr(pb.pathlib.Path, "glob", lambda self, pattern: iter([]))
+    monkeypatch.setattr(pb.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(pb, "tool_major", lambda path: 14)
+    assert pb.find_pg_tools(16) == (None, None)
+    assert pb.find_pg_tools(14) == ("/usr/bin/pg_dump", "/usr/bin/pg_restore")
 
 
 def test_unreadable_migration_state_stops_the_deploy(monkeypatch, pg_url):
