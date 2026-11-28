@@ -75,6 +75,18 @@ def delete_conversation(db: Session, organization_id: int, employee_id: int, con
     db.commit()
 
 
+# Intents answered from the database or fixed text, never the model (M1-10: not limited by the daily token budget).
+_NO_MODEL_INTENTS = frozenset({
+    "leave_balance", "leave_status", "attendance_status", "my_profile", "holidays", "handoff_request",
+    "org_headcount", "employee_roster", "department_directory", "book_leave",
+    "document_refused", "document_actions", "template_explain",
+})
+
+
+def _answered_without_model(intent: str) -> bool:
+    return intent.startswith("chitchat:") or intent in _NO_MODEL_INTENTS
+
+
 def create_and_process_turn(db: Session, conversation: ChatConversation, employee, text: str,
                              subject_employee_id: int | None = None, attachment_id: int | None = None,
                              page_route: str | None = None) -> ChatTurn:
@@ -123,9 +135,11 @@ def create_and_process_turn(db: Session, conversation: ChatConversation, employe
         return turn
 
     # M1-10: the organization's daily model-token budget. Checked after the safety blocks (their fixed answers need no
-    # model and must always be given) and before anything that could call the model.
+    # model and must always be given), and only for questions that could reach the model: a greeting, a leave balance
+    # or a holiday list is answered from the database and keeps working when the allowance is used up.
     from app.modules.assistant import analytics_service
-    if analytics_service.budget_status(db, conversation.organization_id)["exhausted"]:
+    needs_model = attachment_id is not None or not _answered_without_model(orchestration_service.classify_intent(text))
+    if needs_model and analytics_service.budget_status(db, conversation.organization_id)["exhausted"]:
         return orchestration_service.answer_daily_cap(db, turn)
 
     if attachment_id is not None:

@@ -1931,7 +1931,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "HR Assistant — Support Tickets · Tickets raised when the assistant hands an employee off to HR — every org admin sees every ticket raised in this organization. · Assistant couldn't answer · Employee requested HR · Resolution note (optional)"
+   "about": "HR Assistant — Support Tickets · Tickets raised when the assistant hands an employee off to HR — every org admin sees every ticket raised in this organization. · Assistant couldn't answer · Daily AI limit reached · Employee requested HR · Resolution note (optional)"
   },
   {
    "section": "ADMINISTRATION",

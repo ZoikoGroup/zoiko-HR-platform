@@ -170,3 +170,19 @@ def test_a_settings_limit_is_enforced_per_user(monkeypatch):
         {"sub": f"{uid}@x.com", "id": uid, "organization_id": ORG, "aud": "zoiko-hr"})}
     assert [client.post("/ask", headers=hdr(11)).status_code for _ in range(3)] == [200, 200, 429]
     assert client.post("/ask", headers=hdr(12)).status_code == 200      # a colleague on the same address: own count
+
+
+def test_answers_from_the_database_keep_working_when_the_budget_is_used_up(db, monkeypatch):
+    _spend(db, 10_000)
+    def no_model(*a, **k):
+        raise AssertionError("no model call expected")
+    monkeypatch.setattr(llm_client, "generate", no_model)
+    monkeypatch.setattr(llm_client, "stream_text_and_metadata", no_model)
+    turn = _ask(db, "hi")                                    # a greeting needs no model: answered normally
+    answer = db.query(ChatResponse).filter_by(turn_id=turn.id).one()
+    assert turn.intent.startswith("chitchat") and answer.answer_text != orchestration_service.DAILY_CAP_MESSAGE
+    from app.modules.assistant import conversation_service as cs
+    for intent in ("leave_balance", "holidays", "chitchat:greeting", "book_leave"):
+        assert cs._answered_without_model(intent), intent
+    for intent in ("policy_qa", "navigation_help"):
+        assert not cs._answered_without_model(intent), intent
