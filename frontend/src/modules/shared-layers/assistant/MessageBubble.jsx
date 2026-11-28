@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, ShieldAlert, Loader2, UserCircle2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, Clock, ShieldAlert, Loader2, UserCircle2 } from "lucide-react";
 import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
 import SourceChip from "./SourceChip";
 import FeedbackControl from "./FeedbackControl";
@@ -40,9 +40,11 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
   const answerType = turn.answer_type;
   const isConflict = !isStreaming && turn.confidence_state === "conflict";
   const isNoAnswer = answerType === "no_answer";
+  // M1-10: the organization's daily AI allowance is used up — not an unreliable answer, so its own label
+  const isDailyCap = turn.intent === "daily_cap";
   const isRestricted = answerType === "restricted";
   const showHandoff = !isStreaming && (isNoAnswer || isConflict || isRestricted);
-  const handoffReason = isRestricted ? "restricted" : isConflict ? "conflict" : "no_reliable_answer";
+  const handoffReason = isRestricted ? "restricted" : isConflict ? "conflict" : isDailyCap ? "daily_cap" : "no_reliable_answer";
 
   const bubbleTone = isConflict || isNoAnswer
     ? { bg: "var(--zhr-evidence-partial-bg)", border: "var(--zhr-evidence-partial-border)", text: "var(--zhr-evidence-partial-text)" }
@@ -69,7 +71,12 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
               <AlertTriangle className="h-3.5 w-3.5" /> Sources conflict
             </p>
           )}
-          {isNoAnswer && !isConflict && (
+          {isDailyCap && (
+            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
+              <Clock className="h-3.5 w-3.5" /> Daily AI limit reached
+            </p>
+          )}
+          {isNoAnswer && !isConflict && !isDailyCap && (
             <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
               <AlertCircle className="h-3.5 w-3.5" /> No reliable answer
             </p>

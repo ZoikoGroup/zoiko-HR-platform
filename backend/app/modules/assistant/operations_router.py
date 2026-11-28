@@ -19,6 +19,17 @@ from app.modules.assistant.schemas import OperationalControlUpdate, OperationalC
 operations_router = APIRouter(prefix="/assistant/admin/controls", tags=["Assistant Admin - Controls"], dependencies=plan_gate.CONTROLS_ADMIN)
 
 
+@operations_router.get("/usage")
+def copilot_usage(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    organization_id: int = Depends(get_organization_id),
+):
+    """M1-10: today's AI assistant usage against the organization's daily token budget, for HR and org admins."""
+    from app.modules.assistant import analytics_service
+    return analytics_service.budget_status(db, organization_id)
+
+
 @operations_router.get("", response_model=list[OperationalControlResponse])
 def list_controls(
     db: Session = Depends(get_db),

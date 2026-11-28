@@ -7,6 +7,7 @@ import {
 import {
   listKnowledgeSources, createKnowledgeSource, publishKnowledgeSource, retireKnowledgeSource, suspendKnowledgeSource,
   listKnowledgeVersions, listControls, setControl, addKnowledgeSourceVersion, updateKnowledgeSource, deleteKnowledgeSource,
+  getCopilotUsage,
 } from "../../../service/assistantService";
 import { formatDate } from "../../../utils/dateTime";
 
@@ -160,6 +161,67 @@ function EditMetadataForm({ source, onCancel, onSaved }) {
   );
 }
 
+// "today at 11:30 PM (in 2 h 5 min)" / "tomorrow, 29 Nov at 5:30 AM (in 9 h 40 min)", in the viewer's own time zone.
+// The allowance resets at midnight UTC, which is a different clock time — and sometimes a different day — locally.
+export function describeReset(isoUtc, now = new Date()) {
+  const at = new Date(isoUtc);
+  if (Number.isNaN(at.getTime())) return "";
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((dayStart(at) - dayStart(now)) / 86400000);
+  const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const date = at.toLocaleDateString([], { day: "numeric", month: "short" });
+  const day = days === 0 ? "today" : days === 1 ? `tomorrow, ${date}` : date;
+  const mins = Math.max(0, Math.round((at - now) / 60000));
+  const left = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  return `${day} at ${time} (in ${left})`;
+}
+
+// M1-10: today's AI assistant usage against the organization's daily allowance. When the allowance is used up the
+// assistant answers "try again after the reset" until midnight UTC; this card is where HR sees that happening.
+function CopilotUsageCard() {
+  const [usage, setUsage] = useState(null);
+  useEffect(() => {
+    let active = true;
+    getCopilotUsage().then((u) => { if (active) setUsage(u); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  if (!usage) return null;
+  const pct = usage.percent_used ?? 0;
+  const bar = usage.exhausted ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500";
+  const resets = describeReset(usage.resets_at);
+  return (
+    <section className="mb-6 rounded-2xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] p-4" aria-label="AI assistant usage today">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-bold text-[var(--zhr-text-primary)]">AI assistant usage today</h2>
+        <span className="text-xs text-[var(--zhr-text-muted)]">
+          {usage.answers} answers · resets at {resets}
+        </span>
+      </div>
+      {usage.budget ? (
+        <>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--zhr-border-default)]" role="progressbar"
+               aria-valuenow={Math.min(100, pct)} aria-valuemin={0} aria-valuemax={100}>
+            <div className={`h-full ${bar}`} style={{ width: `${Math.min(100, pct)}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-[var(--zhr-text-secondary)]">
+            {usage.tokens_used.toLocaleString()} of {usage.budget.toLocaleString()} tokens used ({pct}%).
+            {usage.exhausted && (
+              <strong className="ml-1 text-red-600">
+                Today's allowance is used up: the assistant is telling people to try again after the reset
+                {usage.capped_answers ? ` (${usage.capped_answers} questions so far)` : ""}.
+              </strong>
+            )}
+          </p>
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-[var(--zhr-text-secondary)]">
+          {usage.tokens_used.toLocaleString()} tokens used. No daily limit is set.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function AdminKnowledgePage() {
   const [sources, setSources] = useState([]);
   const [typeCounts, setTypeCounts] = useState({});
@@ -256,6 +318,8 @@ export default function AdminKnowledgePage() {
         title="Assistant Knowledge Admin"
         description="Author and publish the seven knowledge categories the HR assistant retrieves answers from — Policy, FAQs, SOPs, Compliance, Handbook, Guide and Forms — and control its kill switches."
       />
+
+      <CopilotUsageCard />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-800">

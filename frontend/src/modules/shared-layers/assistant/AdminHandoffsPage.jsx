@@ -6,6 +6,7 @@ import { formatDateTime } from "../../../utils/dateTime";
 
 const REASON_LABELS = {
   no_reliable_answer: "Assistant couldn't answer",
+  daily_cap: "Daily AI limit reached",
   restricted: "Restricted topic",
   conflict: "Conflicting sources",
   user_requested: "Employee requested HR",
