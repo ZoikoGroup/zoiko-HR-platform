@@ -691,7 +691,8 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
 
 
 def _finalize(db: Session, turn: ChatTurn, answer_text: str, answer_type: AnswerType,
-              confidence_state: ConfidenceState, provenance: list[dict] | None = None) -> ChatTurn:
+              confidence_state: ConfidenceState, provenance: list[dict] | None = None,
+              outcome: str | None = None) -> ChatTurn:
     response = ChatResponse(
         turn_id=turn.id,
         answer_text=answer_text,
@@ -716,10 +717,24 @@ def _finalize(db: Session, turn: ChatTurn, answer_text: str, answer_type: Answer
     audit_service.record(db, turn.organization_id, "turn_completed", "chat_turn", turn.id, turn.employee_id,
                           {"intent": turn.intent, "answer_type": answer_type.value})
     from app.modules.assistant import analytics_service       # M1-16: one event per answer, no text, no person
-    analytics_service.record(db, turn, analytics_service.outcome_for(answer_type, answer_text), answer_type)
+    analytics_service.record(db, turn, outcome or analytics_service.outcome_for(answer_type, answer_text), answer_type)
     db.commit()
     db.refresh(turn)
     return turn
+
+
+DAILY_CAP_MESSAGE = ("Your organization has used today's AI assistant allowance, so I can't answer more questions "
+                     "until it resets at midnight UTC (05:30 IST). Please try again then — for anything urgent, "
+                     "contact your HR team directly.")
+
+
+def answer_daily_cap(db: Session, turn: ChatTurn) -> ChatTurn:
+    """M1-10: the organization's daily model-token budget is used up. No model call; a polite try-again answer."""
+    turn.intent = "daily_cap"
+    db.flush()
+    from app.modules.assistant import analytics_service
+    return _finalize(db, turn, DAILY_CAP_MESSAGE, AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER,
+                     outcome=analytics_service.CAPPED)
 
 
 def _fail(db: Session, turn: ChatTurn, message: str, provider_error: bool = False) -> ChatTurn:

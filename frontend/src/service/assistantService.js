@@ -86,6 +86,8 @@ export const resolveHandoffTicket = (id, resolutionNote) =>
   adminSend("post", `/assistant/admin/handoffs/${id}/resolve`, { resolution_note: resolutionNote || undefined });
 
 export const listControls = () => adminGet("/assistant/admin/controls");
+// M1-10: today's AI usage against the organization's daily token budget
+export const getCopilotUsage = () => adminGet("/assistant/admin/controls/usage");
 export const setControl = (controlType, isEnabled) =>
   adminSend("post", "/assistant/admin/controls", { control_type: controlType, is_enabled: isEnabled });
 

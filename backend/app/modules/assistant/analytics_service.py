@@ -22,8 +22,8 @@ from app.modules.assistant.models import AnswerType, ChatModelRun, CopilotEvent
 
 logger = logging.getLogger("zoiko.assistant")
 
-ANSWERED, GENERAL, NO_ANSWER, REFUSED, ACTION, FAILED = (
-    "answered", "general_guidance", "no_answer", "refused", "action", "failed")
+ANSWERED, GENERAL, NO_ANSWER, REFUSED, ACTION, FAILED, CAPPED = (
+    "answered", "general_guidance", "no_answer", "refused", "action", "failed", "capped")
 UNANSWERED = (NO_ANSWER, GENERAL)            # the asker didn't get an answer from the organization's own content
 
 
@@ -222,3 +222,37 @@ def health(db: Session, hours: int = 24, now: dt.datetime | None = None) -> dict
         alerts.append(f"no price set for {', '.join(unpriced)}: spend is under-estimated (HR_COPILOT_PRICES_USD_PER_MTOK)")
     m["alerts"] = alerts
     return m
+
+
+# ── M1-10 daily token budget ─────────────────────────────────────────────────────────────────────────────────────────
+def budget_status(db: Session, organization_id: int, now: dt.datetime | None = None) -> dict:
+    """Today's (UTC) model-token use against the organization's daily budget (HR_COPILOT_DAILY_TOKEN_BUDGET_PER_ORG).
+
+    Read from copilot_events, so it survives restarts and is the same for every worker. Tokens are recorded when an
+    answer finishes, so a few answers already in flight can take an organization slightly past its budget."""
+    from sqlalchemy import func
+    from app.config import settings
+    now = now or dt.datetime.utcnow()
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    used, answers, capped = (
+        db.query(func.coalesce(func.sum(func.coalesce(CopilotEvent.prompt_tokens, 0)
+                                        + func.coalesce(CopilotEvent.completion_tokens, 0)), 0),
+                 func.count(CopilotEvent.id),
+                 func.coalesce(func.sum(case_capped()), 0))
+        .filter(CopilotEvent.organization_id == organization_id, CopilotEvent.created_at >= start,
+                CopilotEvent.created_at < now + dt.timedelta(seconds=1))
+        .one())
+    budget = int(settings.COPILOT_DAILY_TOKEN_BUDGET_PER_ORG or 0)
+    used = int(used or 0)
+    return {
+        "date": start.date().isoformat(), "tokens_used": used, "budget": budget or None,
+        "percent_used": round(100 * used / budget, 1) if budget else None,
+        "exhausted": bool(budget) and used >= budget,
+        "answers": int(answers or 0), "capped_answers": int(capped or 0),
+        "resets_at": (start + dt.timedelta(days=1)).isoformat() + "Z",
+    }
+
+
+def case_capped():
+    from sqlalchemy import case
+    return case((CopilotEvent.outcome == CAPPED, 1), else_=0)

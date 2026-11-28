@@ -1919,7 +1919,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Assistant Knowledge Admin · Author and publish the seven knowledge categories the HR assistant retrieves answers from — Policy, FAQs, SOPs, Compliance, Handbook, Guide and Forms — and control its kill switches. · Visible on zoikohr.com · Suspend (reversible — publish again to reactivate) · Edit title / type / tier · Add new version · Visible on zoikohr.com (public, unauthenticated assistant) · New knowledge source · Permanently delete this draft source? This cannot be undone. · Disable AI answers · Disable actions (bookings) · Title (e.g. Annual Leave Policy)"
+   "about": "Assistant Knowledge Admin · Author and publish the seven knowledge categories the HR assistant retrieves answers from — Policy, FAQs, SOPs, Compliance, Handbook, Guide and Forms — and control its kill switches. · Visible on zoikohr.com · Suspend (reversible — publish again to reactivate) · Edit title / type / tier · Add new version · Visible on zoikohr.com (public, unauthenticated assistant) · AI assistant usage today · New knowledge source · Permanently delete this draft source? This cannot be undone. · Disable AI answers · Disable actions (bookings) · Title (e.g. Annual Leave Policy)"
   },
   {
    "section": "USER MANAGEMENT",

@@ -182,6 +182,14 @@ class Settings(BaseSettings):
     ASSISTANT_USE_SPEC_DOCS: bool = Field(default=False, validation_alias="HR_ASSISTANT_USE_SPEC_DOCS")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
+    # ── Copilot limits (M1-10) ──────────────────────────────────────────────
+    # Questions per signed-in user, and per organization, on the chat endpoint (slowapi syntax, ";" separates limits).
+    COPILOT_USER_RATE_LIMIT: str = Field(default="20/minute;300/day", validation_alias="HR_COPILOT_USER_RATE_LIMIT")
+    COPILOT_ORG_RATE_LIMIT: str = Field(default="120/minute", validation_alias="HR_COPILOT_ORG_RATE_LIMIT")
+    # Model tokens (input + output) one organization may use per UTC day; then the assistant answers "try again
+    # tomorrow" until midnight UTC. ~4,000 tokens per answer today, so 2,000,000 is roughly 500 answers. 0 = no cap.
+    COPILOT_DAILY_TOKEN_BUDGET_PER_ORG: int = Field(default=2_000_000, validation_alias="HR_COPILOT_DAILY_TOKEN_BUDGET_PER_ORG")
+
     # ── Copilot monitoring (M1-17, scripts/copilot_monitor.py) ──────────────
     # USD per 1M tokens as [input, output] per model, for the ESTIMATED daily spend. Defaults: Groq list prices as
     # reported by third-party trackers in Nov 2026 — check console.groq.com/pricing and override here when they change.

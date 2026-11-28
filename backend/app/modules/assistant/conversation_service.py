@@ -122,6 +122,12 @@ def create_and_process_turn(db: Session, conversation: ChatConversation, employe
     if orchestration_service.apply_hard_block_if_needed(db, turn, employee):
         return turn
 
+    # M1-10: the organization's daily model-token budget. Checked after the safety blocks (their fixed answers need no
+    # model and must always be given) and before anything that could call the model.
+    from app.modules.assistant import analytics_service
+    if analytics_service.budget_status(db, conversation.organization_id)["exhausted"]:
+        return orchestration_service.answer_daily_cap(db, turn)
+
     if attachment_id is not None:
         from app.modules.assistant import attachment_service
         # Scoped to this conversation — an attachment from another

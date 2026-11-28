@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_organization_id
-from app.core.rate_limiter import limiter
+from app.config import settings
+from app.core.rate_limiter import limiter, tenant_key
 from app.core.exceptions import NotFoundException
 
 from app.modules.assistant import plan_gate
@@ -106,7 +107,8 @@ def list_turns(
 
 
 @conversation_router.post("/conversations/{conversation_id}/turns", response_model=TurnResponse)
-@limiter.limit("20/minute")
+@limiter.limit(lambda: settings.COPILOT_USER_RATE_LIMIT)                          # per signed-in user (M1-10)
+@limiter.limit(lambda: settings.COPILOT_ORG_RATE_LIMIT, key_func=tenant_key)      # per organization (M1-10)
 def create_turn(
     request: Request,
     conversation_id: int,
